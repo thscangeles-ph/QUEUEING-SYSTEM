@@ -9,6 +9,7 @@ import { currentLabel, currentStep, ticketLabel } from "@/lib/queue/reducer";
 import { formatTime, formatWait, minutesSince, queueMessage, STATUS_LABEL, STATUS_TONE, stationName, visitStatus } from "@/lib/queue/format";
 import type { ActionResult, PatientKind, QueueAction, QueueState, Visit } from "@/lib/queue/types";
 import { Panel, StaffShell } from "./staff-shell";
+import { publicUrl } from "./endpoint";
 import { SettingsPanel } from "./settings-panel";
 import { useNow, useQueue } from "./use-queue";
 
@@ -208,7 +209,7 @@ function RegisterForm({ state, run, shared, initialCard }: { state: QueueState; 
 
 function MessageButton({ state, visit, run, shared, dark = false }: { state: QueueState; visit: Visit; run: (action: QueueAction, success?: string) => Promise<ActionResult>; shared: boolean; dark?: boolean }) {
   const copy = async () => {
-    const tracking = shared ? `${window.location.origin}/queue/ticket?id=${visit.id}` : undefined;
+    const tracking = shared ? publicUrl(`/queue/ticket?id=${visit.id}`) : undefined;
     const text = queueMessage(state, visit, tracking);
     try {
       await navigator.clipboard.writeText(text);

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { currentLabel, currentStep, findStation } from "@/lib/queue/reducer";
 import { patientsAhead, visitStatus } from "@/lib/queue/format";
 import type { QueueState } from "@/lib/queue/types";
+import { publicUrl } from "./endpoint";
 import { readStorage, useQueue, writeStorage } from "./use-queue";
 
 const TICKET_KEY = "thsc-queue-ticket";
@@ -175,7 +176,7 @@ function QrCode({ value }: { value: string }) {
 export function CheckInPoster() {
   const [url, setUrl] = useState("");
   useEffect(() => {
-    const timer = setTimeout(() => setUrl(`${window.location.origin}/queue/checkin`), 0);
+    const timer = setTimeout(() => setUrl(publicUrl("/queue/checkin")), 0);
     return () => clearTimeout(timer);
   }, []);
   return (

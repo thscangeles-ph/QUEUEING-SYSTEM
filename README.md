@@ -69,6 +69,18 @@ The queue follows the clinic's arrival flow:
 
 Screens refresh every 2 seconds. With Upstash, each open screen makes about one request every 2 seconds, so a full clinic day goes over the free tier; expect a small pay-as-you-go charge.
 
+### Single-file HTML (multiple computers)
+
+`public/thsc-queue-board.html` is the whole Queue Board in one HTML file: front desk, stations, TV display, check-in poster and patient screens. Copy it to each computer (USB, email or shared folder) and open it in Chrome or Edge, or download it from `https://<your-site>/thsc-queue-board.html`.
+
+1. On each computer, open the file. Screens are chosen with the address hash, e.g. `thsc-queue-board.html#/queue/station?s=C1`; *Change* in the strip at the top opens setup (`#/setup`).
+2. In setup, keep **Sync with other computers** and the sync server address (the clinic's Vercel site by default, or a clinic PC running `QUEUE_STORE=file`). Click *Test connection*, then *Save*.
+3. Enter the staff PIN once on each staff computer.
+
+Every computer that uses the same sync server shares one live queue. The server must be in shared mode (see [Sync modes](#sync-modes)) and running this version of the app, which lets the HTML file call its queue API. Patients' phones and the check-in QR code use the server's web pages, because a phone cannot open a file on a clinic computer. **This computer only** keeps the queue in the file's browser storage and works offline.
+
+After changing any queue screen, rebuild the file with `pnpm build:html` and commit it.
+
 ### Install as an app on tablets and phones
 
 The Queue Board installs like an app: a home-screen icon that opens full screen, without the browser's address bar.

@@ -4,10 +4,17 @@ import { PUBLIC_ACTIONS, type QueueAction, type QueueState } from "@/lib/queue/t
 
 export const dynamic = "force-dynamic";
 
-const NO_STORE = { "Cache-Control": "no-store" };
-const json = (body: unknown, status = 200) => Response.json(body, { status, headers: NO_STORE });
+// Any origin may call the API so the single-file HTML Queue Board (opened from disk or another host) can sync.
+// Staff data still needs the PIN header, and no cookies are used, so this exposes nothing new.
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, x-queue-pin", "Access-Control-Max-Age": "86400" };
+const HEADERS = { ...CORS, "Cache-Control": "no-store" };
+const json = (body: unknown, status = 200) => Response.json(body, { status, headers: HEADERS });
 const view = (state: QueueState, staff: boolean) => (staff ? state : publicView(state));
 const misconfigured = () => json({ mode: "server", error: "Shared queue storage is set up but QUEUE_STAFF_PIN is missing. Add it to the environment variables and redeploy." }, 500);
+
+export function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS });
+}
 
 export async function GET(request: Request) {
   const backend = getBackend();
