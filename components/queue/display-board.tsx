@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Expand, Volume2, VolumeX } from "lucide-react";
 import { servingAt, ticketLabel, TIME_ZONE, waitingFor } from "@/lib/queue/reducer";
-import { spokenLabel } from "@/lib/queue/format";
-import type { Announcement, QueueState } from "@/lib/queue/types";
+import { announcementGap, announcementSpeech, type SpokenLine } from "@/lib/queue/format";
+import type { QueueState } from "@/lib/queue/types";
 import { SyncBadge } from "./staff-shell";
 import { useNow, useQueue } from "./use-queue";
 
@@ -28,9 +28,21 @@ function chime(context: AudioContext) {
   });
 }
 
-function speechFor(item: Announcement) {
-  if (item.kind === "card") return `${item.label.replace("Card", "Card number")}. Please proceed to the ${item.destination}.`;
-  return `Queue number, ${spokenLabel(item.label)}. Please proceed to ${item.destination}.`;
+/** A Filipino voice, preferring the natural-sounding ones (e.g. Microsoft Edge's online voices). */
+function filipinoVoice() {
+  const voices = window.speechSynthesis.getVoices().filter((voice) => /^(fil|tl)([-_]|$)/i.test(voice.lang));
+  return voices.find((voice) => /natural|online/i.test(voice.name)) ?? voices[0] ?? null;
+}
+
+function speak(lines: SpokenLine[]) {
+  lines.forEach(({ text, lang }) => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.9;
+    utterance.lang = lang;
+    const voice = lang === "fil-PH" ? filipinoVoice() : null;
+    if (voice) utterance.voice = voice;
+    window.speechSynthesis.speak(utterance);
+  });
 }
 
 export function DisplayBoard() {
@@ -55,12 +67,10 @@ export function DisplayBoard() {
       setTimeout(() => {
         if (context) chime(context);
         if ("speechSynthesis" in window) {
-          const utterance = new SpeechSynthesisUtterance(speechFor(item));
-          utterance.rate = 0.9;
-          utterance.lang = "en-US";
-          setTimeout(() => window.speechSynthesis.speak(utterance), 900);
+          const lines = announcementSpeech(item, state.settings.announceLanguage);
+          setTimeout(() => speak(lines), 900);
         }
-      }, index * 6000);
+      }, index * announcementGap(state.settings.announceLanguage));
     });
   }, [state, sound]);
 

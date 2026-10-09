@@ -506,7 +506,8 @@ function sanitizeSettings(input) {
     const video = parseYouTube(youtube);
     if (video && "error" in video)
         return `YouTube: ${video.error}`;
-    return { stations, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound) };
+    const announceLanguage = input.announceLanguage === "en" || input.announceLanguage === "fil" ? input.announceLanguage : "en+fil";
+    return { stations, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound), announceLanguage };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -764,6 +765,27 @@ function spokenLabel(label) {
         .map((part) => part.split("").join(" "))
         .join(", ");
 }
+const DIGIT_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+/** The queue number for the Tagalog announcement. Digits stay in English, as clinics in the Philippines usually call them. */
+function spokenLabelTagalog(label) {
+    return label
+        .split("-")
+        .map((part) => part.split("").map((char) => (/\d/.test(char) ? DIGIT_WORDS[Number(char)] : char)).join(" "))
+        .join(", ");
+}
+/** What the TV says for a call, in the clinic's announcement language(s). */
+function announcementSpeech(item, language = "en+fil") {
+    const card = item.label.replace(/\D/g, "");
+    const english = item.kind === "card"
+        ? { lang: "en-US", text: `Card number ${card}. Please proceed to the ${item.destination}.` }
+        : { lang: "en-US", text: `Queue number, ${spokenLabel(item.label)}. Please proceed to ${item.destination}.` };
+    const tagalog = item.kind === "card"
+        ? { lang: "fil-PH", text: `Card number ${spokenLabelTagalog(card)}. Pakipunta po sa Front Desk.` }
+        : { lang: "fil-PH", text: `Numero ${spokenLabelTagalog(item.label)}. Pakipunta po sa ${item.kind === "registration" ? "Front Desk para magpa-rehistro" : item.destination}.` };
+    return language === "en" ? [english] : language === "fil" ? [tagalog] : [english, tagalog];
+}
+/** Time to leave for each call so two languages never talk over the next call. */
+const announcementGap = (language = "en+fil") => (language === "en+fil" ? 11000 : 6000);
 
 // ---- from lib/queue/slip.ts ----
 
@@ -1386,6 +1408,12 @@ function downloadQueueReport(xlsx, state, now) {
         <div class="set-grid">
           <label class="field">TV display message<input type="text" maxlength="240" value="${esc(draft.ticker)}" data-set="ticker"></label>
           <div style="display:grid;gap:8px;border:1px solid #e8dfce;border-radius:12px;padding:14px">
+            <label class="field">Spoken announcements on the TV<em>The chime plays first, then the queue number is read out in the language you choose.</em>
+              <select data-set="announceLanguage">${[["en+fil", "English, then Tagalog"], ["en", "English only"], ["fil", "Tagalog only"]].map(([v, l]) => `<option value="${v}" ${(draft.announceLanguage ?? "en+fil") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn sm outline" data-act="testVoice">▶ Test announcement</button><span style="font-size:12px;color:var(--muted)">Plays on this computer.</span></div>
+            <p class="yt-hint" id="voice-hint"></p>
+          </div>
+          <div style="display:grid;gap:8px;border:1px solid #e8dfce;border-radius:12px;padding:14px">
             <label class="field">YouTube on the TV while patients wait<em>Paste the clinic's YouTube channel ID (starts with UC), a playlist link or a video link. Leave empty to show the queue only. Needs internet.</em><input type="text" maxlength="300" value="${esc(draft.youtube ?? "")}" placeholder="e.g. https://www.youtube.com/playlist?list=PL…" data-set="youtube" id="yt-input"></label>
             <p class="yt-hint" id="yt-hint"></p>
             <label class="check" style="border:0;padding:0"><input type="checkbox" ${draft.videoSound ? "checked" : ""} data-set="videoSound"><span>Play the video's sound <small>Muted automatically while queue numbers are announced</small></span></label>
@@ -1399,9 +1427,21 @@ function downloadQueueReport(xlsx, state, now) {
       if (input.dataset.index !== undefined) draft.stations[Number(input.dataset.index)][field] = value; else draft[field] = value;
       if (field === "code") input.value = value;
       if (field === "youtube") showYouTubeHint();
+      if (field === "announceLanguage") showVoiceHint();
     }));
     showYouTubeHint();
+    showVoiceHint();
   }
+
+  function showVoiceHint() {
+    const hint = $("#voice-hint");
+    if (!hint || !draft) return;
+    const tagalog = (draft.announceLanguage ?? "en+fil") !== "en";
+    const voice = tagalog && filipinoVoice();
+    hint.className = `yt-hint ${!tagalog || voice ? "ok" : "err"}`;
+    hint.textContent = !tagalog || !("speechSynthesis" in window) ? "" : voice ? `✓ Filipino voice on this computer: ${voice.name}` : NO_FILIPINO_VOICE;
+  }
+  if ("speechSynthesis" in window) speechSynthesis.addEventListener?.("voiceschanged", () => showVoiceHint());
 
   function showYouTubeHint() {
     const hint = $("#yt-hint");
@@ -1538,13 +1578,27 @@ function downloadQueueReport(xlsx, state, now) {
       osc.start(start); osc.stop(start + 1.2);
     });
   }
+  /** A Filipino voice on this computer, preferring natural-sounding ones (e.g. Microsoft Edge's online voices). */
+  function filipinoVoice() {
+    if (!("speechSynthesis" in window)) return null;
+    const voices = speechSynthesis.getVoices().filter((voice) => /^(fil|tl)([-_]|$)/i.test(voice.lang));
+    return voices.find((voice) => /natural|online/i.test(voice.name)) ?? voices[0] ?? null;
+  }
+  function speak(lines) {
+    lines.forEach(({ text, lang }) => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.9; utterance.lang = lang;
+      const voice = lang === "fil-PH" ? filipinoVoice() : null;
+      if (voice) utterance.voice = voice;
+      speechSynthesis.speak(utterance);
+    });
+  }
+  const NO_FILIPINO_VOICE = "This computer has no Filipino voice, so the Tagalog announcement uses its default voice. For a natural Filipino voice, open the board in Microsoft Edge (it includes Filipino voices).";
   function announce(item) {
     chime();
     if (!("speechSynthesis" in window)) return;
-    const text = `Queue number, ${spokenLabel(item.label)}. Please proceed to ${item.destination}.`;
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.9; utterance.lang = "en-US";
-    setTimeout(() => speechSynthesis.speak(utterance), 900);
+    const lines = announcementSpeech(item, state.settings.announceLanguage);
+    setTimeout(() => speak(lines), 900);
   }
   function setSound(on) {
     sound = on;
@@ -1553,6 +1607,8 @@ function downloadQueueReport(xlsx, state, now) {
       if (!audio && Ctx) audio = new Ctx();
       audio?.resume();
       if ("speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance(" "));
+      // Voices load in the background; check for a Filipino one once they are in.
+      if ((state.settings.announceLanguage ?? "en+fil") !== "en") setTimeout(() => { if (view === "display" && "speechSynthesis" in window && !filipinoVoice()) toast(NO_FILIPINO_VOICE, true); }, 1500);
     }
     $("#sound-btn").classList.toggle("hidden", on);
     $("#sound-toggle").textContent = on ? "🔊 Sound on" : "🔇 Sound off";
@@ -1566,12 +1622,13 @@ function downloadQueueReport(xlsx, state, now) {
     const index = list.findIndex((a) => a.id === seen);
     const fresh = list.slice(index + 1).filter((a) => Date.now() - a.at < 60000);
     seen = list[list.length - 1]?.id ?? null;
-    if (sound) fresh.forEach((item, i) => setTimeout(() => announce(item), i * 6000));
+    const gap = announcementGap(state.settings.announceLanguage);
+    if (sound) fresh.forEach((item, i) => setTimeout(() => announce(item), i * gap));
     // Duck the video while numbers are read out, then bring its sound back.
     if (sound && fresh.length && state.settings.videoSound) {
       yt("mute");
       clearTimeout(unmuteTimer);
-      unmuteTimer = setTimeout(() => yt("unMute"), fresh.length * 6000 + 2000);
+      unmuteTimer = setTimeout(() => yt("unMute"), fresh.length * gap + 2000);
     }
 
     const stations = state.settings.stations.filter((s) => s.active);
@@ -1608,6 +1665,13 @@ function downloadQueueReport(xlsx, state, now) {
         if (sync.mode === "server") window.open(`${syncServer()}/queue/poster`, "_blank", "noopener");
         else toast("QR check-in needs a sync server: patients' phones cannot open this file. Turn on syncing in Sync setup.", true);
         break;
+      case "testVoice": {
+        if (!("speechSynthesis" in window)) { toast("This browser cannot speak announcements.", true); break; }
+        const sample = state.settings.stations.find((s) => s.active) ?? { code: "C1", location: "Clinic Room 1" };
+        speechSynthesis.cancel();
+        speak(announcementSpeech({ kind: "ticket", label: `07-${sample.code}-W`, destination: sample.location || sample.name }, draft?.announceLanguage ?? state.settings.announceLanguage));
+        break;
+      }
       case "verify": dispatch({ type: "verify", visitId: id }, "Check-in verified."); break;
       case "openSettings": openSettings(); break;
       case "closeSettings": draft = null; renderSettings(); break;

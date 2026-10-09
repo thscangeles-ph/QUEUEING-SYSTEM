@@ -1,5 +1,5 @@
 import { currentLabel, currentStep, findStation, isRegistered, TIME_ZONE, waitingFor } from "./reducer";
-import type { QueueState, Visit } from "./types";
+import type { Announcement, AnnounceLanguage, QueueState, Visit } from "./types";
 
 export type VisitStatus = "registration" | "waiting" | "called" | "missed" | "completed" | "cancelled" | "pending";
 
@@ -70,3 +70,30 @@ export function spokenLabel(label: string) {
     .map((part) => part.split("").join(" "))
     .join(", ");
 }
+
+const DIGIT_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+
+/** The queue number for the Tagalog announcement. Digits stay in English, as clinics in the Philippines usually call them. */
+export function spokenLabelTagalog(label: string) {
+  return label
+    .split("-")
+    .map((part) => part.split("").map((char) => (/\d/.test(char) ? DIGIT_WORDS[Number(char)] : char)).join(" "))
+    .join(", ");
+}
+
+export type SpokenLine = { text: string; lang: "en-US" | "fil-PH" };
+
+/** What the TV says for a call, in the clinic's announcement language(s). */
+export function announcementSpeech(item: Announcement, language: AnnounceLanguage = "en+fil"): SpokenLine[] {
+  const card = item.label.replace(/\D/g, "");
+  const english: SpokenLine = item.kind === "card"
+    ? { lang: "en-US", text: `Card number ${card}. Please proceed to the ${item.destination}.` }
+    : { lang: "en-US", text: `Queue number, ${spokenLabel(item.label)}. Please proceed to ${item.destination}.` };
+  const tagalog: SpokenLine = item.kind === "card"
+    ? { lang: "fil-PH", text: `Card number ${spokenLabelTagalog(card)}. Pakipunta po sa Front Desk.` }
+    : { lang: "fil-PH", text: `Numero ${spokenLabelTagalog(item.label)}. Pakipunta po sa ${item.kind === "registration" ? "Front Desk para magpa-rehistro" : item.destination}.` };
+  return language === "en" ? [english] : language === "fil" ? [tagalog] : [english, tagalog];
+}
+
+/** Seconds to leave for each call so two languages never talk over the next call. */
+export const announcementGap = (language: AnnounceLanguage = "en+fil") => (language === "en+fil" ? 11000 : 6000);
