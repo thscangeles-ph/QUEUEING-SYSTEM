@@ -92,6 +92,7 @@ label.field em { font-style: normal; font-weight: 400; color: var(--muted-2); fo
 .tog[aria-pressed="true"] { background: var(--brown); border-color: var(--brown); color: #fff; } .tog[aria-pressed="true"] small { color: #e8dec7; }
 .tog[aria-pressed="true"] .box { background: var(--gold-2); border-color: var(--gold-2); color: var(--brown); }
 .tag.new { background: #e3f0dc; color: #36561f; }
+.tag.qr { background: #e8eef7; color: #2d4a6e; }
 .row-form { display: flex; gap: 8px; }
 .row-form input { width: 90px; flex: none; }
 .row-form .btn { flex: 1; }
@@ -210,19 +211,19 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .hero.fresh { background: #4a3612; border-color: var(--gold-2); animation: pulse 1.6s ease-out 6; }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(240,200,100,.55); } 50% { box-shadow: 0 0 0 1.4vw rgba(240,200,100,0); } }
 .hero .k { color: var(--gold-2); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 1.6vw; margin: 0; }
-.hero .num { font-size: 8.5vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; letter-spacing: .03em; }
+.hero .num { max-width: 100%; white-space: nowrap; overflow: hidden; font-size: 11.5vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; letter-spacing: .03em; }
 .hero .go { font-size: 2.2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; } .hero .go b { color: #fff; }
 .tiles { flex: 1; min-height: 0; display: grid; gap: 1vw; grid-auto-rows: 1fr; }
-.tile { border: 1px solid var(--brown-2); background: var(--brown-3); border-radius: 1vw; padding: 1vh 1.4vw; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+.tile { border: 1px solid var(--brown-2); background: var(--brown-3); border-radius: 1vw; padding: 1vh 1vw; min-width: 0; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
 .tile p { margin: 0; } .tile .s { color: #cbbd9d; font-size: 1.15vw; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .tile .s b { color: var(--gold-2); }
-.tile .num { font-size: 3vw; font-weight: 800; margin-top: .5vh; } .tile .num.none { color: #5c4b2d; }
+.tile .num { white-space: nowrap; overflow: hidden; font-size: 4.6vw; font-weight: 800; margin-top: .5vh; } .tile .num.none { color: #5c4b2d; }
 .tv-next { border: 1px solid var(--brown-2); background: var(--brown-3); border-radius: 1.5vw; padding: 1.4vw; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .tv-next h2 { margin: 0; color: var(--gold-2); text-transform: uppercase; letter-spacing: .14em; font-size: 1.6vw; }
-.reg-call { display: flex; justify-content: space-between; align-items: baseline; background: #4a3612; border-radius: .8vw; padding: 1vh 1.2vw; margin-top: 1.2vh; } .reg-call span { color: #f4e8c7; font-size: 1.3vw; } .reg-call b { font-size: 2.4vw; }
+.reg-call { display: flex; justify-content: space-between; align-items: baseline; background: #4a3612; border-radius: .8vw; padding: 1vh 1.2vw; margin-top: 1.2vh; } .reg-call span { color: #f4e8c7; font-size: 1.3vw; } .reg-call b { font-size: 2.6vw; }
 .nl { border-bottom: 1px solid #3a3022; padding: 1vh 0; } .nl:last-child { border: 0; }
 .nl .h { display: flex; justify-content: space-between; color: #cbbd9d; font-size: 1.1vw; }
-.nl .l { display: flex; flex-wrap: wrap; gap: .6vw; margin-top: .6vh; align-items: center; }
-.nl .l b { background: #3a3022; border-radius: .5vw; padding: .3vh .8vw; font-size: 1.75vw; } .nl .l i { color: #5c4b2d; font-style: normal; font-size: 1.5vw; } .nl .l span { color: #cbbd9d; font-size: 1.2vw; }
+.nl .l { display: flex; flex-wrap: wrap; gap: .5vw; margin-top: .6vh; align-items: center; }
+.nl .l b { background: #3a3022; border-radius: .5vw; padding: .3vh .55vw; font-size: 2.1vw; } .nl .l i { color: #5c4b2d; font-style: normal; font-size: 1.5vw; } .nl .l span { color: #cbbd9d; font-size: 1.2vw; }
 .tv-foot { display: flex; align-items: center; gap: 12px; background: var(--brown); border-top: 1px solid var(--brown-2); padding: 1.2vh 0; overflow: hidden; }
 .ticker { flex: 1; overflow: hidden; white-space: nowrap; color: #f4e8c7; font-size: 1.35vw; }
 .ticker span { display: inline-block; padding-left: 100%; animation: marquee 28s linear infinite; }
@@ -237,9 +238,9 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .vid-over { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(31,26,18,.85); text-align: center; }
 .vid-over > div { border-radius: 1.5vw; border: .25vw solid var(--gold-2); background: #4a3612; padding: 4vh 4vw; animation: pulse 1.6s ease-out 6; }
 .vid-over .k { color: var(--gold-2); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 1.6vw; margin: 0; }
-.vid-over .num { font-size: 7.5vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; } .vid-over .go { font-size: 2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; } .vid-over .go b { color: #fff; }
-.hero.compact { flex: none; padding: 2vh 1vw; } .hero.compact .k { font-size: 1.2vw; } .hero.compact .num { font-size: 4.6vw; } .hero.compact .go { font-size: 1.4vw; }
-.tiles.small { flex: none; } .tiles.small .tile { padding: 1.2vh 1vw; } .tiles.small .tile .s { font-size: .95vw; } .tiles.small .tile .num { font-size: 2.1vw; }
+.vid-over .num { white-space: nowrap; font-size: 10vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; } .vid-over .go { font-size: 2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; } .vid-over .go b { color: #fff; }
+.hero.compact { flex: none; padding: 2vh 1vw; } .hero.compact .k { font-size: 1.2vw; } .hero.compact .num { font-size: 6.4vw; } .hero.compact .go { font-size: 1.4vw; }
+.tiles.small { flex: none; } .tiles.small .tile { padding: 1.2vh .7vw; } .tiles.small .tile .s { font-size: .95vw; } .tiles.small .tile .num { font-size: 3vw; }
 .tv-right .tv-next { flex: 1; }
 .yt-hint { font-size: 12px; font-weight: 600; margin: 0; } .yt-hint.ok { color: var(--ok); } .yt-hint.err { color: #b4233c; }
 @media (prefers-reduced-motion: reduce) { .ticker span, .hero.fresh, .vid-over > div { animation: none; } }
@@ -1084,7 +1085,7 @@ function downloadQueueReport(xlsx, state, now) {
           <div class="brand"><img src="${LOGO}" alt=""><div><small>THE HEART SPECIALISTS CLINIC</small><b>Queue Board · ${view === "desk" ? "Front Desk" : "Stations"}</b></div></div>
           <div class="top-actions"><span class="badge-device sync-badge"></span>${view === "desk" ? `<button class="btn sm on-dark" data-act="openSettings">Settings</button>` : ""}</div>
         </div>
-        <nav class="nav">${nav.map(([key, href, label]) => `<a href="${href}" class="${view === key ? "on" : ""}">${label}</a>`).join("")}<button data-act="openTv">TV display ↗</button><a href="#setup">Sync setup</a></nav>
+        <nav class="nav">${nav.map(([key, href, label]) => `<a href="${href}" class="${view === key ? "on" : ""}">${label}</a>`).join("")}<button data-act="openTv">TV display ↗</button><button data-act="openPoster">Check-in QR ↗</button><a href="#setup">Sync setup</a></nav>
       </div></header>
       <main class="wrap"><p class="sync-banner hidden" id="sync-banner" role="alert"></p><div id="main"></div></main>`;
     if (view === "desk") mountDesk(); else $("#main").innerHTML = `<div id="station"></div>`;
@@ -1227,7 +1228,7 @@ function downloadQueueReport(xlsx, state, now) {
           </section>
         </div>
         <section class="panel">
-          <div class="panel-h"><div><h2>Today's patients</h2><p>Every queue number today and where the patient is now.</p></div>
+          <div class="panel-h"><div><h2>Today's patients</h2><p id="patients-desc">Every queue number today and where the patient is now.</p></div>
             <div class="tools"><input type="search" id="search" placeholder="Name or number" aria-label="Search patients"><div class="filters" id="filters">${[["active", "In clinic"], ["completed", "Completed"], ["all", "All"]].map(([key, label]) => `<button data-act="filter" data-filter="${key}">${label}</button>`).join("")}</div><button class="btn sm outline" data-act="excel" id="excel-btn">📊 Excel report</button></div>
           </div>
           <div class="table-wrap" id="patients"></div>
@@ -1318,6 +1319,8 @@ function downloadQueueReport(xlsx, state, now) {
   }
 
   function renderPatients() {
+    const toVerify = state.visits.filter((v) => !v.cancelled && !v.verified).length;
+    $("#patients-desc").innerHTML = toVerify ? `<b style="color:#2d4a6e">${toVerify} QR check-in${toVerify > 1 ? "s" : ""} to verify</b> — check the patient's details, then press Verify.` : "Every queue number today and where the patient is now.";
     const term = search.trim().toUpperCase();
     const now = Date.now();
     const visits = state.visits.filter((v) => {
@@ -1333,11 +1336,12 @@ function downloadQueueReport(xlsx, state, now) {
       const live = status === "waiting" || status === "called";
       return `<tr class="${v.cancelled ? "cancelled" : ""}">
         <td><span class="q mono">${esc(currentLabel(v))}</span><small>Arrived ${formatTime(v.createdAt)}</small></td>
-        <td style="max-width:240px">${v.name ? `<b>${esc(v.name)}</b>` : `<i style="color:var(--muted-2)">Not registered yet</i>`}<div class="tags">${v.newPatient ? `<span class="tag new">New patient</span>` : ""}${v.priority ? `<span class="tag prio">Priority</span>` : ""}${v.mobile ? `<span>${esc(v.mobile)}</span>` : ""}${v.notes ? `<span>· ${esc(v.notes)}</span>` : ""}</div></td>
+        <td style="max-width:240px">${v.name ? `<b>${esc(v.name)}</b>` : `<i style="color:var(--muted-2)">Not registered yet</i>`}<div class="tags">${v.source === "self" ? `<span class="tag qr">${v.verified ? "QR check-in" : "QR check-in · verify"}</span>` : ""}${v.newPatient ? `<span class="tag new">New patient</span>` : ""}${v.priority ? `<span class="tag prio">Priority</span>` : ""}${v.mobile ? `<span>${esc(v.mobile)}</span>` : ""}${v.notes ? `<span>· ${esc(v.notes)}</span>` : ""}</div></td>
         <td><span class="pill st-${status}">${STATUS_LABEL[status]}</span>${step && status !== "completed" ? `<small>${esc(stationName(state, step.station))}</small>` : ""}</td>
         <td style="font-variant-numeric:tabular-nums">${live ? formatWait(minutesSince(since, now)) : "—"}</td>
         <td><div class="route">${v.steps.map((s) => `<span class="mono ${s.status === "done" ? "done" : s === step ? "cur" : ""}" title="${esc(stationName(state, s.station))}">${s.status === "done" ? "✓" : ""}${esc(s.station)}</span>`).join("")}</div></td>
         <td><div class="acts">${v.cancelled ? "" : [
+          !v.verified ? `<button class="btn sm" data-act="verify" data-id="${v.id}">Verify</button>` : "",
           status === "missed" ? `<button class="btn sm outline" data-act="requeue" data-id="${v.id}">Return to line</button>` : "",
           status !== "completed" && status !== "registration" ? `<button class="btn sm outline" data-act="message" data-id="${v.id}">${v.messagedAt ? "✓ Message sent" : "Copy message"}</button>` : "",
           `<button class="btn icon ghost" title="${v.priority ? "Remove priority" : "Mark as priority"}" aria-label="${v.priority ? "Remove priority" : "Mark as priority"}" data-act="priority" data-id="${v.id}" style="color:${v.priority ? "var(--gold)" : "inherit"}">${v.priority ? "★" : "☆"}</button>`,
@@ -1351,7 +1355,7 @@ function downloadQueueReport(xlsx, state, now) {
   async function copyMessage(id) {
     const visit = state.visits.find((v) => v.id === id);
     if (!visit) return;
-    const text = queueMessage(state, visit);
+    const text = queueMessage(state, visit, sync.mode === "server" ? `${syncServer()}/queue/ticket?id=${visit.id}` : undefined);
     try { await navigator.clipboard.writeText(text); } catch { window.prompt("Copy this message:", text); }
     dispatch({ type: "markMessaged", visitId: id }, `Message for ${currentLabel(visit)} copied. Paste it into SMS or Viber${visit.mobile ? ` for ${visit.mobile}` : ""}.`);
   }
@@ -1367,12 +1371,13 @@ function downloadQueueReport(xlsx, state, now) {
     box.innerHTML = `<div class="modal-bg" data-act="closeSettingsBg"><section class="panel modal" role="dialog" aria-label="Queue settings">
       <div class="panel-h"><div><h2>Queue settings</h2><p>Station codes become part of the queue number, e.g. C1 in 01-C1-W. Queues restart automatically at midnight.</p></div><button class="btn sm ghost" data-act="closeSettings">Close</button></div>
       <div class="panel-b">
-        <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th>Active</th><th></th></tr></thead><tbody>
+        <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th>QR check-in</th><th>Active</th><th></th></tr></thead><tbody>
         ${draft.stations.map((s, i) => `<tr>
           <td><input type="text" class="mono" style="width:76px;font-weight:700" maxlength="4" value="${esc(s.code)}" data-set="code" data-index="${i}" aria-label="Station code"></td>
           <td><input type="text" value="${esc(s.name)}" data-set="name" data-index="${i}" aria-label="Station name"></td>
           <td><input type="text" value="${esc(s.location)}" placeholder="e.g. Clinic Room 1" data-set="location" data-index="${i}" aria-label="Location"></td>
           <td><select data-set="service" data-index="${i}" aria-label="Service type">${services.map(([v, l]) => `<option value="${v}" ${s.service === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
+          <td style="text-align:center"><input type="checkbox" ${s.selfCheckIn ? "checked" : ""} data-set="selfCheckIn" data-index="${i}" aria-label="Patients can choose this station at QR check-in" title="Patients can choose this station at QR check-in"></td>
           <td style="text-align:center"><input type="checkbox" ${s.active ? "checked" : ""} data-set="active" data-index="${i}" aria-label="Active"></td>
           <td style="text-align:right"><button class="btn icon ghost" ${inUse(s.code) ? "disabled title=\"Patients are still queued here — set it inactive instead\"" : "title=\"Remove station\""} data-act="removeStation" data-index="${i}" aria-label="Remove station">✕</button></td>
         </tr>`).join("")}
@@ -1465,13 +1470,16 @@ function downloadQueueReport(xlsx, state, now) {
   let unmuteTimer;
   const currentVideo = () => { const v = parseYouTube(state.settings.youtube); return v && !("error" in v) ? v.src : null; };
   const yt = (func, args) => youtubeCommand(document.getElementById("yt"), func, args);
+  // YouTube refuses to play without a referring website (error 153), and this file opened from disk has none.
+  // From disk, load the player through the sync server's relay page so YouTube sees that site instead.
+  const videoFrameSrc = (src) => (location.protocol === "file:" ? `${syncServer() || DEFAULT_SERVER}/youtube-frame.html#${encodeURIComponent(src)}` : src);
 
   function mountDisplay() {
     seen = state.announcements[state.announcements.length - 1]?.id ?? null;
     mountedVideo = currentVideo();
     const body = mountedVideo
       ? `<div class="tv-body video">
-        <div class="tv-left"><div class="vid"><iframe id="yt" src="${esc(mountedVideo)}" title="The Heart Specialists Clinic videos" allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe><div class="vid-over hidden" id="vid-over"></div></div><section class="tiles small" id="tiles"></section></div>
+        <div class="tv-left"><div class="vid"><iframe id="yt" src="${esc(videoFrameSrc(mountedVideo))}" title="The Heart Specialists Clinic videos" allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe><div class="vid-over hidden" id="vid-over"></div></div><section class="tiles small" id="tiles"></section></div>
         <div class="tv-right"><section class="hero compact" id="hero"></section><section class="tv-next"><h2>Next in line</h2><div id="reg-call"></div><div id="next" style="margin-top:1.2vh;min-height:0;overflow:hidden"></div></section></div>
       </div>`
       : `<div class="tv-body">
@@ -1490,6 +1498,16 @@ function downloadQueueReport(xlsx, state, now) {
     if (sound) setSound(true);
   }
 
+  /** Queue numbers are as big as their box allows: a long one (e.g. 128-C1-W) shrinks just enough to fit. */
+  function fitNumbers() {
+    document.querySelectorAll(".hero .num, .tile .num, .vid-over .num").forEach((el) => {
+      el.style.fontSize = "";
+      const room = el.parentElement.clientWidth - parseFloat(getComputedStyle(el.parentElement).paddingLeft) - parseFloat(getComputedStyle(el.parentElement).paddingRight);
+      if (el.scrollWidth > room) el.style.fontSize = `${(parseFloat(getComputedStyle(el).fontSize) * room) / el.scrollWidth * 0.97}px`;
+    });
+  }
+  window.addEventListener("resize", () => { if (view === "display") fitNumbers(); });
+
   function tick() {
     const now = Date.now();
     $("#tv-time").textContent = clock.format(now);
@@ -1501,7 +1519,7 @@ function downloadQueueReport(xlsx, state, now) {
     const over = $("#vid-over");
     if (over) {
       const html = fresh ? `<div><p class="k">Now calling</p><p class="num mono">${esc(latest.label)}</p><p class="go">Please proceed to <b>${esc(latest.destination)}</b></p></div>` : "";
-      if (over.dataset.label !== (fresh ? latest.id : "")) { over.innerHTML = html; over.dataset.label = fresh ? latest.id : ""; }
+      if (over.dataset.label !== (fresh ? latest.id : "")) { over.innerHTML = html; over.dataset.label = fresh ? latest.id : ""; fitNumbers(); }
       over.classList.toggle("hidden", !fresh);
     }
   }
@@ -1567,13 +1585,14 @@ function downloadQueueReport(xlsx, state, now) {
     const toRegister = waitingToRegister(state);
     const registering = toRegister.filter((v) => v.regCalledAt).sort((a, b) => b.regCalledAt - a.regCalledAt)[0];
     const nextReg = toRegister.filter((v) => v !== registering);
-    $("#reg-call").innerHTML = toRegister.length ? `<div class="reg-call" style="display:block"><p class="h" style="margin:0;display:flex;justify-content:space-between;color:#f4e8c7;font-size:1.1vw"><span>Registration · Front Desk</span><span>${toRegister.length} waiting</span></p><div class="nl" style="border:0;padding:0"><div class="l">${registering ? `<b class="mono" style="background:var(--gold-2);color:var(--brown)">${esc(arrivalLabel(registering))}</b>` : ""}${nextReg.slice(0, 5).map((v) => `<b class="mono">${esc(arrivalLabel(v))}</b>`).join("")}${nextReg.length > 5 ? `<span>+${nextReg.length - 5} more</span>` : ""}</div></div></div>` : "";
+    $("#reg-call").innerHTML = toRegister.length ? `<div class="reg-call" style="display:block"><p class="h" style="margin:0;display:flex;justify-content:space-between;color:#f4e8c7;font-size:1.1vw"><span>Registration · Front Desk</span><span>${toRegister.length} waiting</span></p><div class="nl" style="border:0;padding:0"><div class="l">${registering ? `<b class="mono" style="background:var(--gold-2);color:var(--brown)">${esc(arrivalLabel(registering))}</b>` : ""}${nextReg.slice(0, registering ? 3 : 4).map((v) => `<b class="mono">${esc(arrivalLabel(v))}</b>`).join("")}</div></div></div>` : "";
     $("#next").innerHTML = stations.map((s) => {
       const waiting = waitingFor(state, s.code);
-      return `<div class="nl"><p class="h" style="margin:0"><span>${esc(s.name)}</span><span>${waiting.length} waiting</span></p><div class="l">${waiting.length ? waiting.slice(0, 4).map((v) => `<b class="mono">${esc(ticketLabel(v, s.code))}</b>`).join("") + (waiting.length > 4 ? `<span>+${waiting.length - 4} more</span>` : "") : "<i>—</i>"}</div></div>`;
+      return `<div class="nl"><p class="h" style="margin:0"><span>${esc(s.name)}</span><span>${waiting.length} waiting</span></p><div class="l">${waiting.length ? waiting.slice(0, mountedVideo ? 2 : 3).map((v) => `<b class="mono">${esc(ticketLabel(v, s.code))}</b>`).join("") : "<i>—</i>"}</div></div>`;
     }).join("");
     const ticker = $("#ticker");
     if (ticker.textContent !== state.settings.ticker) ticker.textContent = state.settings.ticker;
+    fitNumbers();
     tick();
   }
 
@@ -1584,6 +1603,12 @@ function downloadQueueReport(xlsx, state, now) {
     const { act, id, station, send, index, code } = el.dataset;
     switch (act) {
       case "openTv": window.open(`${location.href.split("#")[0]}#display`, "thsc-queue-tv"); break;
+      case "openPoster":
+        // Patients' phones cannot open this file, so check-in runs on the sync server's web pages.
+        if (sync.mode === "server") window.open(`${syncServer()}/queue/poster`, "_blank", "noopener");
+        else toast("QR check-in needs a sync server: patients' phones cannot open this file. Turn on syncing in Sync setup.", true);
+        break;
+      case "verify": dispatch({ type: "verify", visitId: id }, "Check-in verified."); break;
       case "openSettings": openSettings(); break;
       case "closeSettings": draft = null; renderSettings(); break;
       case "closeSettingsBg": if (event.target === el) { draft = null; renderSettings(); } break;
