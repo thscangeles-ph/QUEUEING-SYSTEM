@@ -211,19 +211,19 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .hero.fresh { background: #4a3612; border-color: var(--gold-2); animation: pulse 1.6s ease-out 6; }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(240,200,100,.55); } 50% { box-shadow: 0 0 0 1.4vw rgba(240,200,100,0); } }
 .hero .k { color: var(--gold-2); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 1.6vw; margin: 0; }
-.hero .num { font-size: 8.5vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; letter-spacing: .03em; }
+.hero .num { max-width: 100%; white-space: nowrap; overflow: hidden; font-size: 11.5vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; letter-spacing: .03em; }
 .hero .go { font-size: 2.2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; } .hero .go b { color: #fff; }
 .tiles { flex: 1; min-height: 0; display: grid; gap: 1vw; grid-auto-rows: 1fr; }
-.tile { border: 1px solid var(--brown-2); background: var(--brown-3); border-radius: 1vw; padding: 1vh 1.4vw; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+.tile { border: 1px solid var(--brown-2); background: var(--brown-3); border-radius: 1vw; padding: 1vh 1vw; min-width: 0; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
 .tile p { margin: 0; } .tile .s { color: #cbbd9d; font-size: 1.15vw; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .tile .s b { color: var(--gold-2); }
-.tile .num { font-size: 3vw; font-weight: 800; margin-top: .5vh; } .tile .num.none { color: #5c4b2d; }
+.tile .num { white-space: nowrap; overflow: hidden; font-size: 4.6vw; font-weight: 800; margin-top: .5vh; } .tile .num.none { color: #5c4b2d; }
 .tv-next { border: 1px solid var(--brown-2); background: var(--brown-3); border-radius: 1.5vw; padding: 1.4vw; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .tv-next h2 { margin: 0; color: var(--gold-2); text-transform: uppercase; letter-spacing: .14em; font-size: 1.6vw; }
-.reg-call { display: flex; justify-content: space-between; align-items: baseline; background: #4a3612; border-radius: .8vw; padding: 1vh 1.2vw; margin-top: 1.2vh; } .reg-call span { color: #f4e8c7; font-size: 1.3vw; } .reg-call b { font-size: 2.4vw; }
+.reg-call { display: flex; justify-content: space-between; align-items: baseline; background: #4a3612; border-radius: .8vw; padding: 1vh 1.2vw; margin-top: 1.2vh; } .reg-call span { color: #f4e8c7; font-size: 1.3vw; } .reg-call b { font-size: 2.6vw; }
 .nl { border-bottom: 1px solid #3a3022; padding: 1vh 0; } .nl:last-child { border: 0; }
 .nl .h { display: flex; justify-content: space-between; color: #cbbd9d; font-size: 1.1vw; }
-.nl .l { display: flex; flex-wrap: wrap; gap: .6vw; margin-top: .6vh; align-items: center; }
-.nl .l b { background: #3a3022; border-radius: .5vw; padding: .3vh .8vw; font-size: 1.75vw; } .nl .l i { color: #5c4b2d; font-style: normal; font-size: 1.5vw; } .nl .l span { color: #cbbd9d; font-size: 1.2vw; }
+.nl .l { display: flex; flex-wrap: wrap; gap: .5vw; margin-top: .6vh; align-items: center; }
+.nl .l b { background: #3a3022; border-radius: .5vw; padding: .3vh .55vw; font-size: 2.1vw; } .nl .l i { color: #5c4b2d; font-style: normal; font-size: 1.5vw; } .nl .l span { color: #cbbd9d; font-size: 1.2vw; }
 .tv-foot { display: flex; align-items: center; gap: 12px; background: var(--brown); border-top: 1px solid var(--brown-2); padding: 1.2vh 0; overflow: hidden; }
 .ticker { flex: 1; overflow: hidden; white-space: nowrap; color: #f4e8c7; font-size: 1.35vw; }
 .ticker span { display: inline-block; padding-left: 100%; animation: marquee 28s linear infinite; }
@@ -238,9 +238,9 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .vid-over { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(31,26,18,.85); text-align: center; }
 .vid-over > div { border-radius: 1.5vw; border: .25vw solid var(--gold-2); background: #4a3612; padding: 4vh 4vw; animation: pulse 1.6s ease-out 6; }
 .vid-over .k { color: var(--gold-2); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 1.6vw; margin: 0; }
-.vid-over .num { font-size: 7.5vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; } .vid-over .go { font-size: 2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; } .vid-over .go b { color: #fff; }
-.hero.compact { flex: none; padding: 2vh 1vw; } .hero.compact .k { font-size: 1.2vw; } .hero.compact .num { font-size: 4.6vw; } .hero.compact .go { font-size: 1.4vw; }
-.tiles.small { flex: none; } .tiles.small .tile { padding: 1.2vh 1vw; } .tiles.small .tile .s { font-size: .95vw; } .tiles.small .tile .num { font-size: 2.1vw; }
+.vid-over .num { white-space: nowrap; font-size: 10vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; } .vid-over .go { font-size: 2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; } .vid-over .go b { color: #fff; }
+.hero.compact { flex: none; padding: 2vh 1vw; } .hero.compact .k { font-size: 1.2vw; } .hero.compact .num { font-size: 6.4vw; } .hero.compact .go { font-size: 1.4vw; }
+.tiles.small { flex: none; } .tiles.small .tile { padding: 1.2vh .7vw; } .tiles.small .tile .s { font-size: .95vw; } .tiles.small .tile .num { font-size: 3vw; }
 .tv-right .tv-next { flex: 1; }
 .yt-hint { font-size: 12px; font-weight: 600; margin: 0; } .yt-hint.ok { color: var(--ok); } .yt-hint.err { color: #b4233c; }
 @media (prefers-reduced-motion: reduce) { .ticker span, .hero.fresh, .vid-over > div { animation: none; } }
@@ -1498,6 +1498,16 @@ function downloadQueueReport(xlsx, state, now) {
     if (sound) setSound(true);
   }
 
+  /** Queue numbers are as big as their box allows: a long one (e.g. 128-C1-W) shrinks just enough to fit. */
+  function fitNumbers() {
+    document.querySelectorAll(".hero .num, .tile .num, .vid-over .num").forEach((el) => {
+      el.style.fontSize = "";
+      const room = el.parentElement.clientWidth - parseFloat(getComputedStyle(el.parentElement).paddingLeft) - parseFloat(getComputedStyle(el.parentElement).paddingRight);
+      if (el.scrollWidth > room) el.style.fontSize = `${(parseFloat(getComputedStyle(el).fontSize) * room) / el.scrollWidth * 0.97}px`;
+    });
+  }
+  window.addEventListener("resize", () => { if (view === "display") fitNumbers(); });
+
   function tick() {
     const now = Date.now();
     $("#tv-time").textContent = clock.format(now);
@@ -1509,7 +1519,7 @@ function downloadQueueReport(xlsx, state, now) {
     const over = $("#vid-over");
     if (over) {
       const html = fresh ? `<div><p class="k">Now calling</p><p class="num mono">${esc(latest.label)}</p><p class="go">Please proceed to <b>${esc(latest.destination)}</b></p></div>` : "";
-      if (over.dataset.label !== (fresh ? latest.id : "")) { over.innerHTML = html; over.dataset.label = fresh ? latest.id : ""; }
+      if (over.dataset.label !== (fresh ? latest.id : "")) { over.innerHTML = html; over.dataset.label = fresh ? latest.id : ""; fitNumbers(); }
       over.classList.toggle("hidden", !fresh);
     }
   }
@@ -1575,13 +1585,14 @@ function downloadQueueReport(xlsx, state, now) {
     const toRegister = waitingToRegister(state);
     const registering = toRegister.filter((v) => v.regCalledAt).sort((a, b) => b.regCalledAt - a.regCalledAt)[0];
     const nextReg = toRegister.filter((v) => v !== registering);
-    $("#reg-call").innerHTML = toRegister.length ? `<div class="reg-call" style="display:block"><p class="h" style="margin:0;display:flex;justify-content:space-between;color:#f4e8c7;font-size:1.1vw"><span>Registration · Front Desk</span><span>${toRegister.length} waiting</span></p><div class="nl" style="border:0;padding:0"><div class="l">${registering ? `<b class="mono" style="background:var(--gold-2);color:var(--brown)">${esc(arrivalLabel(registering))}</b>` : ""}${nextReg.slice(0, 5).map((v) => `<b class="mono">${esc(arrivalLabel(v))}</b>`).join("")}${nextReg.length > 5 ? `<span>+${nextReg.length - 5} more</span>` : ""}</div></div></div>` : "";
+    $("#reg-call").innerHTML = toRegister.length ? `<div class="reg-call" style="display:block"><p class="h" style="margin:0;display:flex;justify-content:space-between;color:#f4e8c7;font-size:1.1vw"><span>Registration · Front Desk</span><span>${toRegister.length} waiting</span></p><div class="nl" style="border:0;padding:0"><div class="l">${registering ? `<b class="mono" style="background:var(--gold-2);color:var(--brown)">${esc(arrivalLabel(registering))}</b>` : ""}${nextReg.slice(0, registering ? 3 : 4).map((v) => `<b class="mono">${esc(arrivalLabel(v))}</b>`).join("")}</div></div></div>` : "";
     $("#next").innerHTML = stations.map((s) => {
       const waiting = waitingFor(state, s.code);
-      return `<div class="nl"><p class="h" style="margin:0"><span>${esc(s.name)}</span><span>${waiting.length} waiting</span></p><div class="l">${waiting.length ? waiting.slice(0, 4).map((v) => `<b class="mono">${esc(ticketLabel(v, s.code))}</b>`).join("") + (waiting.length > 4 ? `<span>+${waiting.length - 4} more</span>` : "") : "<i>—</i>"}</div></div>`;
+      return `<div class="nl"><p class="h" style="margin:0"><span>${esc(s.name)}</span><span>${waiting.length} waiting</span></p><div class="l">${waiting.length ? waiting.slice(0, mountedVideo ? 2 : 3).map((v) => `<b class="mono">${esc(ticketLabel(v, s.code))}</b>`).join("") : "<i>—</i>"}</div></div>`;
     }).join("");
     const ticker = $("#ticker");
     if (ticker.textContent !== state.settings.ticker) ticker.textContent = state.settings.ticker;
+    fitNumbers();
     tick();
   }
 
