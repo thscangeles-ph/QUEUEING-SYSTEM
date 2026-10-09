@@ -1,4 +1,5 @@
-import type { ActionResult, Announcement, QueueAction, QueueState, Settings, Station, Step, Visit, VisitInput } from "./types";
+import type { ActionResult, Announcement, PatientKind, QueueAction, QueueState, Settings, Station, Step, Visit, VisitInput } from "./types";
+import { parseYouTube } from "./youtube";
 
 export const TIME_ZONE = "Asia/Manila";
 const MAX_ANNOUNCEMENTS = 20;
@@ -37,13 +38,19 @@ export function ensureDay(state: QueueState | null | undefined, now: number): Qu
 
 export const ticketLabel = (visit: Pick<Visit, "seq" | "kind">, station: string) => `${String(visit.seq).padStart(2, "0")}-${station}-${visit.kind}`;
 
+/** The number given on arrival, before a station is assigned at registration, e.g. 01-W. */
+export const arrivalLabel = (visit: Pick<Visit, "seq" | "kind">) => `${String(visit.seq).padStart(2, "0")}-${visit.kind}`;
+
+/** Visits saved before arrival numbers existed have no `registered` flag; they were always registered. */
+export const isRegistered = (visit: Visit) => visit.registered !== false;
+
 export function currentStep(visit: Visit): Step | null {
   return visit.steps.find((step) => step.status !== "done") ?? null;
 }
 
 export function currentLabel(visit: Visit) {
   const step = currentStep(visit) ?? visit.steps[visit.steps.length - 1];
-  return step ? ticketLabel(visit, step.station) : String(visit.seq).padStart(2, "0");
+  return step ? ticketLabel(visit, step.station) : arrivalLabel(visit);
 }
 
 export const findStation = (state: QueueState, code: string): Station | undefined => state.settings.stations.find((station) => station.code === code);
@@ -72,31 +79,58 @@ function validateStations(state: QueueState, codes: unknown): string[] | string 
   return result;
 }
 
-function createVisit(state: QueueState, input: VisitInput, now: number, source: Visit["source"]): { visit: Visit } | { error: string } {
-  if (state.visits.length >= 999) return { error: "The daily queue limit of 999 patients has been reached." };
-  const name = clean(input.name, 80);
-  if (!name) return { error: "Enter the patient's name." };
-  const stations = validateStations(state, input.stations);
-  if (typeof stations === "string") return { error: stations };
+function newVisit(state: QueueState, kind: PatientKind, priority: boolean, newPatient: boolean, now: number, source: Visit["source"]): Visit | string {
+  if (state.visits.length >= 999) return "The daily queue limit of 999 patients has been reached.";
   const visit: Visit = {
     id: newId(),
     seq: state.nextSeq,
-    kind: input.kind === "S" ? "S" : "W",
-    name,
-    mobile: clean(input.mobile, 20),
-    notes: clean(input.notes, 200),
-    priority: Boolean(input.priority),
+    kind: kind === "S" ? "S" : "W",
+    name: "",
+    mobile: "",
+    notes: "",
+    priority,
+    newPatient,
     source,
     verified: source === "desk",
     cancelled: false,
-    card: typeof input.card === "number" ? input.card : null,
+    card: null,
+    registered: false,
+    regCalledAt: null,
+    regCalls: 0,
     createdAt: now,
+    registeredAt: null,
     messagedAt: null,
-    steps: stations.map((code, index) => makeStep(code, now, index === 0)),
+    steps: [],
   };
   state.nextSeq += 1;
   state.visits.push(visit);
-  return { visit };
+  return visit;
+}
+
+/** Fills in the patient's details and services, turning an arrival number (01-W) into a ticket (01-C1-W). */
+function registerVisit(state: QueueState, visit: Visit, input: VisitInput, now: number): string | null {
+  const name = clean(input.name, 80);
+  if (!name) return "Enter the patient's name.";
+  const stations = validateStations(state, input.stations);
+  if (typeof stations === "string") return stations;
+  visit.kind = input.kind === "S" ? "S" : "W";
+  visit.name = name;
+  visit.mobile = clean(input.mobile, 20);
+  visit.notes = clean(input.notes, 200);
+  visit.priority = Boolean(input.priority) || visit.priority;
+  if (input.newPatient !== undefined) visit.newPatient = Boolean(input.newPatient);
+  if (typeof input.card === "number") visit.card = input.card;
+  visit.registered = true;
+  visit.registeredAt = now;
+  visit.steps = stations.map((code, index) => makeStep(code, now, index === 0));
+  return null;
+}
+
+/** Arrival numbers waiting to be called for registration: priority lane first, then in order of arrival. */
+export function waitingToRegister(state: QueueState): Visit[] {
+  return state.visits
+    .filter((visit) => !visit.cancelled && !isRegistered(visit))
+    .sort((a, b) => Number(b.priority) - Number(a.priority) || a.seq - b.seq);
 }
 
 /** Patients waiting for a station, in calling order: priority lane first, then by time queued. */
@@ -133,7 +167,7 @@ function finishStep(visit: Visit, now: number, sendTo?: string) {
   }
 }
 
-function sanitizeSettings(input: Settings): Settings | string {
+function sanitizeSettings(input: Partial<Settings>, previous: Settings): Settings | string {
   if (!input || !Array.isArray(input.stations)) return "Settings are incomplete.";
   const codes = new Set<string>();
   const stations: Station[] = [];
@@ -154,9 +188,13 @@ function sanitizeSettings(input: Settings): Settings | string {
     });
   }
   if (!stations.length) return "Add at least one station.";
-  const cardCount = Math.round(Number(input.cardCount));
+  // The single-file HTML board has no laminated cards; keep the current count when it saves settings.
+  const cardCount = Math.round(Number(input.cardCount ?? previous.cardCount ?? DEFAULT_SETTINGS.cardCount));
   if (!Number.isFinite(cardCount) || cardCount < 1 || cardCount > 300) return "Laminated cards must be between 1 and 300.";
-  return { stations, cardCount, ticker: clean(input.ticker, 240) };
+  const youtube = clean(input.youtube ?? previous.youtube, 300);
+  const video = parseYouTube(youtube);
+  if (video && "error" in video) return `YouTube: ${video.error}`;
+  return { stations, cardCount, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound) };
 }
 
 /**
@@ -201,19 +239,44 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       state.cards = state.cards.filter((card) => card.number !== action.card);
       return { ok: true };
     }
+    case "arrive": {
+      const visit = newVisit(state, action.kind, Boolean(action.priority), Boolean(action.newPatient), now, "desk");
+      if (typeof visit === "string") return fail(visit);
+      return { ok: true, visitId: visit.id, label: arrivalLabel(visit) };
+    }
+    case "callRegistration": {
+      const waiting = waitingToRegister(state);
+      const visit = action.visitId ? waiting.find((item) => item.id === action.visitId) : waiting.find((item) => !item.regCalledAt);
+      if (!visit) return fail(action.visitId ? "That number is not waiting to register." : "Everyone waiting has been called. Use Call on a number to call it again.");
+      visit.regCalledAt = now;
+      visit.regCalls = (visit.regCalls ?? 0) + 1;
+      const label = arrivalLabel(visit);
+      announce(state, { at: now, kind: "registration", label, station: "DESK", destination: "the Front Desk for registration" });
+      return { ok: true, visitId: visit.id, label };
+    }
     case "register": {
-      const created = createVisit(state, action.visit, now, "desk");
-      if ("error" in created) return fail(created.error);
-      if (created.visit.card !== null) state.cards = state.cards.filter((card) => card.number !== created.visit.card);
-      return { ok: true, visitId: created.visit.id, label: currentLabel(created.visit) };
+      let visit: Visit | string | undefined;
+      if (action.visitId) {
+        visit = findVisit(action.visitId);
+        if (!visit || isRegistered(visit)) return fail("That queue number is no longer waiting to register.");
+      } else {
+        visit = newVisit(state, action.visit.kind, Boolean(action.visit.priority), Boolean(action.visit.newPatient), now, "desk");
+        if (typeof visit === "string") return fail(visit);
+      }
+      const problem = registerVisit(state, visit, action.visit, now);
+      if (problem) return fail(problem);
+      if (visit.card !== null) state.cards = state.cards.filter((card) => card.number !== (visit as Visit).card);
+      return { ok: true, visitId: visit.id, label: currentLabel(visit) };
     }
     case "selfCheckIn": {
       const codes = Array.isArray(action.visit.stations) ? action.visit.stations : [];
       const first = findStation(state, String(codes[0]));
       if (!first?.selfCheckIn) return fail("Choose the doctor or service you are scheduled for.");
-      const created = createVisit(state, { ...action.visit, kind: "S", card: null }, now, "self");
-      if ("error" in created) return fail(created.error);
-      return { ok: true, visitId: created.visit.id, label: currentLabel(created.visit) };
+      const visit = newVisit(state, "S", Boolean(action.visit.priority), Boolean(action.visit.newPatient), now, "self");
+      if (typeof visit === "string") return fail(visit);
+      const problem = registerVisit(state, visit, { ...action.visit, kind: "S", card: null }, now);
+      if (problem) return fail(problem);
+      return { ok: true, visitId: visit.id, label: currentLabel(visit) };
     }
     case "verify": {
       const visit = findVisit(action.visitId);
@@ -232,6 +295,7 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       if (action.mobile !== undefined) visit.mobile = clean(action.mobile, 20);
       if (action.notes !== undefined) visit.notes = clean(action.notes, 200);
       if (action.priority !== undefined) visit.priority = Boolean(action.priority);
+      if (action.newPatient !== undefined) visit.newPatient = Boolean(action.newPatient);
       return { ok: true };
     }
     case "markMessaged": {
@@ -306,7 +370,7 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       return { ok: true };
     }
     case "updateSettings": {
-      const settings = sanitizeSettings(action.settings);
+      const settings = sanitizeSettings(action.settings, state.settings);
       if (typeof settings === "string") return fail(settings);
       state.settings = settings;
       return { ok: true };

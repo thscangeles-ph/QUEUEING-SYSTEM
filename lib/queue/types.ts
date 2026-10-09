@@ -33,10 +33,18 @@ export type Visit = {
   mobile: string;
   notes: string;
   priority: boolean;
+  /** First visit to the clinic. */
+  newPatient?: boolean;
   source: "desk" | "self";
   verified: boolean;
   cancelled: boolean;
   card: number | null;
+  /** False while the patient holds only an arrival number (01-W); visits saved before arrival numbers have no flag and were registered. */
+  registered?: boolean;
+  /** When the arrival number was last called to the front desk for registration. */
+  regCalledAt?: number | null;
+  regCalls?: number;
+  registeredAt?: number | null;
   createdAt: number;
   /** When the one-time queue message was sent to the patient. */
   messagedAt: number | null;
@@ -48,9 +56,9 @@ export type Card = { number: number; issuedAt: number; calledAt: number | null; 
 export type Announcement = {
   id: string;
   at: number;
-  kind: "ticket" | "card";
+  kind: "ticket" | "card" | "registration";
   label: string;
-  /** Station code for tickets, or "DESK" for registration cards. */
+  /** Station code for tickets, or "DESK" for registration cards and arrival numbers. */
   station: string;
   destination: string;
 };
@@ -59,6 +67,9 @@ export type Settings = {
   stations: Station[];
   cardCount: number;
   ticker: string;
+  /** YouTube channel, playlist or video shown on the TV while patients wait. */
+  youtube?: string;
+  videoSound?: boolean;
 };
 
 export type QueueState = {
@@ -76,6 +87,7 @@ export type VisitInput = {
   mobile?: string;
   notes?: string;
   priority?: boolean;
+  newPatient?: boolean;
   stations: string[];
   card?: number | null;
 };
@@ -84,10 +96,12 @@ export type QueueAction =
   | { type: "issueCard"; card?: number }
   | { type: "callCard"; card?: number }
   | { type: "removeCard"; card: number }
-  | { type: "register"; visit: VisitInput }
-  | { type: "selfCheckIn"; visit: Omit<VisitInput, "kind" | "card" | "priority"> & { priority?: boolean } }
+  | { type: "arrive"; kind: PatientKind; priority?: boolean; newPatient?: boolean }
+  | { type: "callRegistration"; visitId?: string }
+  | { type: "register"; visitId?: string; visit: VisitInput }
+  | { type: "selfCheckIn"; visit: Omit<VisitInput, "kind" | "card"> }
   | { type: "verify"; visitId: string }
-  | { type: "updateVisit"; visitId: string; name?: string; mobile?: string; notes?: string; priority?: boolean }
+  | { type: "updateVisit"; visitId: string; name?: string; mobile?: string; notes?: string; priority?: boolean; newPatient?: boolean }
   | { type: "markMessaged"; visitId: string }
   | { type: "call"; station: string; visitId?: string }
   | { type: "recall"; visitId: string }
