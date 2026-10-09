@@ -1,4 +1,4 @@
-import type { ActionResult, Announcement, PatientKind, QueueAction, QueueState, Settings, Station, Step, Visit, VisitInput } from "./types";
+import type { ActionResult, AnnounceLanguage, Announcement, PatientKind, QueueAction, QueueState, Settings, Station, Step, Visit, VisitInput } from "./types";
 import { parseYouTube } from "./youtube";
 
 export const TIME_ZONE = "Asia/Manila";
@@ -194,7 +194,9 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   const youtube = clean(input.youtube ?? previous.youtube, 300);
   const video = parseYouTube(youtube);
   if (video && "error" in video) return `YouTube: ${video.error}`;
-  return { stations, cardCount, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound) };
+  const language = input.announceLanguage ?? previous.announceLanguage;
+  const announceLanguage: AnnounceLanguage = language === "en" || language === "fil" ? language : "en+fil";
+  return { stations, cardCount, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), announceLanguage };
 }
 
 /**
