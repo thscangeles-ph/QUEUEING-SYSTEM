@@ -8,9 +8,9 @@ import { BellRing, CheckCircle2, Clock, Printer, Ticket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { currentLabel, currentStep, findStation } from "@/lib/queue/reducer";
-import { patientsAhead, visitStatus } from "@/lib/queue/format";
+import { estimatedWait, formatEstimate, patientsAhead, visitStatus } from "@/lib/queue/format";
 import type { QueueState } from "@/lib/queue/types";
-import { readStorage, useQueue, writeStorage } from "./use-queue";
+import { readStorage, useNow, useQueue, writeStorage } from "./use-queue";
 
 const TICKET_KEY = "thsc-queue-ticket";
 
@@ -121,6 +121,7 @@ export function TicketView() {
   const visit = state?.visits.find((item) => item.id === id);
   const status = visit ? visitStatus(visit) : null;
   const lastStatus = useRef(status);
+  const now = useNow(30000);
 
   useEffect(() => {
     if (status === "called" && lastStatus.current !== "called") navigator.vibrate?.([400, 150, 400]);
@@ -140,6 +141,7 @@ export function TicketView() {
     completed: { title: "All done for today", text: "Thank you for visiting The Heart Specialists Clinic.", icon: <CheckCircle2 />, tone: "bg-[#edf5e8] text-[#41612c]" },
   };
   const message = messages[status ?? "waiting"] ?? messages.waiting;
+  const wait = now ? estimatedWait(state, visit, now) : null;
 
   return (
     <PatientFrame>
@@ -152,6 +154,13 @@ export function TicketView() {
         <span className="mt-0.5 shrink-0">{message.icon}</span>
         <div><p className="text-lg font-bold">{message.title}</p><p className="text-sm">{message.text}</p></div>
       </div>
+      {wait !== null && (
+        <div className="mt-3 rounded-2xl border border-[#e2d7c2] bg-white p-4">
+          <p className="text-sm font-semibold text-[#756b59]">Estimated waiting time</p>
+          <p className="text-2xl font-extrabold">{formatEstimate(wait)}</p>
+          <p className="mt-1 text-xs leading-5 text-[#857967]">Based on today&apos;s pace at {station?.name ?? "this station"}. Priority lane patients may be called first.</p>
+        </div>
+      )}
       <ol className="mt-5 grid gap-2">
         {visit.steps.map((item, index) => (
           <li key={item.id} className="flex items-center gap-3 rounded-xl border border-[#e2d7c2] bg-white px-4 py-3">
