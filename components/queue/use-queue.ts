@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyAction, ensureDay } from "@/lib/queue/reducer";
 import type { ActionResult, QueueAction, QueueState } from "@/lib/queue/types";
+import { queueApiUrl } from "./endpoint";
 
 export type SyncMode = "detecting" | "local" | "server";
 
@@ -67,7 +68,8 @@ export function useQueue() {
 
   const request = useCallback(async (init?: RequestInit, since?: number | null) => {
     const pin = readStorage(PIN_KEY);
-    const url = since === null || since === undefined ? "/api/queue" : `/api/queue?since=${since}`;
+    const api = queueApiUrl() ?? "";
+    const url = since === null || since === undefined ? api : `${api}?since=${since}`;
     const response = await fetch(url, { ...init, cache: "no-store", headers: { "Content-Type": "application/json", ...(pin ? { "x-queue-pin": pin } : {}) } });
     const body = (await response.json().catch(() => ({ mode: "server", error: `Server error ${response.status}` }))) as ServerResponse;
     return { response, body };
@@ -91,6 +93,7 @@ export function useQueue() {
     };
 
     const poll = async () => {
+      if (!detected && queueApiUrl() === null) return startLocal();
       try {
         const { response, body } = await request(undefined, versionRef.current);
         if (cancelled) return;
