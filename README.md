@@ -77,6 +77,8 @@ Screens refresh every 2 seconds. With Upstash, each open screen makes about one 
 2. Keep **Sync with other computers** and the sync server address (the clinic's Vercel site by default, or a clinic PC running `QUEUE_STORE=file`). On staff computers, enter the staff PIN. Click *Test connection*, then *Save*.
 3. Open the screen that computer is for: `#desk`, `#station/C1` or `#display` after the file name.
 
+**QR check-in for scheduled patients:** in sync mode, *Check-in QR ↗* on the front desk opens the printable poster on the sync server. Patients scan it, check in on their phone and get their `S` queue number with a live status page. Their check-in shows as *QR check-in · verify* in Today's patients until the front desk presses **Verify**. Choose which stations patients may pick in Settings (the *QR check-in* column). When synced, *Copy message* also adds the patient's live-status link.
+
 Every computer that uses the same sync server shares one live queue, updated every 2 seconds. The server must be in shared mode (see [Sync modes](#sync-modes)) and running this version of the app: it accepts the file's actions (arrival numbers, YouTube settings) and lets the file call its queue API. If the server has no shared storage, the file says so and keeps its own queue on that computer. **This computer only** keeps the queue in the file's browser storage and works offline.
 
 The file carries its own copy of the queue rules (`lib/queue/reducer.ts`, `format.ts`, `youtube.ts`). When you change those rules, make the same change in the file.

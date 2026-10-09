@@ -92,6 +92,7 @@ label.field em { font-style: normal; font-weight: 400; color: var(--muted-2); fo
 .tog[aria-pressed="true"] { background: var(--brown); border-color: var(--brown); color: #fff; } .tog[aria-pressed="true"] small { color: #e8dec7; }
 .tog[aria-pressed="true"] .box { background: var(--gold-2); border-color: var(--gold-2); color: var(--brown); }
 .tag.new { background: #e3f0dc; color: #36561f; }
+.tag.qr { background: #e8eef7; color: #2d4a6e; }
 .row-form { display: flex; gap: 8px; }
 .row-form input { width: 90px; flex: none; }
 .row-form .btn { flex: 1; }
@@ -1084,7 +1085,7 @@ function downloadQueueReport(xlsx, state, now) {
           <div class="brand"><img src="${LOGO}" alt=""><div><small>THE HEART SPECIALISTS CLINIC</small><b>Queue Board · ${view === "desk" ? "Front Desk" : "Stations"}</b></div></div>
           <div class="top-actions"><span class="badge-device sync-badge"></span>${view === "desk" ? `<button class="btn sm on-dark" data-act="openSettings">Settings</button>` : ""}</div>
         </div>
-        <nav class="nav">${nav.map(([key, href, label]) => `<a href="${href}" class="${view === key ? "on" : ""}">${label}</a>`).join("")}<button data-act="openTv">TV display ↗</button><a href="#setup">Sync setup</a></nav>
+        <nav class="nav">${nav.map(([key, href, label]) => `<a href="${href}" class="${view === key ? "on" : ""}">${label}</a>`).join("")}<button data-act="openTv">TV display ↗</button><button data-act="openPoster">Check-in QR ↗</button><a href="#setup">Sync setup</a></nav>
       </div></header>
       <main class="wrap"><p class="sync-banner hidden" id="sync-banner" role="alert"></p><div id="main"></div></main>`;
     if (view === "desk") mountDesk(); else $("#main").innerHTML = `<div id="station"></div>`;
@@ -1227,7 +1228,7 @@ function downloadQueueReport(xlsx, state, now) {
           </section>
         </div>
         <section class="panel">
-          <div class="panel-h"><div><h2>Today's patients</h2><p>Every queue number today and where the patient is now.</p></div>
+          <div class="panel-h"><div><h2>Today's patients</h2><p id="patients-desc">Every queue number today and where the patient is now.</p></div>
             <div class="tools"><input type="search" id="search" placeholder="Name or number" aria-label="Search patients"><div class="filters" id="filters">${[["active", "In clinic"], ["completed", "Completed"], ["all", "All"]].map(([key, label]) => `<button data-act="filter" data-filter="${key}">${label}</button>`).join("")}</div><button class="btn sm outline" data-act="excel" id="excel-btn">📊 Excel report</button></div>
           </div>
           <div class="table-wrap" id="patients"></div>
@@ -1318,6 +1319,8 @@ function downloadQueueReport(xlsx, state, now) {
   }
 
   function renderPatients() {
+    const toVerify = state.visits.filter((v) => !v.cancelled && !v.verified).length;
+    $("#patients-desc").innerHTML = toVerify ? `<b style="color:#2d4a6e">${toVerify} QR check-in${toVerify > 1 ? "s" : ""} to verify</b> — check the patient's details, then press Verify.` : "Every queue number today and where the patient is now.";
     const term = search.trim().toUpperCase();
     const now = Date.now();
     const visits = state.visits.filter((v) => {
@@ -1333,11 +1336,12 @@ function downloadQueueReport(xlsx, state, now) {
       const live = status === "waiting" || status === "called";
       return `<tr class="${v.cancelled ? "cancelled" : ""}">
         <td><span class="q mono">${esc(currentLabel(v))}</span><small>Arrived ${formatTime(v.createdAt)}</small></td>
-        <td style="max-width:240px">${v.name ? `<b>${esc(v.name)}</b>` : `<i style="color:var(--muted-2)">Not registered yet</i>`}<div class="tags">${v.newPatient ? `<span class="tag new">New patient</span>` : ""}${v.priority ? `<span class="tag prio">Priority</span>` : ""}${v.mobile ? `<span>${esc(v.mobile)}</span>` : ""}${v.notes ? `<span>· ${esc(v.notes)}</span>` : ""}</div></td>
+        <td style="max-width:240px">${v.name ? `<b>${esc(v.name)}</b>` : `<i style="color:var(--muted-2)">Not registered yet</i>`}<div class="tags">${v.source === "self" ? `<span class="tag qr">${v.verified ? "QR check-in" : "QR check-in · verify"}</span>` : ""}${v.newPatient ? `<span class="tag new">New patient</span>` : ""}${v.priority ? `<span class="tag prio">Priority</span>` : ""}${v.mobile ? `<span>${esc(v.mobile)}</span>` : ""}${v.notes ? `<span>· ${esc(v.notes)}</span>` : ""}</div></td>
         <td><span class="pill st-${status}">${STATUS_LABEL[status]}</span>${step && status !== "completed" ? `<small>${esc(stationName(state, step.station))}</small>` : ""}</td>
         <td style="font-variant-numeric:tabular-nums">${live ? formatWait(minutesSince(since, now)) : "—"}</td>
         <td><div class="route">${v.steps.map((s) => `<span class="mono ${s.status === "done" ? "done" : s === step ? "cur" : ""}" title="${esc(stationName(state, s.station))}">${s.status === "done" ? "✓" : ""}${esc(s.station)}</span>`).join("")}</div></td>
         <td><div class="acts">${v.cancelled ? "" : [
+          !v.verified ? `<button class="btn sm" data-act="verify" data-id="${v.id}">Verify</button>` : "",
           status === "missed" ? `<button class="btn sm outline" data-act="requeue" data-id="${v.id}">Return to line</button>` : "",
           status !== "completed" && status !== "registration" ? `<button class="btn sm outline" data-act="message" data-id="${v.id}">${v.messagedAt ? "✓ Message sent" : "Copy message"}</button>` : "",
           `<button class="btn icon ghost" title="${v.priority ? "Remove priority" : "Mark as priority"}" aria-label="${v.priority ? "Remove priority" : "Mark as priority"}" data-act="priority" data-id="${v.id}" style="color:${v.priority ? "var(--gold)" : "inherit"}">${v.priority ? "★" : "☆"}</button>`,
@@ -1351,7 +1355,7 @@ function downloadQueueReport(xlsx, state, now) {
   async function copyMessage(id) {
     const visit = state.visits.find((v) => v.id === id);
     if (!visit) return;
-    const text = queueMessage(state, visit);
+    const text = queueMessage(state, visit, sync.mode === "server" ? `${syncServer()}/queue/ticket?id=${visit.id}` : undefined);
     try { await navigator.clipboard.writeText(text); } catch { window.prompt("Copy this message:", text); }
     dispatch({ type: "markMessaged", visitId: id }, `Message for ${currentLabel(visit)} copied. Paste it into SMS or Viber${visit.mobile ? ` for ${visit.mobile}` : ""}.`);
   }
@@ -1367,12 +1371,13 @@ function downloadQueueReport(xlsx, state, now) {
     box.innerHTML = `<div class="modal-bg" data-act="closeSettingsBg"><section class="panel modal" role="dialog" aria-label="Queue settings">
       <div class="panel-h"><div><h2>Queue settings</h2><p>Station codes become part of the queue number, e.g. C1 in 01-C1-W. Queues restart automatically at midnight.</p></div><button class="btn sm ghost" data-act="closeSettings">Close</button></div>
       <div class="panel-b">
-        <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th>Active</th><th></th></tr></thead><tbody>
+        <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th>QR check-in</th><th>Active</th><th></th></tr></thead><tbody>
         ${draft.stations.map((s, i) => `<tr>
           <td><input type="text" class="mono" style="width:76px;font-weight:700" maxlength="4" value="${esc(s.code)}" data-set="code" data-index="${i}" aria-label="Station code"></td>
           <td><input type="text" value="${esc(s.name)}" data-set="name" data-index="${i}" aria-label="Station name"></td>
           <td><input type="text" value="${esc(s.location)}" placeholder="e.g. Clinic Room 1" data-set="location" data-index="${i}" aria-label="Location"></td>
           <td><select data-set="service" data-index="${i}" aria-label="Service type">${services.map(([v, l]) => `<option value="${v}" ${s.service === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
+          <td style="text-align:center"><input type="checkbox" ${s.selfCheckIn ? "checked" : ""} data-set="selfCheckIn" data-index="${i}" aria-label="Patients can choose this station at QR check-in" title="Patients can choose this station at QR check-in"></td>
           <td style="text-align:center"><input type="checkbox" ${s.active ? "checked" : ""} data-set="active" data-index="${i}" aria-label="Active"></td>
           <td style="text-align:right"><button class="btn icon ghost" ${inUse(s.code) ? "disabled title=\"Patients are still queued here — set it inactive instead\"" : "title=\"Remove station\""} data-act="removeStation" data-index="${i}" aria-label="Remove station">✕</button></td>
         </tr>`).join("")}
@@ -1584,6 +1589,12 @@ function downloadQueueReport(xlsx, state, now) {
     const { act, id, station, send, index, code } = el.dataset;
     switch (act) {
       case "openTv": window.open(`${location.href.split("#")[0]}#display`, "thsc-queue-tv"); break;
+      case "openPoster":
+        // Patients' phones cannot open this file, so check-in runs on the sync server's web pages.
+        if (sync.mode === "server") window.open(`${syncServer()}/queue/poster`, "_blank", "noopener");
+        else toast("QR check-in needs a sync server: patients' phones cannot open this file. Turn on syncing in Sync setup.", true);
+        break;
+      case "verify": dispatch({ type: "verify", visitId: id }, "Check-in verified."); break;
       case "openSettings": openSettings(); break;
       case "closeSettings": draft = null; renderSettings(); break;
       case "closeSettingsBg": if (event.target === el) { draft = null; renderSettings(); } break;
