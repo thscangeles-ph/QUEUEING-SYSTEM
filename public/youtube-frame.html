@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>THSC Queue Board video</title>
+<style>html, body { margin: 0; height: 100%; background: #000; overflow: hidden; } iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }</style>
+</head>
+<body>
+<script>
+// Relay for the single-file Queue Board's TV video (thsc-queue-board.html).
+// YouTube refuses to play an embed without a referring website (error 153), and the board opened from disk
+// (file://) has none. The board loads this page from the sync server instead, so YouTube sees this site.
+// The YouTube link comes in the hash; only youtube-nocookie.com embeds are accepted.
+(() => {
+  let src;
+  try {
+    src = new URL(decodeURIComponent(location.hash.slice(1)));
+  } catch {
+    return;
+  }
+  if (src.protocol !== "https:" || src.hostname !== "www.youtube-nocookie.com" || !src.pathname.startsWith("/embed/")) return;
+  src.searchParams.set("origin", location.origin);
+  const frame = document.createElement("iframe");
+  frame.src = src.href;
+  frame.title = "The Heart Specialists Clinic videos";
+  frame.allow = "autoplay; encrypted-media; picture-in-picture";
+  frame.referrerPolicy = "strict-origin-when-cross-origin";
+  document.body.appendChild(frame);
+  // Pass the board's player commands (mute, unMute, setVolume) on to YouTube.
+  window.addEventListener("message", (event) => {
+    if (event.source !== window.parent || typeof event.data !== "string") return;
+    try {
+      if (JSON.parse(event.data).event !== "command") return;
+    } catch {
+      return;
+    }
+    frame.contentWindow?.postMessage(event.data, "https://www.youtube-nocookie.com");
+  });
+})();
+</script>
+</body>
+</html>
