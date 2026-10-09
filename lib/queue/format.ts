@@ -1,5 +1,5 @@
 import { currentLabel, currentStep, findStation, isRegistered, TIME_ZONE, waitingFor } from "./reducer";
-import type { Announcement, AnnounceLanguage, QueueState, Visit } from "./types";
+import type { Announcement, AnnounceLanguage, QueueState, Station, Visit } from "./types";
 
 export type VisitStatus = "registration" | "waiting" | "called" | "missed" | "completed" | "cancelled" | "pending";
 
@@ -97,3 +97,44 @@ export function announcementSpeech(item: Announcement, language: AnnounceLanguag
 
 /** Seconds to leave for each call so two languages never talk over the next call. */
 export const announcementGap = (language: AnnounceLanguage = "en+fil") => (language === "en+fil" ? 11000 : 6000);
+
+/** Starting guess for minutes per patient, used until a station has served a few patients today. */
+const DEFAULT_SERVICE_MINUTES: Record<Station["service"], number> = { consultation: 15, procedure: 20, laboratory: 10, other: 10 };
+const PACE_SAMPLES = 10;
+const MIN_PACE_SAMPLES = 3;
+
+/** Typical minutes per patient at a station: the median of its last few completed patients today. */
+export function minutesPerPatient(state: QueueState, code: string) {
+  const durations = state.visits
+    .flatMap((visit) => visit.steps)
+    .filter((step) => step.station === code && step.status === "done" && step.calledAt && step.doneAt)
+    .sort((a, b) => b.doneAt! - a.doneAt!)
+    .map((step) => (step.doneAt! - step.calledAt!) / 60000)
+    // Ignore taps that completed a patient by mistake and visits left open over a break.
+    .filter((minutes) => minutes >= 1 && minutes <= 120)
+    .slice(0, PACE_SAMPLES)
+    .sort((a, b) => a - b);
+  if (durations.length < MIN_PACE_SAMPLES) return DEFAULT_SERVICE_MINUTES[findStation(state, code)?.service ?? "other"];
+  const middle = Math.floor(durations.length / 2);
+  return durations.length % 2 ? durations[middle] : (durations[middle - 1] + durations[middle]) / 2;
+}
+
+/** Estimated minutes until a waiting patient is called at their current station, or null if they are not waiting. */
+export function estimatedWait(state: QueueState, visit: Visit, now: number) {
+  const step = currentStep(visit);
+  if (!step || step.status !== "waiting") return null;
+  const pace = minutesPerPatient(state, step.station);
+  // The patient now being served still has part of their turn left.
+  const serving = state.visits
+    .map((item) => currentStep(item))
+    .filter((item) => item?.station === step.station && item.status === "called" && item.calledAt)
+    .map((item) => Math.max(0, pace - (now - item!.calledAt!) / 60000));
+  return patientsAhead(state, visit) * pace + (serving.length ? Math.min(...serving) : 0);
+}
+
+/** "Less than 5 min", "About 20 min" or "About 1 h 15 min": rounded to 5 minutes, as an estimate should be. */
+export function formatEstimate(minutes: number) {
+  if (minutes < 5) return "Less than 5 min";
+  const rounded = Math.round(minutes / 5) * 5;
+  return `About ${rounded < 60 ? `${rounded} min` : `${Math.floor(rounded / 60)} h${rounded % 60 ? ` ${rounded % 60} min` : ""}`}`;
+}

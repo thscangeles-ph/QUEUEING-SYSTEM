@@ -83,6 +83,8 @@ Screens refresh every 2 seconds. With Upstash, each open screen makes about one 
 
 **Tagalog announcements:** the TV reads each call in English, then Tagalog (e.g. "Numero zero one, C one, W. Pakipunta po sa Clinic Room 1."). Choose English only, Tagalog only or both in Settings, and use *Test announcement* to hear it. The Tagalog voice comes from the TV computer's browser: Microsoft Edge includes natural Filipino voices, while Chrome on Windows usually has none and reads the Tagalog with its default voice (the TV shows a note when that happens).
 
+**Estimated waiting time:** the patient's ticket page shows an estimate such as "About 20 min": the patients ahead × the station's typical time per patient today (the median of its last 10 patients), plus what is left of the current patient's turn. Until a station has served 3 patients that day it assumes 15 min for consultation, 20 min for procedures and 10 min for laboratory.
+
 Every computer that uses the same sync server shares one live queue, updated every 2 seconds. The server must be in shared mode (see [Sync modes](#sync-modes)) and running this version of the app: it accepts the file's actions (arrival numbers, YouTube settings) and lets the file call its queue API. If the server has no shared storage, the file says so and keeps its own queue on that computer. **This computer only** keeps the queue in the file's browser storage and works offline.
 
 The file carries its own copy of the queue rules (`lib/queue/reducer.ts`, `format.ts`, `youtube.ts`). When you change those rules, make the same change in the file.
