@@ -3,17 +3,16 @@ import type { NextConfig } from "next";
 const BOARD = "/thsc-queue-board.html";
 
 const nextConfig: NextConfig = {
-  // Staff screens are the single-file Queue Board (public/thsc-queue-board.html); send the bare domain,
-  // the old staff addresses and installed-app shortcuts to the matching board screen. The patient pages
-  // (/queue/checkin, /queue/ticket, /queue/poster) stay on the website.
-  async redirects() {
-    return [
-      { source: "/", destination: `${BOARD}#desk`, permanent: false },
-      { source: "/queue", destination: `${BOARD}#desk`, permanent: false },
-      { source: "/queue/station", has: [{ type: "query", key: "s", value: "(?<code>[A-Za-z0-9]{1,4})" }], destination: `${BOARD}#station/:code`, permanent: false },
-      { source: "/queue/station", destination: `${BOARD}#station`, permanent: false },
-      { source: "/queue/display", destination: `${BOARD}#display`, permanent: false },
-    ];
+  // The staff screens are the single-file Queue Board (public/thsc-queue-board.html), served at the website's own
+  // addresses so the address bar stays clean. The board picks its screen from the path (/queue/display → TV).
+  // The patient pages (/queue/checkin, /queue/ticket, /queue/poster) stay on the website.
+  async rewrites() {
+    return {
+      // beforeFiles: these take over from the older React staff pages at the same addresses.
+      beforeFiles: ["/", "/queue", "/queue/station", "/queue/display"].map((source) => ({ source, destination: BOARD })),
+      afterFiles: [],
+      fallback: [],
+    };
   },
 };
 

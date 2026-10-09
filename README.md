@@ -2,7 +2,7 @@
 
 **THSC Queue Board**: the patient queuing system for The Heart Specialists Clinic. It covers the front desk, consultation rooms, procedures, laboratory, the lobby TV and patient check-in, and installs on tablets and phones as an app (PWA).
 
-The bare domain opens the front desk of the Queue Board (`public/thsc-queue-board.html`). The old staff addresses redirect to the matching board screen: `/` and `/queue` → `#desk`, `/queue/station?s=C1` → `#station/C1`, `/queue/display` → `#display`. Opened from the website, the board syncs with that website without any setup; staff enter the PIN once per device.
+The website serves the Queue Board (`public/thsc-queue-board.html`) at its staff addresses: `/` and `/queue` open the front desk, `/queue/station?s=C1` the C1 station and `/queue/display` the lobby TV. The address bar keeps these addresses; the board picks its screen from the path. Opened from the website, the board syncs with that website without any setup; staff enter the PIN once per device.
 
 ## Run locally
 
@@ -43,9 +43,9 @@ The queue follows the clinic's arrival flow:
 
 | Screen | URL | Used by |
 | --- | --- | --- |
-| Front desk | `/` or `/queue` (board `#desk`) | Concierge: arrival numbers, registration, today's patient list, one-time queue message, Excel report, settings |
-| Stations | `/queue/station?s=C1` (board `#station/C1`) | Doctors, procedure and lab staff: *Call next*, call again, did not respond, complete, or complete and send to another station |
-| TV display | `/queue/display` (board `#display`) | Lobby TV: now calling, now serving at each station, next in line. Tap once to turn on the chime and voice announcement |
+| Front desk | `/` or `/queue` | Concierge: arrival numbers, registration, today's patient list, one-time queue message, Excel report, settings |
+| Stations | `/queue/station?s=C1` | Doctors, procedure and lab staff: *Call next*, call again, did not respond, complete, or complete and send to another station |
+| TV display | `/queue/display` | Lobby TV: now calling, now serving at each station, next in line. Tap once to turn on the chime and voice announcement |
 | QR check-in | `/queue/checkin` | Scheduled patients scan the QR poster on arrival and get their `S` queue number on their phone |
 | Check-in poster | `/queue/poster` | Printable QR poster for the entrance |
 | Patient ticket | `/queue/ticket?id=…` | Live status on the patient's phone (opened after QR check-in, or from the link in the queue message) |

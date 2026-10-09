@@ -1077,7 +1077,9 @@ function downloadQueueReport(xlsx, state, now) {
   // ---------- Routing: #desk, #station/C1, #display ----------
   let view = null;
   function route() {
-    const [name, arg] = location.hash.replace(/^#/, "").split("/");
+    // Served by the website at /queue/station?s=C1 or /queue/display, the path picks the screen until a #screen link is used.
+    const fromPath = location.pathname.startsWith("/queue/station") ? `station/${new URLSearchParams(location.search).get("s") ?? ""}` : location.pathname.startsWith("/queue/display") ? "display" : "";
+    const [name, arg] = (location.hash.replace(/^#/, "") || fromPath).split("/");
     return { name: ["station", "display", "setup"].includes(name) ? name : "desk", arg: arg ? decodeURIComponent(arg) : "" };
   }
   function mount() {
