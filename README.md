@@ -101,4 +101,8 @@ The staff app opens on the front desk and has shortcuts to Stations and the TV d
 
 If a device loses its connection, it shows a "No connection" page or a retry message and reconnects by itself. Queue data is never cached, so a screen never shows an old queue.
 
+**Lobby TV as the front desk's second (extended) screen:** press Windows+P and choose *Extend*. Then either:
+- **Automatic:** put `tv-setup/start-desk-and-tv.cmd` in the Startup folder (Windows+R → `shell:startup`). At startup it opens the front desk on the main screen and finds the extended screen by itself, then opens the TV display full screen there with sound allowed. If no extended screen is found, it says so and opens only the front desk.
+- **By hand:** click *TV display ↗* on the front desk. The first time, allow the browser to manage windows on all your screens. The TV window then opens filling the extended screen; click its gold button once for full screen and sound.
+
 **Automatic lobby TV (Windows):** copy `tv-setup/start-tv-display.cmd` to the TV computer, press Windows+R, type `shell:startup`, press Enter and put the file in the folder that opens. When the computer starts, Microsoft Edge opens `/queue/display` full screen with sound allowed: the chime and the English/Tagalog announcements work without a click, and the screen is kept awake. Press Alt+F4 to close it. Opened any other way, the TV still shows *Click to turn on chime & voice announcements* once.
