@@ -12,6 +12,7 @@ export const DEFAULT_SETTINGS: Settings = {
     { code: "C3", name: "Consultation 3", service: "consultation", location: "Clinic Room 3", selfCheckIn: true, active: true },
     { code: "P1", name: "Procedures (ECG / 2D Echo)", service: "procedure", location: "Procedure Room", selfCheckIn: false, active: true },
     { code: "L1", name: "Laboratory", service: "laboratory", location: "Laboratory", selfCheckIn: false, active: true },
+    { code: "HD", name: "HMO Desk", service: "hmo", location: "HMO Desk", selfCheckIn: false, active: true },
   ],
   cardCount: 30,
   ticker: "Please wait for your queue number to be called. Senior citizens, PWDs and pregnant patients are served through the priority lane.",
@@ -27,7 +28,7 @@ export function newId() {
 }
 
 export function emptyState(now: number, settings: Settings = DEFAULT_SETTINGS): QueueState {
-  return { day: clinicDay(now), nextSeq: 1, visits: [], cards: [], announcements: [], settings: structuredClone(settings) };
+  return { day: clinicDay(now), nextSeq: 1, nextHmoSeq: 1, visits: [], cards: [], announcements: [], settings: structuredClone(settings) };
 }
 
 /** Queues reset at midnight Manila time; settings carry over. */
@@ -36,10 +37,15 @@ export function ensureDay(state: QueueState | null | undefined, now: number): Qu
   return state.day === clinicDay(now) ? state : emptyState(now, state.settings);
 }
 
-export const ticketLabel = (visit: Pick<Visit, "seq" | "kind">, station: string) => `${String(visit.seq).padStart(2, "0")}-${station}-${visit.kind}`;
+const pad2 = (seq: number) => String(seq).padStart(2, "0");
 
-/** The number given on arrival, before a station is assigned at registration, e.g. 01-W. */
-export const arrivalLabel = (visit: Pick<Visit, "seq" | "kind">) => `${String(visit.seq).padStart(2, "0")}-${visit.kind}`;
+/** 01-C1-W for walk-in and scheduled patients; HMO-01-C1 for HMO patients, who have their own numbering. */
+export const ticketLabel = (visit: Pick<Visit, "seq" | "kind">, station: string) => (visit.kind === "H" ? `HMO-${pad2(visit.seq)}-${station}` : `${pad2(visit.seq)}-${station}-${visit.kind}`);
+
+/** The number given on arrival, before a station is assigned at registration, e.g. 01-W or HMO-01. */
+export const arrivalLabel = (visit: Pick<Visit, "seq" | "kind">) => (visit.kind === "H" ? `HMO-${pad2(visit.seq)}` : `${pad2(visit.seq)}-${visit.kind}`);
+
+const kindOf = (kind: unknown): PatientKind => (kind === "S" || kind === "H" ? kind : "W");
 
 /** Visits saved before arrival numbers existed have no `registered` flag; they were always registered. */
 export const isRegistered = (visit: Visit) => visit.registered !== false;
@@ -80,16 +86,19 @@ function validateStations(state: QueueState, codes: unknown): string[] | string 
 }
 
 function newVisit(state: QueueState, kind: PatientKind, priority: boolean, newPatient: boolean, now: number, source: Visit["source"]): Visit | string {
-  if (state.visits.length >= 999) return "The daily queue limit of 999 patients has been reached.";
+  const hmo = kindOf(kind) === "H";
+  if (state.visits.filter((visit) => (visit.kind === "H") === hmo).length >= 999) return "The daily queue limit of 999 patients has been reached.";
   const visit: Visit = {
     id: newId(),
-    seq: state.nextSeq,
-    kind: kind === "S" ? "S" : "W",
+    seq: hmo ? state.nextHmoSeq ?? 1 : state.nextSeq,
+    kind: kindOf(kind),
     name: "",
     mobile: "",
     notes: "",
     priority,
     newPatient,
+    hmo: "",
+    loa: "",
     source,
     verified: source === "desk",
     cancelled: false,
@@ -102,7 +111,8 @@ function newVisit(state: QueueState, kind: PatientKind, priority: boolean, newPa
     messagedAt: null,
     steps: [],
   };
-  state.nextSeq += 1;
+  if (hmo) state.nextHmoSeq = (state.nextHmoSeq ?? 1) + 1;
+  else state.nextSeq += 1;
   state.visits.push(visit);
   return visit;
 }
@@ -113,12 +123,17 @@ function registerVisit(state: QueueState, visit: Visit, input: VisitInput, now: 
   if (!name) return "Enter the patient's name.";
   const stations = validateStations(state, input.stations);
   if (typeof stations === "string") return stations;
-  visit.kind = input.kind === "S" ? "S" : "W";
+  // HMO numbers come from their own count, so an HMO visit stays HMO; walk-in and scheduled can switch.
+  visit.kind = visit.kind === "H" ? "H" : input.kind === "S" ? "S" : "W";
   visit.name = name;
   visit.mobile = clean(input.mobile, 20);
   visit.notes = clean(input.notes, 200);
   visit.priority = Boolean(input.priority) || visit.priority;
   if (input.newPatient !== undefined) visit.newPatient = Boolean(input.newPatient);
+  if (visit.kind === "H") {
+    visit.hmo = clean(input.hmo, 60);
+    visit.loa = clean(input.loa, 40);
+  }
   if (typeof input.card === "number") visit.card = input.card;
   visit.registered = true;
   visit.registeredAt = now;
@@ -130,7 +145,7 @@ function registerVisit(state: QueueState, visit: Visit, input: VisitInput, now: 
 export function waitingToRegister(state: QueueState): Visit[] {
   return state.visits
     .filter((visit) => !visit.cancelled && !isRegistered(visit))
-    .sort((a, b) => Number(b.priority) - Number(a.priority) || a.seq - b.seq);
+    .sort((a, b) => Number(b.priority) - Number(a.priority) || a.createdAt - b.createdAt || a.seq - b.seq);
 }
 
 /** Patients waiting for a station, in calling order: priority lane first, then by time queued. */
@@ -181,7 +196,7 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
     stations.push({
       code,
       name,
-      service: ["consultation", "procedure", "laboratory", "other"].includes(raw.service) ? raw.service : "other",
+      service: ["consultation", "procedure", "laboratory", "hmo", "other"].includes(raw.service) ? raw.service : "other",
       location: clean(raw.location, 60),
       selfCheckIn: Boolean(raw.selfCheckIn),
       active: raw.active !== false,
@@ -247,7 +262,7 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       return { ok: true, visitId: visit.id, label: arrivalLabel(visit) };
     }
     case "callRegistration": {
-      const waiting = waitingToRegister(state);
+      const waiting = waitingToRegister(state).filter((item) => action.hmo === undefined || (item.kind === "H") === action.hmo);
       const visit = action.visitId ? waiting.find((item) => item.id === action.visitId) : waiting.find((item) => !item.regCalledAt);
       if (!visit) return fail(action.visitId ? "That number is not waiting to register." : "Everyone waiting has been called. Use Call on a number to call it again.");
       visit.regCalledAt = now;
@@ -387,5 +402,5 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
 
 /** Removes names, mobile numbers and notes so the TV board and patient phones never receive them. */
 export function publicView(state: QueueState): QueueState {
-  return { ...state, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "" })) };
+  return { ...state, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "" })) };
 }

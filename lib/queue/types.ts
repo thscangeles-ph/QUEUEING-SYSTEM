@@ -1,5 +1,6 @@
-export type PatientKind = "W" | "S";
-export type ServiceType = "consultation" | "procedure" | "laboratory" | "other";
+/** W walk-in, S scheduled, H HMO (its own numbering: HMO-01-C1). */
+export type PatientKind = "W" | "S" | "H";
+export type ServiceType = "consultation" | "procedure" | "laboratory" | "hmo" | "other";
 export type StepStatus = "pending" | "waiting" | "called" | "done" | "missed";
 
 export type Station = {
@@ -35,6 +36,9 @@ export type Visit = {
   priority: boolean;
   /** First visit to the clinic. */
   newPatient?: boolean;
+  /** HMO patients: the HMO company and the LOA / approval number. Staff only; never sent to the TV or phones. */
+  hmo?: string;
+  loa?: string;
   source: "desk" | "self";
   verified: boolean;
   cancelled: boolean;
@@ -79,6 +83,8 @@ export type AnnounceLanguage = "en" | "en+fil" | "fil";
 export type QueueState = {
   day: string;
   nextSeq: number;
+  /** Next HMO number (HMO-01, HMO-02, …); missing on queues saved before HMO numbers existed. */
+  nextHmoSeq?: number;
   visits: Visit[];
   cards: Card[];
   announcements: Announcement[];
@@ -92,6 +98,8 @@ export type VisitInput = {
   notes?: string;
   priority?: boolean;
   newPatient?: boolean;
+  hmo?: string;
+  loa?: string;
   stations: string[];
   card?: number | null;
 };
@@ -101,7 +109,7 @@ export type QueueAction =
   | { type: "callCard"; card?: number }
   | { type: "removeCard"; card: number }
   | { type: "arrive"; kind: PatientKind; priority?: boolean; newPatient?: boolean }
-  | { type: "callRegistration"; visitId?: string }
+  | { type: "callRegistration"; visitId?: string; hmo?: boolean }
   | { type: "register"; visitId?: string; visit: VisitInput }
   | { type: "selfCheckIn"; visit: Omit<VisitInput, "kind" | "card"> }
   | { type: "verify"; visitId: string }

@@ -99,7 +99,7 @@ export function announcementSpeech(item: Announcement, language: AnnounceLanguag
 export const announcementGap = (language: AnnounceLanguage = "en+fil") => (language === "en+fil" ? 11000 : 6000);
 
 /** Starting guess for minutes per patient, used until a station has served a few patients today. */
-const DEFAULT_SERVICE_MINUTES: Record<Station["service"], number> = { consultation: 15, procedure: 20, laboratory: 10, other: 10 };
+const DEFAULT_SERVICE_MINUTES: Record<Station["service"], number> = { consultation: 15, procedure: 20, laboratory: 10, hmo: 10, other: 10 };
 const PACE_SAMPLES = 10;
 const MIN_PACE_SAMPLES = 3;
 
