@@ -341,6 +341,9 @@ const DEFAULT_SETTINGS = {
         { code: "P1", name: "Procedures (ECG / 2D Echo)", service: "procedure", location: "Procedure Room", selfCheckIn: false, active: true },
         { code: "L1", name: "Laboratory", service: "laboratory", location: "Laboratory", selfCheckIn: false, active: true },
         { code: "HD", name: "HMO Desk", service: "hmo", location: "HMO Desk", selfCheckIn: false, active: true },
+        { code: "CA", name: "Cashier", service: "cashier", location: "Cashier", selfCheckIn: false, active: true },
+        { code: "XR", name: "X-ray", service: "imaging", location: "X-ray Room", selfCheckIn: false, active: true },
+        { code: "US", name: "Ultrasound", service: "imaging", location: "Ultrasound Room", selfCheckIn: false, active: true },
     ],
     ticker: "Please wait for your queue number to be called. Senior citizens, PWDs and pregnant patients are served through the priority lane.",
 };
@@ -514,7 +517,7 @@ function sanitizeSettings(input) {
         stations.push({
             code,
             name,
-            service: ["consultation", "procedure", "laboratory", "hmo", "other"].includes(raw.service) ? raw.service : "other",
+            service: ["consultation", "procedure", "laboratory", "imaging", "cashier", "hmo", "other"].includes(raw.service) ? raw.service : "other",
             location: clean(raw.location, 60),
             selfCheckIn: Boolean(raw.selfCheckIn),
             active: raw.active !== false,
@@ -905,7 +908,7 @@ function buildQueueReport(state, now) {
             return;
         const waits = steps.map((step) => minutes(step.queuedAt, step.calledAt));
         stationRows.push([
-            station.code, station.name, (station.service === "hmo" ? "HMO desk" : station.service[0].toUpperCase() + station.service.slice(1)), steps.length,
+            station.code, station.name, ({ hmo: "HMO desk", imaging: "Imaging" }[station.service] ?? station.service[0].toUpperCase() + station.service.slice(1)), steps.length,
             steps.filter((step) => step.status === "done").length, steps.filter((step) => step.status === "waiting").length, steps.filter((step) => step.status === "missed").length,
             average(waits), longest(waits), average(steps.map((step) => minutes(step.calledAt, step.doneAt))),
         ]);
@@ -1447,7 +1450,7 @@ function downloadQueueReport(xlsx, state, now) {
     const box = $("#settings");
     if (!draft) { box.innerHTML = ""; return; }
     const inUse = (code) => state.visits.some((v) => !v.cancelled && v.steps.some((s) => s.station === code && s.status !== "done"));
-    const services = [["consultation", "Consultation"], ["procedure", "Procedure"], ["laboratory", "Laboratory"], ["hmo", "HMO desk"], ["other", "Other"]];
+    const services = [["consultation", "Consultation"], ["procedure", "Procedure"], ["laboratory", "Laboratory"], ["imaging", "Imaging"], ["cashier", "Cashier"], ["hmo", "HMO desk"], ["other", "Other"]];
     box.innerHTML = `<div class="modal-bg" data-act="closeSettingsBg"><section class="panel modal" role="dialog" aria-label="Queue settings">
       <div class="panel-h"><div><h2>Queue settings</h2><p>Station codes become part of the queue number, e.g. C1 in 01-C1-W. Queues restart automatically at midnight.</p></div><button class="btn sm ghost" data-act="closeSettings">Close</button></div>
       <div class="panel-b">
@@ -1462,7 +1465,7 @@ function downloadQueueReport(xlsx, state, now) {
           <td style="text-align:right"><button class="btn icon ghost" ${inUse(s.code) ? "disabled title=\"Patients are still queued here — set it inactive instead\"" : "title=\"Remove station\""} data-act="removeStation" data-index="${i}" aria-label="Remove station">✕</button></td>
         </tr>`).join("")}
         </tbody></table></div>
-        <button class="btn sm outline" style="margin-top:8px" data-act="addStation">＋ Add station</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sm outline" data-act="addStation">＋ Add station</button>${missingStandard().length ? `<button class="btn sm outline" data-act="addStandard" title="${esc(missingStandard().map((s) => s.name).join(", "))}">＋ Add missing standard stations (${esc(missingStandard().map((s) => s.name).join(", "))})</button>` : ""}</div>
         <div class="set-grid">
           <label class="field">TV display message<input type="text" maxlength="240" value="${esc(draft.ticker)}" data-set="ticker"></label>
           <div style="display:grid;gap:8px;border:1px solid #e8dfce;border-radius:12px;padding:14px">
@@ -1489,6 +1492,12 @@ function downloadQueueReport(xlsx, state, now) {
     }));
     showYouTubeHint();
     showVoiceHint();
+  }
+
+  /** Standard stations (e.g. Cashier, X-ray, Ultrasound) that this clinic's saved settings do not have yet, by code or name. */
+  function missingStandard() {
+    const have = draft?.stations ?? state.settings.stations;
+    return DEFAULT_SETTINGS.stations.filter((s) => !have.some((h) => h.code === s.code || h.name.toLowerCase() === s.name.toLowerCase()));
   }
 
   function showVoiceHint() {
@@ -1729,13 +1738,18 @@ function downloadQueueReport(xlsx, state, now) {
       ? `<p class="k">Now calling</p><p class="num mono">${esc(latest.label)}</p><p class="go">Please proceed to <b>${esc(latest.destination)}</b></p>`
       : `<p class="k">Welcome</p><p class="go" style="max-width:80%">Please wait for your queue number to appear on this screen.</p>`;
     if (fresh.length) { const hero = $("#hero"); hero.classList.remove("fresh"); void hero.offsetWidth; }
-    $("#tiles").style.gridTemplateColumns = `repeat(${Math.min(Math.max(stations.length, 1), mountedVideo ? 5 : 3)}, minmax(0, 1fr))`;
-    $("#tiles").innerHTML = stations.map((s) => { const v = servingAt(state, s.code)[0]; return `<div class="tile"><p class="s"><b class="mono">${esc(s.code)}</b> · ${esc(s.name)}</p><p class="num mono ${v ? "" : "none"}">${v ? esc(ticketLabel(v, s.code)) : "—"}</p></div>`; }).join("");
+    // With more stations than fit (two rows, or one beside the video), show only the stations serving someone now.
+    const maxTiles = mountedVideo ? 5 : 6;
+    const tileStations = stations.length <= maxTiles ? stations : stations.filter((s) => servingAt(state, s.code).length).slice(0, maxTiles);
+    $("#tiles").style.gridTemplateColumns = `repeat(${Math.min(Math.max(tileStations.length, 1), mountedVideo ? 5 : 3)}, minmax(0, 1fr))`;
+    $("#tiles").innerHTML = tileStations.length ? tileStations.map((s) => { const v = servingAt(state, s.code)[0]; return `<div class="tile"><p class="s"><b class="mono">${esc(s.code)}</b> · ${esc(s.name)}</p><p class="num mono ${v ? "" : "none"}">${v ? esc(ticketLabel(v, s.code)) : "—"}</p></div>`; }).join("") : `<div class="tile"><p class="s">Now serving</p><p class="num mono none">—</p></div>`;
     const toRegister = waitingToRegister(state);
     const registering = toRegister.filter((v) => v.regCalledAt).sort((a, b) => b.regCalledAt - a.regCalledAt)[0];
     const nextReg = toRegister.filter((v) => v !== registering);
     $("#reg-call").innerHTML = toRegister.length ? `<div class="reg-call" style="display:block"><p class="h" style="margin:0;display:flex;justify-content:space-between;color:#f4e8c7;font-size:1.1vw"><span>Registration · Front Desk</span><span>${toRegister.length} waiting</span></p><div class="nl" style="border:0;padding:0"><div class="l">${registering ? `<b class="mono" style="background:var(--gold-2);color:var(--brown)">${esc(arrivalLabel(registering))}</b>` : ""}${nextReg.slice(0, registering ? 3 : 4).map((v) => `<b class="mono">${esc(arrivalLabel(v))}</b>`).join("")}</div></div></div>` : "";
-    $("#next").innerHTML = stations.map((s) => {
+    // Many stations: list only those with someone waiting, so busy lines are never pushed off the screen.
+    const lineStations = stations.length <= 5 ? stations : stations.filter((s) => waitingFor(state, s.code).length);
+    $("#next").innerHTML = !lineStations.length ? `<p style="color:#cbbd9d;font-size:1.3vw;margin:1vh 0 0">No one is waiting for a station.</p>` : lineStations.map((s) => {
       const waiting = waitingFor(state, s.code);
       return `<div class="nl"><p class="h" style="margin:0"><span>${esc(s.name)}</span><span>${waiting.length} waiting</span></p><div class="l">${waiting.length ? waiting.slice(0, mountedVideo ? 2 : 3).map((v) => `<b class="mono">${esc(ticketLabel(v, s.code))}</b>`).join("") : "<i>—</i>"}</div></div>`;
     }).join("");
@@ -1800,6 +1814,7 @@ function downloadQueueReport(xlsx, state, now) {
       case "openSettings": openSettings(); break;
       case "closeSettings": draft = null; renderSettings(); break;
       case "closeSettingsBg": if (event.target === el) { draft = null; renderSettings(); } break;
+      case "addStandard": draft.stations.push(...missingStandard().map((s) => ({ ...s }))); renderSettings(); break;
       case "addStation": draft.stations.push({ code: "", name: "", location: "", service: "consultation", selfCheckIn: true, active: true }); renderSettings(); break;
       case "removeStation": draft.stations.splice(Number(index), 1); renderSettings(); break;
       case "saveSettings": void dispatch({ type: "updateSettings", settings: draft }, sync.mode === "server" ? "Settings saved. Every computer updates automatically." : "Settings saved. Every open window updates automatically.").then((r) => { if (r.ok) { draft = null; renderSettings(); } }); break;

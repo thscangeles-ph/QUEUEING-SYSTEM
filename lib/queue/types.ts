@@ -1,6 +1,6 @@
 /** W walk-in, S scheduled, H HMO (its own numbering: HMO-01-C1). */
 export type PatientKind = "W" | "S" | "H";
-export type ServiceType = "consultation" | "procedure" | "laboratory" | "hmo" | "other";
+export type ServiceType = "consultation" | "procedure" | "laboratory" | "imaging" | "cashier" | "hmo" | "other";
 export type StepStatus = "pending" | "waiting" | "called" | "done" | "missed";
 
 export type Station = {

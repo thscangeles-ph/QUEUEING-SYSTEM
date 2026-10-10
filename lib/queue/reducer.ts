@@ -13,6 +13,9 @@ export const DEFAULT_SETTINGS: Settings = {
     { code: "P1", name: "Procedures (ECG / 2D Echo)", service: "procedure", location: "Procedure Room", selfCheckIn: false, active: true },
     { code: "L1", name: "Laboratory", service: "laboratory", location: "Laboratory", selfCheckIn: false, active: true },
     { code: "HD", name: "HMO Desk", service: "hmo", location: "HMO Desk", selfCheckIn: false, active: true },
+    { code: "CA", name: "Cashier", service: "cashier", location: "Cashier", selfCheckIn: false, active: true },
+    { code: "XR", name: "X-ray", service: "imaging", location: "X-ray Room", selfCheckIn: false, active: true },
+    { code: "US", name: "Ultrasound", service: "imaging", location: "Ultrasound Room", selfCheckIn: false, active: true },
   ],
   cardCount: 30,
   ticker: "Please wait for your queue number to be called. Senior citizens, PWDs and pregnant patients are served through the priority lane.",
@@ -196,7 +199,7 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
     stations.push({
       code,
       name,
-      service: ["consultation", "procedure", "laboratory", "hmo", "other"].includes(raw.service) ? raw.service : "other",
+      service: ["consultation", "procedure", "laboratory", "imaging", "cashier", "hmo", "other"].includes(raw.service) ? raw.service : "other",
       location: clean(raw.location, 60),
       selfCheckIn: Boolean(raw.selfCheckIn),
       active: raw.active !== false,

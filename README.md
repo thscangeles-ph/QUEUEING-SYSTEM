@@ -36,7 +36,7 @@ The queue follows the clinic's arrival flow:
 
 - The daily number starts at 01 every day (Manila time) and is shared by walk-in and scheduled patients.
 - **One number per visit.** A patient keeps the same daily number for consultation, procedures and laboratory; only the station code changes (`01-C1-W` → `01-L1-W`).
-- Station codes, names and rooms are set in Front desk → **Settings**. Defaults: C1–C3 Consultation, P1 Procedures (ECG / 2D Echo), L1 Laboratory.
+- Station codes, names and rooms are set in Front desk → **Settings**. Defaults: C1–C3 Consultation, P1 Procedures (ECG / 2D Echo), L1 Laboratory, HD HMO Desk, CA Cashier, XR X-ray, US Ultrasound. If saved settings are missing any of these, Settings offers *Add missing standard stations*. With more than six stations, the TV shows tiles only for stations serving someone and lists only stations with someone waiting.
 - Patients marked **Priority lane** (senior citizen, PWD, pregnant) are called ahead of the regular line.
 - **HMO patients** have their own tab on the front desk and their own numbering: `HMO-01`, then `HMO-01-C1` at a station (also starting at 01 each day). The HMO tab asks for the HMO company and LOA / approval number, and starts the patient's services with the **HMO Desk** station (code `HD`, service *HMO desk*), which has its own *Call next* screen at `/queue/station?s=HD`. After the HMO Desk, HMO patients join each doctor's single line in arrival order. HMO details stay on staff screens and in the Excel report; the TV shows the number only.
 
