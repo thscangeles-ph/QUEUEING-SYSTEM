@@ -93,6 +93,11 @@ label.field em { font-style: normal; font-weight: 400; color: var(--muted-2); fo
 .tog[aria-pressed="true"] .box { background: var(--gold-2); border-color: var(--gold-2); color: var(--brown); }
 .tag.new { background: #e3f0dc; color: #36561f; }
 .tag.qr { background: #e8eef7; color: #2d4a6e; }
+.tag.hmo { background: #ece4f6; color: #4b2f7a; }
+.desk-tabs { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
+.desk-tabs button { border: 0; border-bottom: 3px solid transparent; background: none; padding: 10px 16px; font-size: 15px; font-weight: 700; color: var(--muted); display: inline-flex; align-items: center; gap: 8px; margin-bottom: -1px; }
+.desk-tabs button.on { color: var(--ink); border-bottom-color: var(--gold); }
+.desk-tabs button[data-tab="hmo"].on { border-bottom-color: #6b48a8; }
 .row-form { display: flex; gap: 8px; }
 .row-form input { width: 90px; flex: none; }
 .row-form .btn { flex: 1; }
@@ -335,6 +340,7 @@ const DEFAULT_SETTINGS = {
         { code: "C3", name: "Consultation 3", service: "consultation", location: "Clinic Room 3", selfCheckIn: true, active: true },
         { code: "P1", name: "Procedures (ECG / 2D Echo)", service: "procedure", location: "Procedure Room", selfCheckIn: false, active: true },
         { code: "L1", name: "Laboratory", service: "laboratory", location: "Laboratory", selfCheckIn: false, active: true },
+        { code: "HD", name: "HMO Desk", service: "hmo", location: "HMO Desk", selfCheckIn: false, active: true },
     ],
     ticker: "Please wait for your queue number to be called. Senior citizens, PWDs and pregnant patients are served through the priority lane.",
 };
@@ -346,7 +352,7 @@ function newId() {
     return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 function emptyState(now, settings = DEFAULT_SETTINGS) {
-    return { day: clinicDay(now), nextSeq: 1, visits: [], announcements: [], settings: structuredClone(settings) };
+    return { day: clinicDay(now), nextSeq: 1, nextHmoSeq: 1, visits: [], announcements: [], settings: structuredClone(settings) };
 }
 /** Queues reset at midnight Manila time; settings carry over. */
 function ensureDay(state, now) {
@@ -354,9 +360,12 @@ function ensureDay(state, now) {
         return emptyState(now);
     return state.day === clinicDay(now) ? state : emptyState(now, state.settings);
 }
-const ticketLabel = (visit, station) => `${String(visit.seq).padStart(2, "0")}-${station}-${visit.kind}`;
+const pad2 = (seq) => String(seq).padStart(2, "0");
+/** 01-C1-W for walk-in and scheduled patients; HMO-01-C1 for HMO patients, who have their own numbering. */
+const ticketLabel = (visit, station) => (visit.kind === "H" ? `HMO-${pad2(visit.seq)}-${station}` : `${pad2(visit.seq)}-${station}-${visit.kind}`);
 /** The number given on arrival, before a station is assigned at registration, e.g. 01-W. */
-const arrivalLabel = (visit) => `${String(visit.seq).padStart(2, "0")}-${visit.kind}`;
+const arrivalLabel = (visit) => (visit.kind === "H" ? `HMO-${pad2(visit.seq)}` : `${pad2(visit.seq)}-${visit.kind}`);
+const kindOf = (kind) => (kind === "S" || kind === "H" ? kind : "W");
 /** Visits saved before arrival numbers existed have no `registered` flag; they were always registered. */
 const isRegistered = (visit) => visit.registered !== false;
 function currentStep(visit) {
@@ -391,17 +400,20 @@ function validateStations(state, codes) {
     return result;
 }
 function newVisit(state, kind, priority, newPatient, now, source) {
-    if (state.visits.length >= 999)
+    const hmo = kindOf(kind) === "H";
+    if (state.visits.filter((visit) => (visit.kind === "H") === hmo).length >= 999)
         return "The daily queue limit of 999 patients has been reached.";
     const visit = {
         id: newId(),
-        seq: state.nextSeq,
-        kind: kind === "S" ? "S" : "W",
+        seq: hmo ? state.nextHmoSeq ?? 1 : state.nextSeq,
+        kind: kindOf(kind),
         name: "",
         mobile: "",
         notes: "",
         priority,
         newPatient,
+        hmo: "",
+        loa: "",
         source,
         verified: source === "desk",
         cancelled: false,
@@ -413,7 +425,10 @@ function newVisit(state, kind, priority, newPatient, now, source) {
         messagedAt: null,
         steps: [],
     };
-    state.nextSeq += 1;
+    if (hmo)
+        state.nextHmoSeq = (state.nextHmoSeq ?? 1) + 1;
+    else
+        state.nextSeq += 1;
     state.visits.push(visit);
     return visit;
 }
@@ -425,13 +440,18 @@ function registerVisit(state, visit, input, now) {
     const stations = validateStations(state, input.stations);
     if (typeof stations === "string")
         return stations;
-    visit.kind = input.kind === "S" ? "S" : "W";
+    // HMO numbers come from their own count, so an HMO visit stays HMO; walk-in and scheduled can switch.
+    visit.kind = visit.kind === "H" ? "H" : input.kind === "S" ? "S" : "W";
     visit.name = name;
     visit.mobile = clean(input.mobile, 20);
     visit.notes = clean(input.notes, 200);
     visit.priority = Boolean(input.priority) || visit.priority;
     if (input.newPatient !== undefined)
         visit.newPatient = Boolean(input.newPatient);
+    if (visit.kind === "H") {
+        visit.hmo = clean(input.hmo, 60);
+        visit.loa = clean(input.loa, 40);
+    }
     visit.registered = true;
     visit.registeredAt = now;
     visit.steps = stations.map((code, index) => makeStep(code, now, index === 0));
@@ -441,7 +461,7 @@ function registerVisit(state, visit, input, now) {
 function waitingToRegister(state) {
     return state.visits
         .filter((visit) => !visit.cancelled && !isRegistered(visit))
-        .sort((a, b) => Number(b.priority) - Number(a.priority) || a.seq - b.seq);
+        .sort((a, b) => Number(b.priority) - Number(a.priority) || a.createdAt - b.createdAt || a.seq - b.seq);
 }
 /** Patients waiting for a station, in calling order: priority lane first, then by time queued. */
 function waitingFor(state, station) {
@@ -494,7 +514,7 @@ function sanitizeSettings(input) {
         stations.push({
             code,
             name,
-            service: ["consultation", "procedure", "laboratory", "other"].includes(raw.service) ? raw.service : "other",
+            service: ["consultation", "procedure", "laboratory", "hmo", "other"].includes(raw.service) ? raw.service : "other",
             location: clean(raw.location, 60),
             selfCheckIn: Boolean(raw.selfCheckIn),
             active: raw.active !== false,
@@ -529,7 +549,7 @@ function run(state, action, now) {
             return { ok: true, visitId: visit.id, label: arrivalLabel(visit) };
         }
         case "callRegistration": {
-            const waiting = waitingToRegister(state);
+            const waiting = waitingToRegister(state).filter((item) => action.hmo === undefined || (item.kind === "H") === action.hmo);
             const visit = action.visitId ? waiting.find((item) => item.id === action.visitId) : waiting.find((item) => item.regCalledAt === null);
             if (!visit)
                 return fail(action.visitId ? "That number is not waiting to register." : "Everyone waiting has been called. Use Call on a number to call it again.");
@@ -696,7 +716,7 @@ function run(state, action, now) {
 }
 /** Removes names, mobile numbers and notes so the TV board and patient phones never receive them. */
 function publicView(state) {
-    return { ...state, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "" })) };
+    return { ...state, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "" })) };
 }
 
 // ---- from lib/queue/format.ts ----
@@ -838,7 +858,7 @@ function finishedAt(visit) {
 }
 /** The day's queue as report sheets: Summary, By station, By hour and Patient list. */
 function buildQueueReport(state, now) {
-    const visits = [...state.visits].sort((a, b) => a.seq - b.seq);
+    const visits = [...state.visits].sort((a, b) => a.createdAt - b.createdAt);
     const active = visits.filter((visit) => !visit.cancelled);
     const count = (list, test) => list.filter(test).length;
     const toRegister = visits.map((visit) => (visit.source === "desk" ? minutes(visit.createdAt, visit.registeredAt) : null));
@@ -865,6 +885,7 @@ function buildQueueReport(state, now) {
         ["PATIENT MIX (excluding cancelled)", "Count"],
         ["Walk-in (W)", count(active, (v) => v.kind === "W")],
         ["Scheduled (S)", count(active, (v) => v.kind === "S")],
+        ["HMO", count(active, (v) => v.kind === "H")],
         ["New patients", count(active, (v) => v.newPatient === true)],
         ["Returning patients", count(active, (v) => v.newPatient !== true)],
         ["Priority lane", count(active, (v) => v.priority)],
@@ -884,32 +905,32 @@ function buildQueueReport(state, now) {
             return;
         const waits = steps.map((step) => minutes(step.queuedAt, step.calledAt));
         stationRows.push([
-            station.code, station.name, station.service[0].toUpperCase() + station.service.slice(1), steps.length,
+            station.code, station.name, (station.service === "hmo" ? "HMO desk" : station.service[0].toUpperCase() + station.service.slice(1)), steps.length,
             steps.filter((step) => step.status === "done").length, steps.filter((step) => step.status === "waiting").length, steps.filter((step) => step.status === "missed").length,
             average(waits), longest(waits), average(steps.map((step) => minutes(step.calledAt, step.doneAt))),
         ]);
     });
-    const hourRows = [["Hour", "Queue numbers issued", "Walk-in", "Scheduled", "New patients", "Priority lane"]];
+    const hourRows = [["Hour", "Queue numbers issued", "Walk-in", "Scheduled", "HMO", "New patients", "Priority lane"]];
     hours.forEach((hour) => {
         const list = arrivalsByHour.get(hour);
-        hourRows.push([`${hourLabel(hour)} – ${hourLabel((hour + 1) % 24)}`, list.length, count(list, (v) => v.kind === "W"), count(list, (v) => v.kind === "S"), count(list, (v) => v.newPatient === true), count(list, (v) => v.priority)]);
+        hourRows.push([`${hourLabel(hour)} – ${hourLabel((hour + 1) % 24)}`, list.length, count(list, (v) => v.kind === "W"), count(list, (v) => v.kind === "S"), count(list, (v) => v.kind === "H"), count(list, (v) => v.newPatient === true), count(list, (v) => v.priority)]);
     });
     if (hours.length)
-        hourRows.push(["Total", visits.length, count(visits, (v) => v.kind === "W"), count(visits, (v) => v.kind === "S"), count(visits, (v) => v.newPatient === true), count(visits, (v) => v.priority)]);
-    const patientRows = [["Queue no.", "Patient", "Mobile", "Type", "New patient", "Priority", "Source", "Status", "Services", "Arrived", "Registered", "First called", "Finished", "Wait to register (min)", "Wait for first call (min)", "Time in clinic (min)", "Notes"]];
+        hourRows.push(["Total", visits.length, count(visits, (v) => v.kind === "W"), count(visits, (v) => v.kind === "S"), count(visits, (v) => v.kind === "H"), count(visits, (v) => v.newPatient === true), count(visits, (v) => v.priority)]);
+    const patientRows = [["Queue no.", "Patient", "Mobile", "Type", "New patient", "Priority", "Source", "Status", "Services", "Arrived", "Registered", "First called", "Finished", "Wait to register (min)", "Wait for first call (min)", "Time in clinic (min)", "Notes", "HMO", "LOA / approval no."]];
     visits.forEach((visit, index) => {
         patientRows.push([
-            currentLabel(visit), visit.name, visit.mobile, visit.kind === "S" ? "Scheduled" : "Walk-in", visit.newPatient ? "Yes" : "No", visit.priority ? "Yes" : "",
+            currentLabel(visit), visit.name, visit.mobile, { S: "Scheduled", H: "HMO", W: "Walk-in" }[visit.kind] ?? "Walk-in", visit.newPatient ? "Yes" : "No", visit.priority ? "Yes" : "",
             visit.source === "self" ? "QR check-in" : "Front desk", STATUS_LABEL[visitStatus(visit)], visit.steps.map((step) => stationName(state, step.station)).join(" → "),
             time(visit.createdAt), time(visit.registeredAt), time(visit.steps[0]?.calledAt), time(finishedAt(visit)),
-            toRegister[index], toFirstCall[index], inClinic[index], visit.notes,
+            toRegister[index], toFirstCall[index], inClinic[index], visit.notes, visit.hmo ?? "", visit.loa ?? "",
         ]);
     });
     return [
         { name: "Summary", rows: summary, widths: [40, 30, 12] },
         { name: "By station", rows: stationRows, widths: [8, 28, 14, 16, 10, 13, 9, 15, 18, 22] },
-        { name: "By hour", rows: hourRows, widths: [22, 22, 10, 11, 14, 13] },
-        { name: "Patient list", rows: patientRows, widths: [11, 26, 15, 11, 12, 9, 13, 14, 40, 10, 11, 12, 10, 20, 22, 19, 30] },
+        { name: "By hour", rows: hourRows, widths: [22, 22, 10, 11, 8, 14, 13] },
+        { name: "Patient list", rows: patientRows, widths: [13, 26, 15, 11, 12, 9, 13, 14, 40, 10, 11, 12, 10, 20, 22, 19, 30, 18, 18] },
     ];
 }
 /** Builds the workbook and downloads it as THSC-Queue-Report-YYYY-MM-DD.xlsx. */
@@ -1211,24 +1232,44 @@ function downloadQueueReport(xlsx, state, now) {
 
   // ---------- Front desk ----------
   let latestArrival = null;
+  // Front desk tab: "regular" (walk-in and scheduled) or "hmo" (HMO patients, numbered HMO-01, HMO-02, …). Remembered per computer.
+  let deskTab = readSetting("thsc-queue-desk-tab") === "hmo" ? "hmo" : "regular";
+  const isHmoTab = () => deskTab === "hmo";
+  const inTab = (v) => (v.kind === "H") === isHmoTab();
+  const hmoDesk = () => state?.settings.stations.find((s) => s.active && s.service === "hmo");
+  const HMO_COMPANIES = ["Maxicare", "Intellicare", "MediCard", "PhilCare", "Cocolife", "Avega", "Pacific Cross", "ValuCare", "Etiqa", "Insular Health Care", "Kaiser", "Generali", "Caritas Health Shield", "AXA", "Sun Life Grepa"];
   const arr = { newPatient: false, priority: false };
-  const form = { kind: "W", newPatient: false, arrival: null, name: "", mobile: "", notes: "", priority: false, stations: [] };
+  const form = { kind: "W", newPatient: false, arrival: null, name: "", mobile: "", notes: "", hmo: "", loa: "", priority: false, stations: [] };
+  /** Empties the registration form; HMO patients start with the HMO Desk as their first service. */
+  function resetForm() {
+    const desk = isHmoTab() && hmoDesk();
+    Object.assign(form, { kind: isHmoTab() ? "H" : "W", newPatient: false, arrival: null, name: "", mobile: "", notes: "", hmo: "", loa: "", priority: false, stations: desk ? [desk.code] : [] });
+    ["#reg-name", "#reg-mobile", "#reg-notes", "#reg-hmo", "#reg-loa"].forEach((sel) => { const input = $(sel); if (input) input.value = ""; });
+  }
+  resetForm();
   let issued = null;
   let filter = "active";
   let search = "";
 
   function mountDesk() {
+    if (isHmoTab() && !form.stations.length && !form.name && hmoDesk()) form.stations = [hmoDesk().code];
     $("#main").innerHTML = `
       <p class="note" id="storage-note">${sync.mode === "server"
         ? `<b>Synced queue.</b> Every computer that opens this file with the sync server <b>${esc(serverHost(syncServer()))}</b> shares this queue: front desk, stations and the lobby TV. Change it in <a href="#setup">Sync setup</a>.`
         : `<b>This computer only.</b> Everything is saved in this browser on this computer. Open the <b>TV display</b> in a second window on the TV screen, and stations in other windows or tabs — they all stay in sync. Use the same browser every day; clearing browsing data erases the queue. To share the queue with other computers, use <a href="#setup">Sync setup</a>.`}</p>
+      <nav class="desk-tabs" role="tablist" aria-label="Patient group">
+        <button type="button" role="tab" data-act="deskTab" data-tab="regular">Regular patients <span class="count" id="tab-count-regular"></span></button>
+        <button type="button" role="tab" data-act="deskTab" data-tab="hmo">HMO patients <span class="count" id="tab-count-hmo"></span></button>
+      </nav>
       <section class="stats" id="stats"></section>
       <div class="grid">
         <div class="col">
           <section class="panel">
-            <div class="panel-h"><div><h2>Step 1 · Queue number on arrival</h2><p>Generate the patient's number as soon as they arrive, before registration.</p></div><button class="btn sm dark" id="call-reg" data-act="callReg">Call next to register</button></div>
+            <div class="panel-h"><div><h2>Step 1 · ${isHmoTab() ? "HMO queue number" : "Queue number"} on arrival</h2><p>Generate the patient's number as soon as they arrive, before registration.</p></div><button class="btn sm dark" id="call-reg" data-act="callReg">Call next to register</button></div>
             <div class="panel-b">
-              <div class="gen"><button class="btn" data-act="arrive" data-kind="W">🎫 Walk-in number</button><button class="btn outline" data-act="arrive" data-kind="S">🎫 Scheduled number</button></div>
+              ${isHmoTab()
+                ? `<div class="gen" style="grid-template-columns:1fr"><button class="btn" data-act="arrive" data-kind="H" id="arr-hmo" style="background:#6b48a8">🎫 HMO number</button></div><div id="hmo-desk-note"></div>`
+                : `<div class="gen"><button class="btn" data-act="arrive" data-kind="W">🎫 Walk-in number</button><button class="btn outline" data-act="arrive" data-kind="S">🎫 Scheduled number</button></div>`}
               <div class="toggles"><button type="button" class="tog" id="arr-new" data-act="togArrNew" aria-pressed="false"><span class="box">✓</span><span><b>New patient</b><small>First visit to THSC</small></span></button><button type="button" class="tog" id="arr-prio" data-act="togArrPrio" aria-pressed="false"><span class="box">✓</span><span><b>Priority lane</b><small>Senior, PWD, pregnant</small></span></button></div><div class="gen-opts" style="justify-content:flex-end"><label><input type="checkbox" id="arr-print">Print a slip for each number</label></div>
               <div id="newnum"></div>
               <p class="sub" id="reg-count"></p>
@@ -1240,10 +1281,12 @@ function downloadQueueReport(xlsx, state, now) {
             <div class="panel-b">
               <div id="issued"></div>
               <form class="reg" id="reg">
-                <div class="seg" role="radiogroup" aria-label="Patient type"><button type="button" data-act="kind" data-kind="W" role="radio">Walk-in (W)</button><button type="button" data-act="kind" data-kind="S" role="radio">Scheduled (S)</button></div>
+                ${isHmoTab() ? "" : `<div class="seg" role="radiogroup" aria-label="Patient type"><button type="button" data-act="kind" data-kind="W" role="radio">Walk-in (W)</button><button type="button" data-act="kind" data-kind="S" role="radio">Scheduled (S)</button></div>`}
                 <label class="field">Queue number<select id="reg-arrival"></select></label>
                 <label class="field">Patient name<input type="text" id="reg-name" placeholder="Full name" autocomplete="off" required></label>
                 <label class="field">Mobile number<em>Optional — for the one-time queue message</em><input type="tel" id="reg-mobile" placeholder="09XX XXX XXXX" autocomplete="off"></label>
+                ${isHmoTab() ? `<label class="field">HMO company<input type="text" id="reg-hmo" list="hmo-list" placeholder="e.g. Maxicare" autocomplete="off"><datalist id="hmo-list">${HMO_COMPANIES.map((name) => `<option value="${esc(name)}">`).join("")}</datalist></label>
+                <label class="field">LOA / approval number<em>Optional</em><input type="text" id="reg-loa" autocomplete="off"></label>` : ""}
                 <div class="field" style="display:grid;gap:6px;font-size:13px;font-weight:600;color:#514838">Services today, in order<ol class="steps" id="reg-steps"></ol><div class="chips" id="reg-chips"></div></div>
                 <div class="toggles" style="margin-top:0"><button type="button" class="tog" id="reg-new" data-act="togRegNew" aria-pressed="false"><span class="box">✓</span><span><b>New patient</b><small>First visit to THSC</small></span></button><button type="button" class="tog" id="reg-prio" data-act="togRegPrio" aria-pressed="false"><span class="box">✓</span><span><b>Priority lane</b><small>Senior, PWD, pregnant</small></span></button></div>
                 <label class="field">Notes for staff<input type="text" id="reg-notes" placeholder="Optional"></label>
@@ -1253,7 +1296,7 @@ function downloadQueueReport(xlsx, state, now) {
           </section>
         </div>
         <section class="panel">
-          <div class="panel-h"><div><h2>Today's patients</h2><p id="patients-desc">Every queue number today and where the patient is now.</p></div>
+          <div class="panel-h"><div><h2>Today's ${isHmoTab() ? "HMO " : ""}patients</h2><p id="patients-desc">Every queue number today and where the patient is now.</p></div>
             <div class="tools"><input type="search" id="search" placeholder="Name or number" aria-label="Search patients"><div class="filters" id="filters">${[["active", "In clinic"], ["completed", "Completed"], ["all", "All"]].map(([key, label]) => `<button data-act="filter" data-filter="${key}">${label}</button>`).join("")}</div><button class="btn sm outline" data-act="excel" id="excel-btn">📊 Excel report</button></div>
           </div>
           <div class="table-wrap" id="patients"></div>
@@ -1262,6 +1305,11 @@ function downloadQueueReport(xlsx, state, now) {
       </div>
       <div id="settings"></div>`;
     $("#reg-name").value = form.name; $("#reg-mobile").value = form.mobile; $("#reg-notes").value = form.notes;
+    if ($("#reg-hmo")) {
+      $("#reg-hmo").value = form.hmo; $("#reg-loa").value = form.loa;
+      $("#reg-hmo").addEventListener("input", (e) => { form.hmo = e.target.value; });
+      $("#reg-loa").addEventListener("input", (e) => { form.loa = e.target.value; });
+    }
     $("#reg-name").addEventListener("input", (e) => { form.name = e.target.value; syncSubmit(); });
     $("#reg-mobile").addEventListener("input", (e) => { form.mobile = e.target.value; });
     $("#reg-notes").addEventListener("input", (e) => { form.notes = e.target.value; });
@@ -1277,13 +1325,12 @@ function downloadQueueReport(xlsx, state, now) {
       if (registering) return;
       registering = true;
       syncSubmit();
-      const result = await dispatch({ type: "register", visitId: form.arrival || undefined, visit: { kind: form.kind, name: form.name, mobile: form.mobile, notes: form.notes, priority: form.priority, newPatient: form.newPatient, stations: form.stations } });
+      const result = await dispatch({ type: "register", visitId: form.arrival || undefined, visit: { kind: form.kind, name: form.name, mobile: form.mobile, notes: form.notes, hmo: form.hmo, loa: form.loa, priority: form.priority, newPatient: form.newPatient, stations: form.stations } });
       registering = false;
       if (view !== "desk") return;
       if (!result.ok) { syncSubmit(); return; }
       issued = result.visitId;
-      Object.assign(form, { kind: "W", newPatient: false, arrival: null, name: "", mobile: "", notes: "", priority: false, stations: [] });
-      $("#reg-name").value = ""; $("#reg-mobile").value = ""; $("#reg-notes").value = "";
+      resetForm();
       updateDesk();
     });
   }
@@ -1294,7 +1341,14 @@ function downloadQueueReport(xlsx, state, now) {
 
   function updateDesk() {
     if (!storageOk && sync.mode === "local") $("#storage-note").innerHTML = "<b>Saving is blocked in this browser</b> (private window or blocked site data). The queue will be lost when this window closes.";
-    const active = state.visits.filter((v) => !v.cancelled);
+    const inClinic = (v) => !v.cancelled && !["completed", "cancelled"].includes(visitStatus(v));
+    document.querySelectorAll('[data-act="deskTab"]').forEach((b) => { const on = b.dataset.tab === deskTab; b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); });
+    $("#tab-count-regular").textContent = state.visits.filter((v) => v.kind !== "H" && inClinic(v)).length;
+    $("#tab-count-hmo").textContent = state.visits.filter((v) => v.kind === "H" && inClinic(v)).length;
+    if ($("#arr-hmo")) $("#arr-hmo").textContent = `🎫 HMO number (next: HMO-${pad2(state.nextHmoSeq ?? 1)})`;
+    if ($("#hmo-desk-note")) $("#hmo-desk-note").innerHTML = hmoDesk() ? "" : `<p class="note" style="margin:10px 0 0">There is no HMO Desk station yet, so HMO patients go straight to their doctor. <button type="button" class="btn sm" data-act="addHmoDesk">Add HMO Desk station</button></p>`;
+    if (isHmoTab()) form.kind = "H";
+    const active = state.visits.filter((v) => !v.cancelled && inTab(v));
     const waits = active.map((v) => v.steps[0]).filter((s) => s?.calledAt && s.queuedAt).map((s) => (s.calledAt - s.queuedAt) / 60000);
     const count = (status) => active.filter((v) => visitStatus(v) === status).length;
     $("#stats").innerHTML = [
@@ -1306,7 +1360,7 @@ function downloadQueueReport(xlsx, state, now) {
 
     // Arrival numbers waiting to register
     const now = Date.now();
-    const waitingReg = waitingToRegister(state);
+    const waitingReg = waitingToRegister(state).filter(inTab);
     $("#call-reg").disabled = !waitingReg.some((v) => v.regCalledAt === null);
     const latest = latestArrival && state.visits.find((v) => v.id === latestArrival && !v.cancelled && !isRegistered(v));
     $("#newnum").innerHTML = latest ? `<div class="newnum"><div><small>New queue number — give it to the patient</small><b class="mono">${esc(arrivalLabel(latest))}</b></div><button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="slip" data-id="${latest.id}">🖨 Print slip</button></div>` : "";
@@ -1327,9 +1381,9 @@ function downloadQueueReport(xlsx, state, now) {
     document.querySelectorAll('[data-act="kind"]').forEach((b) => { b.classList.toggle("on", b.dataset.kind === form.kind); b.setAttribute("aria-checked", String(b.dataset.kind === form.kind)); });
     if (form.arrival && !waitingReg.some((v) => v.id === form.arrival)) form.arrival = null;
     const sel = $("#reg-arrival");
-    sel.innerHTML = `<option value="">New number (${String(state.nextSeq).padStart(2, "0")}) — patient has no number yet</option>` + waitingReg.map((v) => `<option value="${v.id}">${esc(arrivalLabel(v))} · arrived ${formatTime(v.createdAt)}</option>`).join("");
+    sel.innerHTML = `<option value="">New number (${isHmoTab() ? `HMO-${pad2(state.nextHmoSeq ?? 1)}` : pad2(state.nextSeq)}) — patient has no number yet</option>` + waitingReg.map((v) => `<option value="${v.id}">${esc(arrivalLabel(v))} · arrived ${formatTime(v.createdAt)}</option>`).join("");
     sel.value = form.arrival ?? "";
-    const previewSeq = (form.arrival && state.visits.find((v) => v.id === form.arrival)?.seq) || state.nextSeq;
+    const previewSeq = (form.arrival && state.visits.find((v) => v.id === form.arrival)?.seq) || (isHmoTab() ? state.nextHmoSeq ?? 1 : state.nextSeq);
     const stations = state.settings.stations.filter((s) => s.active);
     form.stations = form.stations.filter((code) => stations.some((s) => s.code === code));
     $("#reg-steps").innerHTML = form.stations.map((code, i) => `<li><span class="n">${i + 1}.</span><b class="mono">${esc(ticketLabel({ seq: previewSeq, kind: form.kind }, code))}</b><span class="name">${esc(stationName(state, code))}</span><button type="button" aria-label="Remove" data-act="unstep" data-index="${i}">✕</button></li>`).join("");
@@ -1337,7 +1391,7 @@ function downloadQueueReport(xlsx, state, now) {
     syncSubmit();
 
     const visit = issued && state.visits.find((v) => v.id === issued);
-    $("#issued").innerHTML = visit ? `<div class="issued"><p class="k">Queue number issued — tell the patient</p><p class="num mono">${esc(currentLabel(visit))}</p><p class="d">They keep the same number (${String(visit.seq).padStart(2, "0")}) for every service today.</p><button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="message" data-id="${visit.id}">${visit.messagedAt ? "✓ Message copied" : "Copy message"}</button> <button class="btn sm ghost" style="color:#e8dec7" data-act="closeIssued">Done</button></div>` : "";
+    $("#issued").innerHTML = visit ? `<div class="issued"><p class="k">Queue number issued — tell the patient</p><p class="num mono">${esc(currentLabel(visit))}</p><p class="d">They keep the same number (${visit.kind === "H" ? `HMO-${pad2(visit.seq)}` : pad2(visit.seq)}) for every service today.</p><button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="message" data-id="${visit.id}">${visit.messagedAt ? "✓ Message copied" : "Copy message"}</button> <button class="btn sm ghost" style="color:#e8dec7" data-act="closeIssued">Done</button></div>` : "";
 
     document.querySelectorAll('[data-act="filter"]').forEach((b) => b.classList.toggle("on", b.dataset.filter === filter));
     renderPatients();
@@ -1350,9 +1404,10 @@ function downloadQueueReport(xlsx, state, now) {
     const now = Date.now();
     const visits = state.visits.filter((v) => {
       const status = visitStatus(v);
+      if (!inTab(v)) return false;
       if (filter === "active" && (status === "completed" || status === "cancelled")) return false;
       if (filter === "completed" && status !== "completed") return false;
-      return !term || v.name.toUpperCase().includes(term) || currentLabel(v).includes(term) || v.mobile.includes(term);
+      return !term || v.name.toUpperCase().includes(term) || currentLabel(v).includes(term) || v.mobile.includes(term) || (v.hmo ?? "").toUpperCase().includes(term) || (v.loa ?? "").toUpperCase().includes(term);
     });
     const rows = visits.map((v) => {
       const status = visitStatus(v);
@@ -1361,7 +1416,7 @@ function downloadQueueReport(xlsx, state, now) {
       const live = status === "waiting" || status === "called";
       return `<tr class="${v.cancelled ? "cancelled" : ""}">
         <td><span class="q mono">${esc(currentLabel(v))}</span><small>Arrived ${formatTime(v.createdAt)}</small></td>
-        <td style="max-width:240px">${v.name ? `<b>${esc(v.name)}</b>` : `<i style="color:var(--muted-2)">Not registered yet</i>`}<div class="tags">${v.source === "self" ? `<span class="tag qr">${v.verified ? "QR check-in" : "QR check-in · verify"}</span>` : ""}${v.newPatient ? `<span class="tag new">New patient</span>` : ""}${v.priority ? `<span class="tag prio">Priority</span>` : ""}${v.mobile ? `<span>${esc(v.mobile)}</span>` : ""}${v.notes ? `<span>· ${esc(v.notes)}</span>` : ""}</div></td>
+        <td style="max-width:240px">${v.name ? `<b>${esc(v.name)}</b>` : `<i style="color:var(--muted-2)">Not registered yet</i>`}<div class="tags">${v.source === "self" ? `<span class="tag qr">${v.verified ? "QR check-in" : "QR check-in · verify"}</span>` : ""}${v.kind === "H" ? `<span class="tag hmo">HMO${v.hmo ? ` · ${esc(v.hmo)}` : ""}</span>` : ""}${v.loa ? `<span>LOA ${esc(v.loa)}</span>` : ""}${v.newPatient ? `<span class="tag new">New patient</span>` : ""}${v.priority ? `<span class="tag prio">Priority</span>` : ""}${v.mobile ? `<span>${esc(v.mobile)}</span>` : ""}${v.notes ? `<span>· ${esc(v.notes)}</span>` : ""}</div></td>
         <td><span class="pill st-${status}">${STATUS_LABEL[status]}</span>${step && status !== "completed" ? `<small>${esc(stationName(state, step.station))}</small>` : ""}</td>
         <td style="font-variant-numeric:tabular-nums">${live ? formatWait(minutesSince(since, now)) : "—"}</td>
         <td><div class="route">${v.steps.map((s) => `<span class="mono ${s.status === "done" ? "done" : s === step ? "cur" : ""}" title="${esc(stationName(state, s.station))}">${s.status === "done" ? "✓" : ""}${esc(s.station)}</span>`).join("")}</div></td>
@@ -1392,7 +1447,7 @@ function downloadQueueReport(xlsx, state, now) {
     const box = $("#settings");
     if (!draft) { box.innerHTML = ""; return; }
     const inUse = (code) => state.visits.some((v) => !v.cancelled && v.steps.some((s) => s.station === code && s.status !== "done"));
-    const services = [["consultation", "Consultation"], ["procedure", "Procedure"], ["laboratory", "Laboratory"], ["other", "Other"]];
+    const services = [["consultation", "Consultation"], ["procedure", "Procedure"], ["laboratory", "Laboratory"], ["hmo", "HMO desk"], ["other", "Other"]];
     box.innerHTML = `<div class="modal-bg" data-act="closeSettingsBg"><section class="panel modal" role="dialog" aria-label="Queue settings">
       <div class="panel-h"><div><h2>Queue settings</h2><p>Station codes become part of the queue number, e.g. C1 in 01-C1-W. Queues restart automatically at midnight.</p></div><button class="btn sm ghost" data-act="closeSettings">Close</button></div>
       <div class="panel-b">
@@ -1483,7 +1538,7 @@ function downloadQueueReport(xlsx, state, now) {
               const step = currentStep(v);
               const upcoming = v.steps[v.steps.indexOf(step) + 1];
               return `<div><p class="num mono">${esc(ticketLabel(v, station.code))}</p>
-                <p class="who">${esc(v.name)}${v.newPatient ? ` <span class="tag new" style="vertical-align:middle">New patient</span>` : ""}${v.priority ? ` <span class="tag prio" style="vertical-align:middle">Priority</span>` : ""}</p>
+                <p class="who">${esc(v.name)}${v.kind === "H" ? ` <span class="tag hmo" style="vertical-align:middle">HMO${v.hmo ? ` · ${esc(v.hmo)}` : ""}${v.loa ? ` · LOA ${esc(v.loa)}` : ""}</span>` : ""}${v.newPatient ? ` <span class="tag new" style="vertical-align:middle">New patient</span>` : ""}${v.priority ? ` <span class="tag prio" style="vertical-align:middle">Priority</span>` : ""}</p>
                 <p class="meta">Called ${step.calledAt ? formatTime(step.calledAt) : ""} · ${formatWait(minutesSince(step.calledAt, now))} ago${step.calls > 1 ? ` · called ${step.calls}×` : ""}${v.notes ? ` · ${esc(v.notes)}` : ""}</p>
                 <div class="btns"><button class="btn cream" data-act="recall" data-id="${v.id}">📢 Call again</button><button class="btn bare" data-act="miss" data-id="${v.id}">Did not respond</button><button class="btn gold" data-act="complete" data-id="${v.id}">✓ ${upcoming ? `Complete · next ${esc(upcoming.station)}` : "Complete visit"}</button></div>
                 ${others.length ? `<div class="send"><p>Complete and send to</p>${others.map((s) => `<button data-act="complete" data-id="${v.id}" data-send="${esc(s.code)}">→ <b class="mono">${esc(s.code)}</b> ${esc(s.name)}</button>`).join("")}</div>` : ""}</div>`;
@@ -1494,7 +1549,7 @@ function downloadQueueReport(xlsx, state, now) {
         </div>
         <div class="col">
           <section class="panel"><div class="panel-h"><div><h2>Waiting for ${esc(station.name)}</h2><p>Priority lane patients are called first, then in arrival order.</p></div></div>
-            <div class="panel-b">${waiting.length ? `<ol class="wlist">${waiting.map((v, i) => `<li><span class="pos">${i + 1}</span><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
+            <div class="panel-b">${waiting.length ? `<ol class="wlist">${waiting.map((v, i) => `<li><span class="pos">${i + 1}</span><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${v.kind === "H" ? ` <span class="tag hmo">HMO${v.hmo ? ` · ${esc(v.hmo)}` : ""}</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
           </section>
           ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map((v) => `<li class="missed"><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
         </div>
@@ -1728,6 +1783,19 @@ function downloadQueueReport(xlsx, state, now) {
         speak(announcementSpeech({ kind: "ticket", label: `07-${sample.code}-W`, destination: sample.location || sample.name }, draft?.announceLanguage ?? state.settings.announceLanguage));
         break;
       }
+      case "deskTab":
+        if (el.dataset.tab === deskTab) break;
+        deskTab = el.dataset.tab === "hmo" ? "hmo" : "regular";
+        writeSetting("thsc-queue-desk-tab", deskTab);
+        latestArrival = null; issued = null; search = "";
+        resetForm(); mountDesk(); updateDesk();
+        break;
+      case "addHmoDesk": {
+        const used = new Set(state.settings.stations.map((s) => s.code));
+        const code = ["HD", "HMO", "H1", "H2"].find((c) => !used.has(c));
+        void dispatch({ type: "updateSettings", settings: { ...state.settings, stations: [...state.settings.stations, { code, name: "HMO Desk", service: "hmo", location: "HMO Desk", selfCheckIn: false, active: true }] } }, `HMO Desk station added (${code}). Open it on the HMO computer under Stations.`).then((r) => { if (r.ok && view === "desk" && isHmoTab() && !form.stations.length) { form.stations = [code]; updateDesk(); } });
+        break;
+      }
       case "verify": dispatch({ type: "verify", visitId: id }, "Check-in verified."); break;
       case "openSettings": openSettings(); break;
       case "closeSettings": draft = null; renderSettings(); break;
@@ -1750,7 +1818,7 @@ function downloadQueueReport(xlsx, state, now) {
         break;
       }
       case "slip": { const v = state.visits.find((x) => x.id === id); if (v) printSlip(arrivalLabel(v), v.createdAt, LOGO); break; }
-      case "callReg": dispatch({ type: "callRegistration", visitId: id || undefined }, (r) => `${r.label} called to register — shown on the TV.`); break;
+      case "callReg": dispatch({ type: "callRegistration", visitId: id || undefined, hmo: id ? undefined : isHmoTab() }, (r) => `${r.label} called to register — shown on the TV.`); break;
       case "removeArrival": { const v = state.visits.find((x) => x.id === id); if (v && confirm(`Remove ${arrivalLabel(v)}? Use this if the patient left before registering.`)) dispatch({ type: "cancel", visitId: id }); break; }
       case "registerArrival": { const v = state.visits.find((x) => x.id === id); if (v) { form.arrival = id; form.kind = v.kind; form.priority = v.priority; form.newPatient = v.newPatient === true; updateDesk(); $("#reg-name").focus(); } break; }
       case "togArrNew": arr.newPatient = !arr.newPatient; updateDesk(); break;

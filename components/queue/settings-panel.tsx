@@ -11,6 +11,7 @@ const SERVICES: { value: ServiceType; label: string }[] = [
   { value: "consultation", label: "Consultation" },
   { value: "procedure", label: "Procedure" },
   { value: "laboratory", label: "Laboratory" },
+  { value: "hmo", label: "HMO desk" },
   { value: "other", label: "Other" },
 ];
 
