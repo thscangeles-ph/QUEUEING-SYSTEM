@@ -1533,7 +1533,7 @@ function downloadQueueReport(xlsx, state, now) {
       <header class="tv-head"><div class="brand"><img src="${LOGO}" alt=""><div><small>THE HEART SPECIALISTS CLINIC</small><b>Queue Board</b></div></div><div class="tv-clock"><b id="tv-time"></b><span id="tv-date"></span></div></header>
       ${body}
       <footer class="tv-foot"><div class="ticker"><span id="ticker"></span></div><div class="tv-ctl"><button data-act="sound" id="sound-toggle">🔇 Sound off</button><button data-act="fullscreen">⛶ Full screen</button><span class="badge-device sync-badge" style="align-self:center"></span><a href="#desk">Front desk</a></div></footer>
-    </div><button class="sound-btn" id="sound-btn" data-act="sound">🔊 Click to turn on chime &amp; voice announcements</button>`;
+    </div><button class="sound-btn" id="sound-btn" data-act="startTv">🔊 Click to start: full screen, chime &amp; voice announcements</button>`;
     clearInterval(tvTimer);
     tvTimer = setInterval(() => { if (view === "display") tick(); else clearInterval(tvTimer); }, 1000);
     const frame = document.getElementById("yt");
@@ -1626,6 +1626,17 @@ function downloadQueueReport(xlsx, state, now) {
   }
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") void keepScreenOn(); });
 
+  /** The gold button stays until the TV has both sound and full screen (kiosk mode counts as full screen). */
+  function refreshStartButton() {
+    const btn = $("#sound-btn");
+    if (!btn) return;
+    const full = Boolean(document.fullscreenElement) || (innerWidth >= screen.width - 1 && innerHeight >= screen.height - 1);
+    btn.classList.toggle("hidden", sound && full);
+    btn.textContent = sound ? "⛶ Click for full screen" : "🔊 Click to start: full screen, chime & voice announcements";
+  }
+  document.addEventListener("fullscreenchange", () => { if (view === "display") refreshStartButton(); });
+  window.addEventListener("resize", () => { if (view === "display") refreshStartButton(); });
+
   function setSound(on) {
     sound = on;
     if (on) {
@@ -1636,7 +1647,7 @@ function downloadQueueReport(xlsx, state, now) {
       // Voices load in the background; check for a Filipino one once they are in.
       if ((state.settings.announceLanguage ?? "en+fil") !== "en") setTimeout(() => { if (view === "display" && "speechSynthesis" in window && !filipinoVoice()) toast(NO_FILIPINO_VOICE, true); }, 1500);
     }
-    $("#sound-btn").classList.toggle("hidden", on);
+    refreshStartButton();
     $("#sound-toggle").textContent = on ? "🔊 Sound on" : "🔇 Sound off";
     if (on && state.settings.videoSound) { yt("unMute"); yt("setVolume", [60]); } else yt("mute");
   }
@@ -1679,13 +1690,32 @@ function downloadQueueReport(xlsx, state, now) {
     tick();
   }
 
+  /**
+   * Opens the TV display in its own window. When the computer has an extended screen (the lobby TV as a second
+   * monitor), the window opens filling that screen, using the browser's window management permission (asked once).
+   */
+  async function openTv() {
+    const url = `${location.href.split("#")[0]}#display`;
+    let features = "";
+    try {
+      if ("getScreenDetails" in window) {
+        const details = await window.getScreenDetails();
+        const tv = details.screens.find((screen) => screen !== details.currentScreen && !screen.isPrimary) ?? details.screens.find((screen) => screen !== details.currentScreen);
+        if (tv) features = `popup,left=${tv.availLeft},top=${tv.availTop},width=${tv.availWidth},height=${tv.availHeight}`;
+      }
+    } catch { /* permission declined or not supported: open as a normal window */ }
+    const win = window.open(url, "thsc-queue-tv", features);
+    if (!win) toast("The browser blocked the TV window. Allow pop-ups for this site, then click TV display again.", true);
+    else if (features) toast("TV display opened on the extended screen. On the TV, click the gold button once for full screen and sound.");
+  }
+
   // ---------- Actions ----------
   document.addEventListener("click", (event) => {
     const el = event.target.closest("[data-act]");
     if (!el) return;
     const { act, id, station, send, index, code } = el.dataset;
     switch (act) {
-      case "openTv": window.open(`${location.href.split("#")[0]}#display`, "thsc-queue-tv"); break;
+      case "openTv": void openTv(); break;
       case "openPoster":
         // Patients' phones cannot open this file, so check-in runs on the sync server's web pages.
         if (sync.mode === "server") window.open(`${syncServer()}/queue/poster`, "_blank", "noopener");
@@ -1743,6 +1773,11 @@ function downloadQueueReport(xlsx, state, now) {
       case "miss": dispatch({ type: "miss", visitId: id }); break;
       case "complete": dispatch({ type: "complete", visitId: id, sendTo: send || undefined }); break;
       case "sound": setSound(!sound); break;
+      case "startTv":
+        // One click on the TV: sound on, and full screen on whichever screen this window is on.
+        setSound(true);
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => undefined);
+        break;
       case "fullscreen": document.documentElement.requestFullscreen?.(); break;
     }
   });
