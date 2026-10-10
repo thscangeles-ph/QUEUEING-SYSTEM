@@ -101,4 +101,4 @@ The staff app opens on the front desk and has shortcuts to Stations and the TV d
 
 If a device loses its connection, it shows a "No connection" page or a retry message and reconnects by itself. Queue data is never cached, so a screen never shows an old queue.
 
-**TV tips:** browsers only play sound after a tap, so tap *Turn on chime & voice announcements* once after opening the TV display. For an unattended TV, launch Chrome with `--kiosk --autoplay-policy=no-user-gesture-required`.
+**Automatic lobby TV (Windows):** copy `tv-setup/start-tv-display.cmd` to the TV computer, press Windows+R, type `shell:startup`, press Enter and put the file in the folder that opens. When the computer starts, Microsoft Edge opens `/queue/display` full screen with sound allowed: the chime and the English/Tagalog announcements work without a click, and the screen is kept awake. Press Alt+F4 to close it. Opened any other way, the TV still shows *Click to turn on chime & voice announcements* once.
