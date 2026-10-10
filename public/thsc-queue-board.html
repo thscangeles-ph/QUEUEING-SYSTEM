@@ -1538,7 +1538,8 @@ function downloadQueueReport(xlsx, state, now) {
     tvTimer = setInterval(() => { if (view === "display") tick(); else clearInterval(tvTimer); }, 1000);
     const frame = document.getElementById("yt");
     if (frame) frame.addEventListener("load", () => setTimeout(() => yt(sound && state.settings.videoSound ? "unMute" : "mute"), 1500));
-    if (sound) setSound(true);
+    if (sound) setSound(true); else autoStartSound();
+    keepScreenOn();
   }
 
   /** Queue numbers are as big as their box allows: a long one (e.g. 128-C1-W) shrinks just enough to fit. */
@@ -1603,6 +1604,28 @@ function downloadQueueReport(xlsx, state, now) {
     const lines = announcementSpeech(item, state.settings.announceLanguage);
     setTimeout(() => speak(lines), 900);
   }
+  /** Turns sound on without a click when the browser allows it (e.g. Edge started with the TV startup file). */
+  function autoStartSound() {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx || sound) return;
+    if (!audio) audio = new Ctx();
+    const start = () => { if (audio.state === "running" && view === "display" && !sound) setSound(true); };
+    start();
+    // Without permission this stays waiting until someone clicks the sound button, which is fine.
+    audio.resume().then(start).catch(() => undefined);
+  }
+
+  // Keep the TV screen from going to sleep while the display is open.
+  let wakeLock = null;
+  async function keepScreenOn() {
+    if (view !== "display" || wakeLock || !("wakeLock" in navigator)) return;
+    try {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    } catch { /* not allowed here (e.g. opened from disk); the computer's own sleep settings apply */ }
+  }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") void keepScreenOn(); });
+
   function setSound(on) {
     sound = on;
     if (on) {
