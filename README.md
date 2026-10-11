@@ -26,13 +26,15 @@ No environment variables are required. They are only needed to turn on shared mo
 The queue follows the clinic's arrival flow:
 
 1. **Patient arrives** and goes to the front desk.
-2. **Concierge** hands a walk-in patient a laminated card (Front desk → *Hand out card*) and calls the card when it is their turn to register. The card number shows on the TV.
+2. **Concierge** gives the patient a plain queue number on arrival (Front desk → *Queue number*: `01`, `02`, …) and calls it when it is their turn to register. The number shows on the TV. Walk-in or scheduled is chosen at registration.
 3. **Concierge registers the patient** on the Queue Board (and in the Lab Info System as usual), picks their services in order, and tells the patient their queue number, e.g. `01-C1-W`.
 4. **The patient watches the TV**, which shows every queue number being called and who is next.
 
 ### Queue numbers
 
 `01-C1-W` = `[daily number]-[station]-[W walk-in / S scheduled]`.
+
+**Route:** in Today's patients, *✎ Edit* on a patient's route adds, removes or reorders the services still to come, or deletes the rest of the route. Finished services and the one being served now stay as they are; a patient who stays first in a line keeps their place.
 
 - The daily number starts at 01 every day (Manila time) and is shared by walk-in and scheduled patients.
 - **One number per visit.** A patient keeps the same daily number for consultation, procedures and laboratory; only the station code changes (`01-C1-W` → `01-L1-W`).

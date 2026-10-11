@@ -45,8 +45,8 @@ const pad2 = (seq: number) => String(seq).padStart(2, "0");
 /** 01-C1-W for walk-in and scheduled patients; HMO-01-C1 for HMO patients, who have their own numbering. */
 export const ticketLabel = (visit: Pick<Visit, "seq" | "kind">, station: string) => (visit.kind === "H" ? `HMO-${pad2(visit.seq)}-${station}` : `${pad2(visit.seq)}-${station}-${visit.kind}`);
 
-/** The number given on arrival, before a station is assigned at registration, e.g. 01-W or HMO-01. */
-export const arrivalLabel = (visit: Pick<Visit, "seq" | "kind">) => (visit.kind === "H" ? `HMO-${pad2(visit.seq)}` : `${pad2(visit.seq)}-${visit.kind}`);
+/** The number given on arrival, before registration: just 01 (walk-in or scheduled is chosen at registration), or HMO-01. */
+export const arrivalLabel = (visit: Pick<Visit, "seq" | "kind">) => (visit.kind === "H" ? `HMO-${pad2(visit.seq)}` : pad2(visit.seq));
 
 const kindOf = (kind: unknown): PatientKind => (kind === "S" || kind === "H" ? kind : "W");
 
@@ -374,6 +374,33 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       if (!step || !["called", "waiting"].includes(step.status)) return fail("That patient is not in line.");
       step.status = "missed";
       return { ok: true };
+    }
+    case "setRoute": {
+      const visit = findVisit(action.visitId);
+      if (!visit || !isRegistered(visit)) return fail("Patient not found.");
+      const codes = Array.isArray(action.stations) ? action.stations.map(String) : [];
+      for (const code of codes) if (!findStation(state, code)?.active) return fail(`Station ${code} is not available.`);
+      const done = visit.steps.filter((step) => step.status === "done");
+      const open = visit.steps.filter((step) => step.status !== "done");
+      // The service being given right now cannot be moved or removed.
+      const locked = open[0]?.status === "called" ? [open[0]] : [];
+      if (done.length + locked.length + codes.length > MAX_STEPS) return fail(`A visit can have at most ${MAX_STEPS} services.`);
+      // Reuse matching steps so a patient who stays first in a line keeps their place.
+      const unused = open.slice(locked.length);
+      const next = codes.map((code) => {
+        const index = unused.findIndex((step) => step.station === code);
+        return index >= 0 ? unused.splice(index, 1)[0] : makeStep(code, now, false);
+      });
+      next.forEach((step, index) => {
+        if (index === 0 && !locked.length) {
+          if (step.status === "pending") { step.status = "waiting"; step.queuedAt = now; }
+        } else {
+          step.status = "pending";
+          step.queuedAt = null;
+        }
+      });
+      visit.steps = [...done, ...locked, ...next];
+      return { ok: true, visitId: visit.id, label: currentLabel(visit) };
     }
     case "requeue": {
       const visit = findVisit(action.visitId);
