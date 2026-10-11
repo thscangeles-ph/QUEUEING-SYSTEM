@@ -78,7 +78,7 @@ export type Settings = {
   /** YouTube channel, playlist or video shown on the TV while patients wait. */
   youtube?: string;
   videoSound?: boolean;
-  /** Language of the TV's spoken announcements; missing means English, then Tagalog. */
+  /** Language of the TV's spoken announcements; missing means English only. */
   announceLanguage?: AnnounceLanguage;
 };
 

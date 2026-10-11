@@ -222,7 +222,7 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   const video = parseYouTube(youtube);
   if (video && "error" in video) return `YouTube: ${video.error}`;
   const language = input.announceLanguage ?? previous.announceLanguage;
-  const announceLanguage: AnnounceLanguage = language === "en" || language === "fil" ? language : "en+fil";
+  const announceLanguage: AnnounceLanguage = language === "en+fil" || language === "fil" ? language : "en";
   return { stations, cardCount, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), announceLanguage };
 }
 
