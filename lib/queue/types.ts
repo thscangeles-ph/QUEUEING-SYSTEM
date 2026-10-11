@@ -120,6 +120,8 @@ export type QueueAction =
   | { type: "complete"; visitId: string; sendTo?: string }
   | { type: "miss"; visitId: string }
   | { type: "requeue"; visitId: string }
+  /** Replaces the services still to come; finished services and the one being served now stay as they are. */
+  | { type: "setRoute"; visitId: string; stations: string[] }
   | { type: "cancel"; visitId: string }
   | { type: "updateSettings"; settings: Settings }
   | { type: "resetDay" };
