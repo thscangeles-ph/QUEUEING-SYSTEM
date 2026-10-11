@@ -186,6 +186,12 @@ tr.cancelled td { opacity: .55; }
 .tabs a.on { background: var(--brown); border-color: var(--brown); color: #fff; } .tabs a.on span.n { color: #e8dec7; }
 .count { border-radius: 999px; padding: 1px 8px; font-size: 12px; background: #efebe4; color: #7d725f; }
 .count.has { background: var(--gold); color: var(--brown); }
+/* Station buttons with patients waiting blink slowly red. */
+.tabs a.queued { border-color: #b4233c; animation: queued-blink 2.4s ease-in-out infinite; }
+.tabs a.queued .count.has { background: #b4233c; color: #fff; }
+@keyframes queued-blink { 0%, 100% { background: var(--card); box-shadow: 0 0 0 0 rgba(180,35,60,0); } 50% { background: #f6c6cd; box-shadow: 0 0 0 3px rgba(180,35,60,.35); } }
+.tabs a.on.queued { animation-name: queued-blink-on; } .tabs a.on.queued .count.has { background: #fff; color: #b4233c; }
+@keyframes queued-blink-on { 0%, 100% { background: var(--brown); border-color: var(--brown); } 50% { background: #b4233c; border-color: #b4233c; } }
 .st-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 .serving { background: var(--brown); color: #fff; border: 1px solid #5b4a2d; border-radius: 16px; padding: 22px; }
 .serving .k { color: var(--gold-2); text-transform: uppercase; letter-spacing: .08em; font-weight: 700; font-size: 13px; margin: 0; }
@@ -259,7 +265,7 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .tiles.small { flex: none; } .tiles.small .tile { padding: 1.2vh .7vw; } .tiles.small .tile .s { font-size: .95vw; } .tiles.small .tile .num { font-size: 3vw; }
 .tv-right .tv-next { flex: 1; }
 .yt-hint { font-size: 12px; font-weight: 600; margin: 0; } .yt-hint.ok { color: var(--ok); } .yt-hint.err { color: #b4233c; }
-@media (prefers-reduced-motion: reduce) { .ticker span, .hero.fresh, .vid-over > div { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .ticker span, .hero.fresh, .vid-over > div { animation: none; } .tabs a.queued:not(.on) { animation: none; background: #f6c6cd; } }
 
 /* Sync */
 .badge-device.ok { background: #33421f; color: #cfe6b8; } .badge-device.bad { background: var(--bad-bg); color: var(--bad); }
@@ -1681,8 +1687,10 @@ function downloadQueueReport(xlsx, state, now) {
     const others = stations.filter((s) => s.code !== station.code);
     const consult = station.service === "consultation";
     const cashier = stations.find((s) => s.service === "cashier");
+    // The screen is redrawn on every update; starting the blink part-way through keeps it smooth across redraws.
+    const blinkDelay = -(Date.now() % 2400);
     box.innerHTML = `
-      <nav class="tabs" aria-label="Choose station">${stations.map((s) => { const n = waitingFor(state, s.code).length; return `<a href="#station/${encodeURIComponent(s.code)}" class="${s.code === station.code ? "on" : ""}"><b class="mono">${esc(s.code)}</b><span class="n">${esc(s.name)}</span><span class="count ${n ? "has" : ""}">${n}</span></a>`; }).join("")}</nav>
+      <nav class="tabs" aria-label="Choose station">${stations.map((s) => { const n = waitingFor(state, s.code).length; return `<a href="#station/${encodeURIComponent(s.code)}" class="${s.code === station.code ? "on" : ""}${n ? " queued" : ""}"${n ? ` style="animation-delay:${blinkDelay}ms" title="${n} waiting"` : ""}><b class="mono">${esc(s.code)}</b><span class="n">${esc(s.name)}</span><span class="count ${n ? "has" : ""}">${n}</span></a>`; }).join("")}</nav>
       <div class="st-grid">
         <div>
           <section class="serving"><p class="k">Now serving · ${esc(station.name)}</p>
