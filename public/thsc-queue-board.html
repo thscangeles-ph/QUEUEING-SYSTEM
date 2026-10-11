@@ -1842,7 +1842,7 @@ function downloadQueueReport(xlsx, state, now) {
       <header class="tv-head"><div class="brand"><img src="${LOGO}" alt=""><div><small>THE HEART SPECIALISTS CLINIC</small><b>Queue Board</b></div></div><div class="tv-clock"><b id="tv-time"></b><span id="tv-date"></span></div></header>
       ${body}
       <footer class="tv-foot"><div class="ticker"><span id="ticker"></span></div><div class="tv-ctl"><button data-act="sound" id="sound-toggle">🔇 Sound off</button><button data-act="fullscreen">⛶ Full screen</button><span class="badge-device sync-badge" style="align-self:center"></span><a href="#desk">Front desk</a></div></footer>
-    </div><button class="sound-btn" id="sound-btn" data-act="startTv">🔊 Click to start: full screen, chime &amp; voice announcements</button>`;
+    </div><button class="sound-btn" id="sound-btn" data-act="startTv">🔊 Click anywhere to start: full screen, chime &amp; voice announcements</button>`;
     clearInterval(tvTimer);
     tvTimer = setInterval(() => { if (view === "display") tick(); else clearInterval(tvTimer); }, 1000);
     const frame = document.getElementById("yt");
@@ -1941,7 +1941,7 @@ function downloadQueueReport(xlsx, state, now) {
     if (!btn) return;
     const full = Boolean(document.fullscreenElement) || (innerWidth >= screen.width - 1 && innerHeight >= screen.height - 1);
     btn.classList.toggle("hidden", sound && full);
-    btn.textContent = sound ? "⛶ Click for full screen" : "🔊 Click to start: full screen, chime & voice announcements";
+    btn.textContent = sound ? "⛶ Click anywhere for full screen" : "🔊 Click anywhere to start: full screen, chime & voice announcements";
   }
   document.addEventListener("fullscreenchange", () => { if (view === "display") refreshStartButton(); });
   window.addEventListener("resize", () => { if (view === "display") refreshStartButton(); });
@@ -2021,6 +2021,13 @@ function downloadQueueReport(xlsx, state, now) {
    * monitor), the window opens filling that screen, using the browser's window management permission (asked once).
    */
   async function openTv() {
+    // One screen: this window becomes the TV in full screen right away (the click allows it). Esc returns here.
+    if (window.screen.isExtended !== true) {
+      tvFromDesk = true;
+      document.documentElement.requestFullscreen?.().catch(() => undefined);
+      location.hash = "display";
+      return;
+    }
     const url = `${location.href.split("#")[0]}#display`;
     let features = "";
     try {
@@ -2032,8 +2039,24 @@ function downloadQueueReport(xlsx, state, now) {
     } catch { /* permission declined or not supported: open as a normal window */ }
     const win = window.open(url, "thsc-queue-tv", features);
     if (!win) toast("The browser blocked the TV window. Allow pop-ups for this site, then click TV display again.", true);
-    else if (features) toast("TV display opened on the extended screen. On the TV, click the gold button once for full screen and sound.");
+    else if (features) toast("TV display opened on the extended screen. Click once anywhere on the TV for full screen and sound — browsers need that one click on the TV itself.");
   }
+  // Set when the TV took over this window from the front desk; leaving full screen goes back to the desk.
+  let tvFromDesk = false;
+  document.addEventListener("fullscreenchange", () => {
+    if (document.fullscreenElement || !tvFromDesk) return;
+    tvFromDesk = false;
+    if (view === "display") history.back();
+  });
+  /** One click on the TV: sound on, and full screen on whichever screen this window is on. */
+  function startTv() {
+    setSound(true);
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => undefined);
+  }
+  // On the TV, a click anywhere (not just the gold button) starts full screen and sound.
+  document.addEventListener("click", (event) => {
+    if (view === "display" && !event.target.closest("[data-act]") && (!sound || !document.fullscreenElement)) startTv();
+  });
 
   // ---------- Actions ----------
   document.addEventListener("click", (event) => {
@@ -2162,11 +2185,7 @@ function downloadQueueReport(xlsx, state, now) {
       case "miss": dispatch({ type: "miss", visitId: id }); break;
       case "complete": dispatch({ type: "complete", visitId: id, sendTo: send || undefined }); break;
       case "sound": setSound(!sound); break;
-      case "startTv":
-        // One click on the TV: sound on, and full screen on whichever screen this window is on.
-        setSound(true);
-        if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => undefined);
-        break;
+      case "startTv": startTv(); break;
       case "fullscreen": document.documentElement.requestFullscreen?.(); break;
     }
   });
