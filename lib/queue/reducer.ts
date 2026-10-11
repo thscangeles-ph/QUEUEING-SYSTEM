@@ -223,7 +223,9 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   if (video && "error" in video) return `YouTube: ${video.error}`;
   const language = input.announceLanguage ?? previous.announceLanguage;
   const announceLanguage: AnnounceLanguage = language === "en+fil" || language === "fil" ? language : "en";
-  return { stations, cardCount, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), announceLanguage };
+  const volume = Math.round(Number(input.videoVolume ?? previous.videoVolume ?? 60));
+  const videoVolume = Number.isFinite(volume) ? Math.min(100, Math.max(0, volume)) : 60;
+  return { stations, cardCount, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage };
 }
 
 /**

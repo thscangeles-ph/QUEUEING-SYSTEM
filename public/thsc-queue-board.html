@@ -105,7 +105,13 @@ label.field em { font-style: normal; font-weight: 400; color: var(--muted-2); fo
 .nl.one { display: flex; align-items: center; justify-content: space-between; gap: 1vw; }
 .nl.one .h { display: block; margin: 0; } .nl.one .h small { display: block; color: #8c7f66; font-size: 1vw; margin-top: .3vh; }
 .nl.one b.mono { background: #3a3022; border-radius: .5vw; padding: .4vh .8vw; font-size: 2.6vw; white-space: nowrap; } .nl.one i { color: #5c4b2d; font-style: normal; font-size: 2vw; }
-.desk-tabs { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
+.desk-bar { display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
+.desk-tabs { display: flex; gap: 6px; }
+.tv-sound { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--muted); padding: 4px 0 6px; }
+.tv-sound input[type="range"] { width: 150px; accent-color: var(--brown); }
+.tv-sound > span:first-child { white-space: nowrap; }
+.tv-sound .vol { min-width: 40px; text-align: right; color: var(--ink); }
+.tv-sound.off input[type="range"], .tv-sound.off .vol { opacity: .45; }
 .desk-tabs button { border: 0; border-bottom: 3px solid transparent; background: none; padding: 10px 16px; font-size: 15px; font-weight: 700; color: var(--muted); display: inline-flex; align-items: center; gap: 8px; margin-bottom: -1px; }
 .desk-tabs button.on { color: var(--ink); border-bottom-color: var(--gold); }
 .desk-tabs button[data-tab="hmo"].on { border-bottom-color: #6b48a8; }
@@ -340,6 +346,11 @@ function parseYouTube(input) {
         return embed("video", video, `&playlist=${video}`);
     return { error: "Paste a YouTube video, playlist or channel link." };
 }
+/** The TV video's volume, 0–100 (60 when not set yet). */
+function videoVolumeOf(settings) {
+    const volume = Math.round(Number(settings?.videoVolume ?? 60));
+    return Number.isFinite(volume) ? Math.min(100, Math.max(0, volume)) : 60;
+}
 /** Sends a player command (mute, unMute, setVolume…) to an embedded YouTube iframe. */
 function youtubeCommand(frame, func, args = []) {
     frame?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args }), "*");
@@ -567,7 +578,7 @@ function sanitizeSettings(input) {
     if (video && "error" in video)
         return `YouTube: ${video.error}`;
     const announceLanguage = input.announceLanguage === "en+fil" || input.announceLanguage === "fil" ? input.announceLanguage : "en";
-    return { stations, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound), announceLanguage };
+    return { stations, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -1355,10 +1366,13 @@ function downloadQueueReport(xlsx, state, now) {
       <p class="note" id="storage-note">${sync.mode === "server"
         ? `<b>Synced queue.</b> Every computer that opens this file with the sync server <b>${esc(serverHost(syncServer()))}</b> shares this queue: front desk, stations and the lobby TV. Change it in <a href="#setup">Sync setup</a>.`
         : `<b>This computer only.</b> Everything is saved in this browser on this computer. Open the <b>TV display</b> in a second window on the TV screen, and stations in other windows or tabs — they all stay in sync. Use the same browser every day; clearing browsing data erases the queue. To share the queue with other computers, use <a href="#setup">Sync setup</a>.`}</p>
-      <nav class="desk-tabs" role="tablist" aria-label="Patient group">
-        <button type="button" role="tab" data-act="deskTab" data-tab="regular">Regular patients <span class="count" id="tab-count-regular"></span></button>
-        <button type="button" role="tab" data-act="deskTab" data-tab="hmo">HMO patients <span class="count" id="tab-count-hmo"></span></button>
-      </nav>
+      <div class="desk-bar">
+        <nav class="desk-tabs" role="tablist" aria-label="Patient group">
+          <button type="button" role="tab" data-act="deskTab" data-tab="regular">Regular patients <span class="count" id="tab-count-regular"></span></button>
+          <button type="button" role="tab" data-act="deskTab" data-tab="hmo">HMO patients <span class="count" id="tab-count-hmo"></span></button>
+        </nav>
+        <div class="tv-sound" id="tv-sound"><span>📺 TV video sound</span><button type="button" class="btn sm outline" data-act="videoMute" id="tv-mute"></button><input type="range" min="0" max="100" step="5" id="tv-volume" aria-label="TV video volume"><span class="vol mono" id="tv-vol-text"></span></div>
+      </div>
       <section class="stats" id="stats"></section>
       <div class="grid">
         <div class="col">
@@ -1419,6 +1433,13 @@ function downloadQueueReport(xlsx, state, now) {
       updateDesk();
     });
     $("#search").addEventListener("input", (e) => { search = e.target.value; renderPatients(); });
+    // TV video volume: the number follows the slider while dragging; letting go saves it for the TV.
+    const volume = $("#tv-volume");
+    volume.addEventListener("input", () => { $("#tv-vol-text").textContent = `${volume.value}%`; });
+    volume.addEventListener("change", () => {
+      const videoVolume = Number(volume.value);
+      void dispatch({ type: "updateSettings", settings: { ...state.settings, videoVolume, videoSound: videoVolume > 0 ? true : state.settings.videoSound } }, `TV video volume set to ${videoVolume}%.`);
+    });
     $("#reg").addEventListener("submit", async (e) => {
       e.preventDefault();
       if (registering) return;
@@ -1438,6 +1459,24 @@ function downloadQueueReport(xlsx, state, now) {
   let arriving = false;
   function syncSubmit() { const btn = $("#reg-submit"); if (btn) btn.disabled = registering || !form.name.trim() || !form.stations.length; }
 
+  /** The front desk's TV video sound control, kept in step with the shared settings. */
+  function renderTvSound() {
+    const box = $("#tv-sound");
+    if (!box) return;
+    const { videoSound, youtube } = state.settings;
+    const volume = videoVolumeOf(state.settings);
+    const noVideo = !youtube;
+    box.classList.toggle("off", !videoSound || noVideo);
+    box.title = noVideo ? "No YouTube video is set. Add one in Settings." : "Volume of the YouTube video on the lobby TV. It is still muted while queue numbers are announced.";
+    $("#tv-mute").textContent = videoSound ? "🔊 On" : "🔇 Off";
+    $("#tv-mute").setAttribute("aria-pressed", String(Boolean(videoSound)));
+    $("#tv-mute").disabled = noVideo;
+    const slider = $("#tv-volume");
+    slider.disabled = noVideo;
+    // Leave the slider alone while someone is moving it.
+    if (document.activeElement !== slider) { slider.value = volume; $("#tv-vol-text").textContent = `${volume}%`; }
+  }
+
   function updateDesk() {
     if (!storageOk && sync.mode === "local") $("#storage-note").innerHTML = "<b>Saving is blocked in this browser</b> (private window or blocked site data). The queue will be lost when this window closes.";
     const inClinic = (v) => !v.cancelled && !["completed", "cancelled"].includes(visitStatus(v));
@@ -1447,6 +1486,7 @@ function downloadQueueReport(xlsx, state, now) {
     if ($("#arr-reg")) $("#arr-reg").textContent = `🎫 Queue number (next: ${pad2(state.nextSeq)})`;
     if ($("#arr-hmo")) $("#arr-hmo").textContent = `🎫 HMO number (next: HMO-${pad2(state.nextHmoSeq ?? 1)})`;
     if (isHmoTab()) form.kind = "H";
+    renderTvSound();
     const active = state.visits.filter((v) => !v.cancelled && inTab(v));
     const waits = active.map((v) => v.steps[0]).filter((s) => s?.calledAt && s.queuedAt).map((s) => (s.calledAt - s.queuedAt) / 60000);
     const count = (status) => active.filter((v) => visitStatus(v) === status).length;
@@ -1735,6 +1775,9 @@ function downloadQueueReport(xlsx, state, now) {
 
   let mountedVideo = null;
   let unmuteTimer;
+  // The video is muted while numbers are read out; videoSoundKey notices volume changes made at the front desk.
+  let ducked = false;
+  let videoSoundKey = "";
   const currentVideo = () => { const v = parseYouTube(state.settings.youtube); return v && !("error" in v) ? v.src : null; };
   const yt = (func, args) => youtubeCommand(document.getElementById("yt"), func, args);
   // YouTube refuses to play without a referring website (error 153), and this file opened from disk has none.
@@ -1761,7 +1804,7 @@ function downloadQueueReport(xlsx, state, now) {
     clearInterval(tvTimer);
     tvTimer = setInterval(() => { if (view === "display") tick(); else clearInterval(tvTimer); }, 1000);
     const frame = document.getElementById("yt");
-    if (frame) frame.addEventListener("load", () => setTimeout(() => yt(sound && state.settings.videoSound ? "unMute" : "mute"), 1500));
+    if (frame) frame.addEventListener("load", () => setTimeout(applyVideoSound, 1500));
     if (sound) setSound(true); else autoStartSound();
     keepScreenOn();
   }
@@ -1873,7 +1916,14 @@ function downloadQueueReport(xlsx, state, now) {
     }
     refreshStartButton();
     $("#sound-toggle").textContent = on ? "🔊 Sound on" : "🔇 Sound off";
-    if (on && state.settings.videoSound) { yt("unMute"); yt("setVolume", [60]); } else yt("mute");
+    applyVideoSound();
+  }
+
+  /** Plays the video's sound at the front desk's volume, or mutes it. */
+  function applyVideoSound() {
+    videoSoundKey = `${sound}|${Boolean(state.settings.videoSound)}|${videoVolumeOf(state.settings)}`;
+    if (ducked) return;
+    if (sound && state.settings.videoSound) { yt("unMute"); yt("setVolume", [videoVolumeOf(state.settings)]); } else yt("mute");
   }
 
   function updateDisplay() {
@@ -1887,10 +1937,13 @@ function downloadQueueReport(xlsx, state, now) {
     if (sound) fresh.forEach((item, i) => setTimeout(() => announce(item), i * gap));
     // Duck the video while numbers are read out, then bring its sound back.
     if (sound && fresh.length && state.settings.videoSound) {
+      ducked = true;
       yt("mute");
       clearTimeout(unmuteTimer);
-      unmuteTimer = setTimeout(() => yt("unMute"), fresh.length * gap + 2000);
+      unmuteTimer = setTimeout(() => { ducked = false; applyVideoSound(); }, fresh.length * gap + 2000);
     }
+    // Sound on/off or volume changed at the front desk.
+    if (`${sound}|${Boolean(state.settings.videoSound)}|${videoVolumeOf(state.settings)}` !== videoSoundKey) applyVideoSound();
 
     const stations = state.settings.stations.filter((s) => s.active);
     const latest = openCall(state);
@@ -2021,6 +2074,12 @@ function downloadQueueReport(xlsx, state, now) {
       };
       case "addStation": draft.stations.push({ code: "", name: "", location: "", service: "consultation", selfCheckIn: true, active: true }); renderSettings(); break;
       case "removeStation": draft.stations.splice(Number(index), 1); renderSettings(); break;
+      case "videoMute": {
+        const on = !state.settings.videoSound;
+        const videoVolume = on && videoVolumeOf(state.settings) === 0 ? 60 : videoVolumeOf(state.settings);
+        void dispatch({ type: "updateSettings", settings: { ...state.settings, videoSound: on, videoVolume } }, on ? `TV video sound on (${videoVolume}%).` : "TV video sound off.");
+        break;
+      }
       case "saveSettings": void dispatch({ type: "updateSettings", settings: draft }, sync.mode === "server" ? "Settings saved. Every computer updates automatically." : "Settings saved. Every open window updates automatically.").then((r) => { if (r.ok) { draft = null; renderSettings(); } }); break;
       case "resetDay": if (confirm(`Clear today's queue${sync.mode === "server" ? " on every computer" : ""}? All queue numbers and calls for today are removed and numbering restarts at 01. Settings are kept.`)) { void dispatch({ type: "resetDay" }, "Today's queue was cleared.").then(() => { issued = null; draft = null; if (view === "desk") { renderSettings(); updateDesk(); } }); } break;
       case "arrive": {

@@ -78,6 +78,8 @@ export type Settings = {
   /** YouTube channel, playlist or video shown on the TV while patients wait. */
   youtube?: string;
   videoSound?: boolean;
+  /** Volume of the TV video's sound, 0–100; set from the front desk. Missing means 60. */
+  videoVolume?: number;
   /** Language of the TV's spoken announcements; missing means English only. */
   announceLanguage?: AnnounceLanguage;
 };
