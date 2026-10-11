@@ -84,7 +84,7 @@ export function spokenLabelTagalog(label: string) {
 export type SpokenLine = { text: string; lang: "en-US" | "fil-PH" };
 
 /** What the TV says for a call, in the clinic's announcement language(s). */
-export function announcementSpeech(item: Announcement, language: AnnounceLanguage = "en+fil"): SpokenLine[] {
+export function announcementSpeech(item: Announcement, language: AnnounceLanguage = "en"): SpokenLine[] {
   const card = item.label.replace(/\D/g, "");
   const english: SpokenLine = item.kind === "card"
     ? { lang: "en-US", text: `Card number ${card}. Please proceed to the ${item.destination}.` }
@@ -96,7 +96,7 @@ export function announcementSpeech(item: Announcement, language: AnnounceLanguag
 }
 
 /** Seconds to leave for each call so two languages never talk over the next call. */
-export const announcementGap = (language: AnnounceLanguage = "en+fil") => (language === "en+fil" ? 11000 : 6000);
+export const announcementGap = (language: AnnounceLanguage = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** Starting guess for minutes per patient, used until a station has served a few patients today. */
 const DEFAULT_SERVICE_MINUTES: Record<Station["service"], number> = { consultation: 15, procedure: 20, laboratory: 10, imaging: 20, cashier: 5, hmo: 10, other: 10 };

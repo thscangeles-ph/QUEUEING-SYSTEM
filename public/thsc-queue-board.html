@@ -549,7 +549,7 @@ function sanitizeSettings(input) {
     const video = parseYouTube(youtube);
     if (video && "error" in video)
         return `YouTube: ${video.error}`;
-    const announceLanguage = input.announceLanguage === "en" || input.announceLanguage === "fil" ? input.announceLanguage : "en+fil";
+    const announceLanguage = input.announceLanguage === "en+fil" || input.announceLanguage === "fil" ? input.announceLanguage : "en";
     return { stations, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound), announceLanguage };
 }
 /**
@@ -877,7 +877,7 @@ function spokenLabelTagalog(label) {
         .join(", ");
 }
 /** What the TV says for a call, in the clinic's announcement language(s). */
-function announcementSpeech(item, language = "en+fil") {
+function announcementSpeech(item, language = "en") {
     const card = item.label.replace(/\D/g, "");
     const english = item.kind === "card"
         ? { lang: "en-US", text: `Card number ${card}. Please proceed to the ${item.destination}.` }
@@ -888,7 +888,7 @@ function announcementSpeech(item, language = "en+fil") {
     return language === "en" ? [english] : language === "fil" ? [tagalog] : [english, tagalog];
 }
 /** Time to leave for each call so two languages never talk over the next call. */
-const announcementGap = (language = "en+fil") => (language === "en+fil" ? 11000 : 6000);
+const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 // ---- from lib/queue/slip.ts ----
 
@@ -1553,7 +1553,7 @@ function downloadQueueReport(xlsx, state, now) {
           <label class="field">TV display message<input type="text" maxlength="240" value="${esc(draft.ticker)}" data-set="ticker"></label>
           <div style="display:grid;gap:8px;border:1px solid #e8dfce;border-radius:12px;padding:14px">
             <label class="field">Spoken announcements on the TV<em>The chime plays first, then the queue number is read out in the language you choose.</em>
-              <select data-set="announceLanguage">${[["en+fil", "English, then Tagalog"], ["en", "English only"], ["fil", "Tagalog only"]].map(([v, l]) => `<option value="${v}" ${(draft.announceLanguage ?? "en+fil") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+              <select data-set="announceLanguage">${[["en", "English only"], ["en+fil", "English, then Tagalog"], ["fil", "Tagalog only"]].map(([v, l]) => `<option value="${v}" ${(draft.announceLanguage ?? "en") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn sm outline" data-act="testVoice">▶ Test announcement</button><span style="font-size:12px;color:var(--muted)">Plays on this computer.</span></div>
             <p class="yt-hint" id="voice-hint"></p>
           </div>
@@ -1628,7 +1628,7 @@ function downloadQueueReport(xlsx, state, now) {
   function showVoiceHint() {
     const hint = $("#voice-hint");
     if (!hint || !draft) return;
-    const tagalog = (draft.announceLanguage ?? "en+fil") !== "en";
+    const tagalog = (draft.announceLanguage ?? "en") !== "en";
     const voice = tagalog && filipinoVoice();
     hint.className = `yt-hint ${!tagalog || voice ? "ok" : "err"}`;
     hint.textContent = !tagalog || !("speechSynthesis" in window) ? "" : voice ? `✓ Filipino voice on this computer: ${voice.name}` : NO_FILIPINO_VOICE;
@@ -1854,7 +1854,7 @@ function downloadQueueReport(xlsx, state, now) {
       audio?.resume();
       if ("speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance(" "));
       // Voices load in the background; check for a Filipino one once they are in.
-      if ((state.settings.announceLanguage ?? "en+fil") !== "en") setTimeout(() => { if (view === "display" && "speechSynthesis" in window && !filipinoVoice()) toast(NO_FILIPINO_VOICE, true); }, 1500);
+      if ((state.settings.announceLanguage ?? "en") !== "en") setTimeout(() => { if (view === "display" && "speechSynthesis" in window && !filipinoVoice()) toast(NO_FILIPINO_VOICE, true); }, 1500);
     }
     refreshStartButton();
     $("#sound-toggle").textContent = on ? "🔊 Sound on" : "🔇 Sound off";
