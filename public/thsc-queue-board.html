@@ -349,12 +349,21 @@ const DEFAULT_SETTINGS = {
         { code: "C1", name: "Consultation 1", service: "consultation", location: "Clinic Room 1", selfCheckIn: true, active: true },
         { code: "C2", name: "Consultation 2", service: "consultation", location: "Clinic Room 2", selfCheckIn: true, active: true },
         { code: "C3", name: "Consultation 3", service: "consultation", location: "Clinic Room 3", selfCheckIn: true, active: true },
-        { code: "P1", name: "Procedures (ECG / 2D Echo)", service: "procedure", location: "Procedure Room", selfCheckIn: false, active: true },
+        { code: "E1", name: "2D Echo 1", service: "procedure", location: "2D Echo Room 1", selfCheckIn: false, active: true },
+        { code: "E2", name: "2D Echo 2", service: "procedure", location: "2D Echo Room 2", selfCheckIn: false, active: true },
+        { code: "ECG", name: "ECG", service: "procedure", location: "ECG Room", selfCheckIn: false, active: true },
+        { code: "ABPM", name: "ABPM", service: "procedure", location: "ABPM Room", selfCheckIn: false, active: true },
+        { code: "HT", name: "Holter", service: "procedure", location: "Holter Room", selfCheckIn: false, active: true },
+        { code: "TM", name: "Treadmill", service: "procedure", location: "Treadmill Room", selfCheckIn: false, active: true },
+        { code: "ABI", name: "ABI", service: "procedure", location: "ABI Room", selfCheckIn: false, active: true },
+        { code: "BIO", name: "Biosensor", service: "procedure", location: "Biosensor Room", selfCheckIn: false, active: true },
+        { code: "WT", name: "6-Minute Walk", service: "procedure", location: "6-Minute Walk Area", selfCheckIn: false, active: true },
         { code: "L1", name: "Laboratory", service: "laboratory", location: "Laboratory", selfCheckIn: false, active: true },
         { code: "HD", name: "HMO Desk", service: "hmo", location: "HMO Desk", selfCheckIn: false, active: true },
         { code: "CA", name: "Cashier", service: "cashier", location: "Cashier", selfCheckIn: false, active: true },
         { code: "XR", name: "X-ray", service: "imaging", location: "X-ray Room", selfCheckIn: false, active: true },
         { code: "US", name: "Ultrasound", service: "imaging", location: "Ultrasound Room", selfCheckIn: false, active: true },
+        { code: "CN", name: "Concierge", service: "other", location: "Concierge", selfCheckIn: false, active: true },
     ],
     ticker: "Please wait for your queue number to be called. Senior citizens, PWDs and pregnant patients are served through the priority lane.",
 };
@@ -765,7 +774,7 @@ function run(state, action, now) {
 }
 /** Removes names, mobile numbers and notes so the TV board and patient phones never receive them. */
 /** Items a doctor can mark for payment at the cashier, besides the professional fee. */
-const BILLING_ITEMS = ["Clearance", "Medical certificate", "Additional procedure"];
+const BILLING_ITEMS = ["Admin fee", "Clearance", "Medical certificate", "Additional procedure"];
 function cleanBilling(input) {
     if (!input || (input.fee !== "pf" && input.fee !== "none"))
         return null;
@@ -1539,7 +1548,7 @@ function downloadQueueReport(xlsx, state, now) {
           <td style="text-align:right"><button class="btn icon ghost" ${inUse(s.code) ? "disabled title=\"Patients are still queued here — set it inactive instead\"" : "title=\"Remove station\""} data-act="removeStation" data-index="${i}" aria-label="Remove station">✕</button></td>
         </tr>`).join("")}
         </tbody></table></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sm outline" data-act="addStation">＋ Add station</button>${missingStandard().length ? `<button class="btn sm outline" data-act="addStandard" title="${esc(missingStandard().map((s) => s.name).join(", "))}">＋ Add missing standard stations (${esc(missingStandard().map((s) => s.name).join(", "))})</button>` : ""}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sm outline" data-act="addStation">＋ Add station</button>${standardChanges().length ? `<button class="btn sm outline" data-act="addStandard" title="${esc(standardChanges().join(", "))}">＋ Update to the standard stations (${esc(standardChanges().length > 5 ? `${standardChanges().slice(0, 4).join(", ")} +${standardChanges().length - 4} more` : standardChanges().join(", "))})</button>` : ""}</div>
         <div class="set-grid">
           <label class="field">TV display message<input type="text" maxlength="240" value="${esc(draft.ticker)}" data-set="ticker"></label>
           <div style="display:grid;gap:8px;border:1px solid #e8dfce;border-radius:12px;padding:14px">
@@ -1569,6 +1578,14 @@ function downloadQueueReport(xlsx, state, now) {
   }
 
   /** Standard stations (e.g. Cashier, X-ray, Ultrasound) that this clinic's saved settings do not have yet, by code or name. */
+  /** The old combined "Procedures (ECG / 2D Echo)" station, which becomes 2D Echo 1. */
+  function oldProcedureStation() {
+    return (draft?.stations ?? state.settings.stations).find((s) => s.code === "P1" && /ECG\s*\/\s*2D Echo/i.test(s.name));
+  }
+  /** What "Update to the standard stations" would change, e.g. ["P1 → 2D Echo 1", "2D Echo 2", "ECG", …]. */
+  function standardChanges() {
+    return [...(oldProcedureStation() ? ["P1 → 2D Echo 1"] : []), ...missingStandard().filter((st) => !(oldProcedureStation() && st.name === "2D Echo 1")).map((st) => st.name)];
+  }
   function missingStandard() {
     const have = draft?.stations ?? state.settings.stations;
     return DEFAULT_SETTINGS.stations.filter((s) => !have.some((h) => h.code === s.code || h.name.toLowerCase() === s.name.toLowerCase()));
@@ -1979,7 +1996,20 @@ function downloadQueueReport(xlsx, state, now) {
       case "openSettings": openSettings(); break;
       case "closeSettings": draft = null; renderSettings(); break;
       case "closeSettingsBg": if (event.target === el) { draft = null; renderSettings(); } break;
-      case "addStandard": draft.stations.push(...missingStandard().map((s) => ({ ...s }))); renderSettings(); break;
+      case "addStandard": {
+        const old = oldProcedureStation();
+        if (old) {
+          // Patients still queued at P1 keep their code; otherwise it becomes E1 like the standard list.
+          const busy = state.visits.some((v) => !v.cancelled && v.steps.some((st) => st.station === old.code && st.status !== "done"));
+          Object.assign(old, { name: "2D Echo 1", location: "2D Echo Room 1", service: "procedure" }, busy ? {} : { code: "E1" });
+        }
+        draft.stations.push(...missingStandard().map((s) => ({ ...s })));
+        // Standard order (consultations, procedures, laboratory, …); the clinic's own extra stations stay at the end.
+        const order = (s) => { const i = DEFAULT_SETTINGS.stations.findIndex((d) => d.code === s.code || d.name.toLowerCase() === s.name.toLowerCase()); return i < 0 ? 999 : i; };
+        draft.stations.sort((a, b) => order(a) - order(b));
+        renderSettings();
+        break;
+      };
       case "addStation": draft.stations.push({ code: "", name: "", location: "", service: "consultation", selfCheckIn: true, active: true }); renderSettings(); break;
       case "removeStation": draft.stations.splice(Number(index), 1); renderSettings(); break;
       case "saveSettings": void dispatch({ type: "updateSettings", settings: draft }, sync.mode === "server" ? "Settings saved. Every computer updates automatically." : "Settings saved. Every open window updates automatically.").then((r) => { if (r.ok) { draft = null; renderSettings(); } }); break;
