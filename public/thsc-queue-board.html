@@ -94,6 +94,12 @@ label.field em { font-style: normal; font-weight: 400; color: var(--muted-2); fo
 .tag.new { background: #e3f0dc; color: #36561f; }
 .tag.qr { background: #e8eef7; color: #2d4a6e; }
 .tag.hmo { background: #ece4f6; color: #4b2f7a; }
+.tag.pay { background: #fde8d4; color: #8a4a12; } .tag.paid { background: var(--ok-bg); color: var(--ok); }
+.serving .bill { margin-top: 16px; border-top: 1px solid #4a3d27; padding-top: 14px; }
+.serving .bill .k2 { color: #cbbd9d; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; margin: 0 0 8px; }
+.serving .bill-items button { border: 1px solid #5c4b2d; background: transparent; color: #e8dec7; border-radius: 999px; padding: 6px 12px; font-size: 13px; margin: 0 6px 6px 0; }
+.serving .bill-items button.on { background: var(--gold-2); border-color: var(--gold-2); color: var(--brown); font-weight: 700; }
+.serving .topay { margin: 12px 0 0; background: #4a3612; border: 1px solid var(--gold); border-radius: 10px; padding: 10px 12px; color: #f4e8c7; font-size: 15px; }
 .route-edit { border: 1px solid var(--line); background: #fff; color: var(--primary); border-radius: 6px; padding: 1px 6px; font-size: 12px; font-weight: 700; }
 .route-edit:hover { border-color: var(--gold); background: #fff9e9; }
 .nl.one { display: flex; align-items: center; justify-content: space-between; gap: 1vw; }
@@ -680,6 +686,9 @@ function run(state, action, now) {
                 if (visit.steps.length >= MAX_STEPS)
                     return fail(`A visit can have at most ${MAX_STEPS} services.`);
             }
+            const billing = cleanBilling(action.billing);
+            if (billing)
+                currentStep(visit).billing = billing;
             finishStep(visit, now, action.sendTo);
             const next = currentStep(visit);
             return { ok: true, visitId: visit.id, label: next ? ticketLabel(visit, next.station) : undefined };
@@ -755,8 +764,33 @@ function run(state, action, now) {
     }
 }
 /** Removes names, mobile numbers and notes so the TV board and patient phones never receive them. */
+/** Items a doctor can mark for payment at the cashier, besides the professional fee. */
+const BILLING_ITEMS = ["Clearance", "Medical certificate", "Additional procedure"];
+function cleanBilling(input) {
+    if (!input || (input.fee !== "pf" && input.fee !== "none"))
+        return null;
+    const items = Array.isArray(input.items) ? input.items.map((item) => clean(item, 40)).filter((item) => BILLING_ITEMS.includes(item)) : [];
+    return { fee: input.fee, items: [...new Set(items)] };
+}
+function withoutBilling(step) {
+    const copy = { ...step };
+    delete copy.billing;
+    return copy;
+}
+/** Removes names, mobile numbers, notes and charges so the TV board and patient phones never receive them. */
 function publicView(state) {
-    return { ...state, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "" })) };
+    return { ...state, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", steps: visit.steps.map(withoutBilling) })) };
+}
+/** What the patient has to pay at the cashier, from the doctors' choices: e.g. ["Professional fee (Consultation 1)", "Clearance"]. */
+function payItems(state, visit) {
+    return visit.steps.flatMap((step) => !step.billing ? [] : [...(step.billing.fee === "pf" ? [`Professional fee (${stationName(state, step.station)})`] : []), ...step.billing.items]);
+}
+/** "to pay" while a cashier service is still open, "paid" once it is done, null when there is nothing to pay. */
+function payStatus(state, visit) {
+    if (!payItems(state, visit).length)
+        return null;
+    const cashier = visit.steps.filter((step) => findStation(state, step.station)?.service === "cashier");
+    return cashier.length && cashier.every((step) => step.status === "done") ? "paid" : "to pay";
 }
 
 // ---- from lib/queue/format.ts ----
@@ -957,20 +991,21 @@ function buildQueueReport(state, now) {
     });
     if (hours.length)
         hourRows.push(["Total", visits.length, count(visits, (v) => v.kind === "W"), count(visits, (v) => v.kind === "S"), count(visits, (v) => v.kind === "H"), count(visits, (v) => v.newPatient === true), count(visits, (v) => v.priority)]);
-    const patientRows = [["Queue no.", "Patient", "Mobile", "Type", "New patient", "Priority", "Source", "Status", "Services", "Arrived", "Registered", "First called", "Finished", "Wait to register (min)", "Wait for first call (min)", "Time in clinic (min)", "Notes", "HMO", "LOA / approval no."]];
+    const patientRows = [["Queue no.", "Patient", "Mobile", "Type", "New patient", "Priority", "Source", "Status", "Services", "Arrived", "Registered", "First called", "Finished", "Wait to register (min)", "Wait for first call (min)", "Time in clinic (min)", "Notes", "HMO", "LOA / approval no.", "Charges"]];
     visits.forEach((visit, index) => {
         patientRows.push([
             currentLabel(visit), visit.name, visit.mobile, { S: "Scheduled", H: "HMO", W: "Walk-in" }[visit.kind] ?? "Walk-in", visit.newPatient ? "Yes" : "No", visit.priority ? "Yes" : "",
             visit.source === "self" ? "QR check-in" : "Front desk", STATUS_LABEL[visitStatus(visit)], visit.steps.map((step) => stationName(state, step.station)).join(" → "),
             time(visit.createdAt), time(visit.registeredAt), time(visit.steps[0]?.calledAt), time(finishedAt(visit)),
             toRegister[index], toFirstCall[index], inClinic[index], visit.notes, visit.hmo ?? "", visit.loa ?? "",
+            payItems(state, visit).join(", ") + (payStatus(state, visit) ? ` (${payStatus(state, visit)})` : ""),
         ]);
     });
     return [
         { name: "Summary", rows: summary, widths: [40, 30, 12] },
         { name: "By station", rows: stationRows, widths: [8, 28, 14, 16, 10, 13, 9, 15, 18, 22] },
         { name: "By hour", rows: hourRows, widths: [22, 22, 10, 11, 8, 14, 13] },
-        { name: "Patient list", rows: patientRows, widths: [13, 26, 15, 11, 12, 9, 13, 14, 40, 10, 11, 12, 10, 20, 22, 19, 30, 18, 18] },
+        { name: "Patient list", rows: patientRows, widths: [13, 26, 15, 11, 12, 9, 13, 14, 40, 10, 11, 12, 10, 20, 22, 19, 30, 18, 18, 45] },
     ];
 }
 /** Builds the workbook and downloads it as THSC-Queue-Report-YYYY-MM-DD.xlsx. */
@@ -1458,7 +1493,7 @@ function downloadQueueReport(xlsx, state, now) {
       const live = status === "waiting" || status === "called";
       return `<tr class="${v.cancelled ? "cancelled" : ""}">
         <td><span class="q mono">${esc(currentLabel(v))}</span><small>Arrived ${formatTime(v.createdAt)}</small></td>
-        <td style="max-width:240px">${v.name ? `<b>${esc(v.name)}</b>` : `<i style="color:var(--muted-2)">Not registered yet</i>`}<div class="tags">${v.source === "self" ? `<span class="tag qr">${v.verified ? "QR check-in" : "QR check-in · verify"}</span>` : ""}${v.kind === "H" ? `<span class="tag hmo">HMO${v.hmo ? ` · ${esc(v.hmo)}` : ""}</span>` : ""}${v.loa ? `<span>LOA ${esc(v.loa)}</span>` : ""}${v.newPatient ? `<span class="tag new">New patient</span>` : ""}${v.priority ? `<span class="tag prio">Priority</span>` : ""}${v.mobile ? `<span>${esc(v.mobile)}</span>` : ""}${v.notes ? `<span>· ${esc(v.notes)}</span>` : ""}</div></td>
+        <td style="max-width:240px">${v.name ? `<b>${esc(v.name)}</b>` : `<i style="color:var(--muted-2)">Not registered yet</i>`}<div class="tags">${v.source === "self" ? `<span class="tag qr">${v.verified ? "QR check-in" : "QR check-in · verify"}</span>` : ""}${v.kind === "H" ? `<span class="tag hmo">HMO${v.hmo ? ` · ${esc(v.hmo)}` : ""}</span>` : ""}${v.loa ? `<span>LOA ${esc(v.loa)}</span>` : ""}${payStatus(state, v) ? `<span class="tag ${payStatus(state, v) === "paid" ? "paid" : "pay"}" title="${esc(payItems(state, v).join(", "))}">${payStatus(state, v) === "paid" ? "✓ Paid" : `💳 To pay: ${payItems(state, v).map((x) => esc(x.replace(/^Professional fee.*/, "PF"))).join(", ")}`}</span>` : ""}${v.newPatient ? `<span class="tag new">New patient</span>` : ""}${v.priority ? `<span class="tag prio">Priority</span>` : ""}${v.mobile ? `<span>${esc(v.mobile)}</span>` : ""}${v.notes ? `<span>· ${esc(v.notes)}</span>` : ""}</div></td>
         <td><span class="pill st-${status}">${STATUS_LABEL[status]}</span>${step && status !== "completed" ? `<small>${esc(stationName(state, step.station))}</small>` : ""}</td>
         <td style="font-variant-numeric:tabular-nums">${live ? formatWait(minutesSince(since, now)) : "—"}</td>
         <td><div class="route">${v.steps.map((s) => `<span class="mono ${s.status === "done" ? "done" : s === step ? "cur" : ""}" title="${esc(stationName(state, s.station))}">${s.status === "done" ? "✓" : ""}${esc(s.station)}</span>`).join("")}${!v.cancelled && isRegistered(v) && status !== "completed" ? `<button type="button" class="route-edit" title="Edit or delete the route" aria-label="Edit route for ${esc(currentLabel(v))}" data-act="editRoute" data-id="${v.id}">✎ Edit</button>` : ""}</div></td>
@@ -1598,6 +1633,22 @@ function downloadQueueReport(xlsx, state, now) {
     if (!wanted) { try { wanted = localStorage.getItem(STATION_KEY) || ""; } catch { wanted = ""; } }
     return stations.find((s) => s.code === wanted)?.code ?? stations[0]?.code;
   }
+  // Doctor's charges for the patient being seen, kept per patient until the consultation is finished.
+  const billingDraft = {};
+  function billingPanel(v, upcoming, cashier) {
+    const items = billingDraft[v.id] ?? [];
+    const noChargeNext = items.length ? "pay items at Cashier" : upcoming ? `next ${esc(upcoming.station)}` : "complete visit";
+    return `<div class="bill">
+      <p class="k2">Charges to pay at the Cashier</p>
+      <div class="bill-items">${BILLING_ITEMS.map((item) => `<button type="button" class="${items.includes(item) ? "on" : ""}" aria-pressed="${items.includes(item)}" data-act="billItem" data-id="${v.id}" data-item="${esc(item)}">${items.includes(item) ? "☑" : "☐"} ${esc(item)}</button>`).join("")}</div>
+      <div class="btns" style="margin-top:8px">
+        <button class="btn gold" data-act="billPf" data-id="${v.id}" ${cashier ? "" : "disabled"}>💳 Professional fee → Cashier</button>
+        <button class="btn cream" data-act="billNone" data-id="${v.id}" ${items.length && !cashier ? "disabled" : ""}>No charge · ${noChargeNext}</button>
+      </div>
+      ${cashier ? "" : `<p class="meta" style="color:#f4c3cc">Add a Cashier station in Settings to send patients for payment.</p>`}
+    </div>`;
+  }
+
   function updateStation() {
     const box = $("#station");
     const stations = state.settings.stations.filter((s) => s.active);
@@ -1611,6 +1662,8 @@ function downloadQueueReport(xlsx, state, now) {
     const missed = state.visits.filter((v) => { const s = currentStep(v); return !v.cancelled && s?.station === station.code && s.status === "missed"; });
     const next = waiting[0];
     const others = stations.filter((s) => s.code !== station.code);
+    const consult = station.service === "consultation";
+    const cashier = stations.find((s) => s.service === "cashier");
     box.innerHTML = `
       <nav class="tabs" aria-label="Choose station">${stations.map((s) => { const n = waitingFor(state, s.code).length; return `<a href="#station/${encodeURIComponent(s.code)}" class="${s.code === station.code ? "on" : ""}"><b class="mono">${esc(s.code)}</b><span class="n">${esc(s.name)}</span><span class="count ${n ? "has" : ""}">${n}</span></a>`; }).join("")}</nav>
       <div class="st-grid">
@@ -1622,16 +1675,18 @@ function downloadQueueReport(xlsx, state, now) {
               return `<div><p class="num mono">${esc(ticketLabel(v, station.code))}</p>
                 <p class="who">${esc(v.name)}${v.kind === "H" ? ` <span class="tag hmo" style="vertical-align:middle">HMO${v.hmo ? ` · ${esc(v.hmo)}` : ""}${v.loa ? ` · LOA ${esc(v.loa)}` : ""}</span>` : ""}${v.newPatient ? ` <span class="tag new" style="vertical-align:middle">New patient</span>` : ""}${v.priority ? ` <span class="tag prio" style="vertical-align:middle">Priority</span>` : ""}</p>
                 <p class="meta">Called ${step.calledAt ? formatTime(step.calledAt) : ""} · ${formatWait(minutesSince(step.calledAt, now))} ago${step.calls > 1 ? ` · called ${step.calls}×` : ""}${v.notes ? ` · ${esc(v.notes)}` : ""}</p>
-                <div class="btns"><button class="btn cream" data-act="recall" data-id="${v.id}">📢 Call again</button><button class="btn bare" data-act="miss" data-id="${v.id}">Did not respond</button><button class="btn gold" data-act="complete" data-id="${v.id}">✓ ${upcoming ? `Complete · next ${esc(upcoming.station)}` : "Complete visit"}</button></div>
+                ${station.service === "cashier" && payItems(state, v).length ? `<div class="topay">💳 <b>To pay:</b> ${payItems(state, v).map(esc).join(" · ")}</div>` : ""}
+                <div class="btns"><button class="btn cream" data-act="recall" data-id="${v.id}">📢 Call again</button><button class="btn bare" data-act="miss" data-id="${v.id}">Did not respond</button>${consult ? "" : `<button class="btn gold" data-act="complete" data-id="${v.id}">✓ ${upcoming ? `Complete · next ${esc(upcoming.station)}` : "Complete visit"}</button>`}</div>
+                ${consult ? billingPanel(v, upcoming, cashier) : ""}
                 ${others.length ? `<div class="send"><p>Complete and send to</p>${others.map((s) => `<button data-act="complete" data-id="${v.id}" data-send="${esc(s.code)}">→ <b class="mono">${esc(s.code)}</b> ${esc(s.name)}</button>`).join("")}</div>` : ""}</div>`;
             }).join(`<hr style="border:0;border-top:1px solid #4a3d27;margin:18px 0">`) : `<p style="color:#e8dec7;font-size:17px;margin:20px 0 0">No patient called yet.</p>`}
           </section>
           <button class="callnext" data-act="callNext" data-station="${esc(station.code)}" ${next ? "" : "disabled"}>🔔 ${next ? `Call next · <span class="mono">${esc(ticketLabel(next, station.code))}</span>` : "No one waiting"}</button>
-          ${serving.length && next ? `<p class="hint">Calling the next patient marks ${esc(ticketLabel(serving[0], station.code))} as complete.</p>` : ""}
+          ${serving.length && next ? `<p class="hint">${consult ? `Choose <b>Professional fee</b> or <b>No charge</b> first — calling the next patient completes ${esc(ticketLabel(serving[0], station.code))} with no charges recorded.` : `Calling the next patient marks ${esc(ticketLabel(serving[0], station.code))} as complete.`}</p>` : ""}
         </div>
         <div class="col">
           <section class="panel"><div class="panel-h"><div><h2>Waiting for ${esc(station.name)}</h2><p>Priority lane patients are called first, then in arrival order.</p></div></div>
-            <div class="panel-b">${waiting.length ? `<ol class="wlist">${waiting.map((v, i) => `<li><span class="pos">${i + 1}</span><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${v.kind === "H" ? ` <span class="tag hmo">HMO${v.hmo ? ` · ${esc(v.hmo)}` : ""}</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
+            <div class="panel-b">${waiting.length ? `<ol class="wlist">${waiting.map((v, i) => `<li><span class="pos">${i + 1}</span><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${v.kind === "H" ? ` <span class="tag hmo">HMO${v.hmo ? ` · ${esc(v.hmo)}` : ""}</span>` : ""}${station.service === "cashier" && payItems(state, v).length ? ` <span class="tag pay">💳 ${payItems(state, v).map(esc).join(", ")}</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
           </section>
           ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map((v) => `<li class="missed"><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
         </div>
@@ -1898,6 +1953,26 @@ function downloadQueueReport(xlsx, state, now) {
         if (!routeEdit.codes.length && !confirm(`Delete the rest of ${v ? currentLabel(v) : "this patient"}'s route? Their visit ends after any service in progress.`)) break;
         const { id: visitId, codes } = routeEdit;
         void dispatch({ type: "setRoute", visitId, stations: codes }, (r) => (codes.length ? `Route saved. Next: ${r.label}.` : "Route deleted.")).then((r) => { if (r.ok) { routeEdit = null; renderRouteEditor(); } });
+        break;
+      }
+      case "billItem": {
+        const items = billingDraft[id] ?? (billingDraft[id] = []);
+        const item = el.dataset.item;
+        if (items.includes(item)) items.splice(items.indexOf(item), 1); else items.push(item);
+        updateStation();
+        break;
+      }
+      case "billPf":
+      case "billNone": {
+        const items = billingDraft[id] ?? [];
+        const fee = act === "billPf" ? "pf" : "none";
+        const cashier = state.settings.stations.find((s) => s.active && s.service === "cashier");
+        const toCashier = fee === "pf" || items.length > 0;
+        if (toCashier && !cashier) { toast("Add a Cashier station in Settings first.", true); break; }
+        const pay = [...(fee === "pf" ? ["Professional fee"] : []), ...items];
+        void dispatch({ type: "complete", visitId: id, billing: { fee, items }, sendTo: toCashier ? cashier.code : undefined },
+          (r) => (toCashier ? `Sent to the Cashier to pay: ${pay.join(", ")}.` : r.label ? `No charge. Next: ${r.label}.` : "No charge. Visit complete."))
+          .then((r) => { if (r.ok) { delete billingDraft[id]; if (view === "station") updateStation(); } });
         break;
       }
       case "verify": dispatch({ type: "verify", visitId: id }, "Check-in verified."); break;

@@ -23,7 +23,11 @@ export type Step = {
   calledAt: number | null;
   doneAt: number | null;
   calls: number;
+  /** Set when a consultation is finished: the professional fee (or no charge) and other items to pay at the cashier. */
+  billing?: Billing;
 };
+
+export type Billing = { fee: "pf" | "none"; items: string[] };
 
 export type Visit = {
   id: string;
@@ -117,7 +121,7 @@ export type QueueAction =
   | { type: "markMessaged"; visitId: string }
   | { type: "call"; station: string; visitId?: string }
   | { type: "recall"; visitId: string }
-  | { type: "complete"; visitId: string; sendTo?: string }
+  | { type: "complete"; visitId: string; sendTo?: string; billing?: Billing }
   | { type: "miss"; visitId: string }
   | { type: "requeue"; visitId: string }
   /** Replaces the services still to come; finished services and the one being served now stay as they are. */

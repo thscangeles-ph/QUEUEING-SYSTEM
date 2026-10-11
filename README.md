@@ -34,6 +34,8 @@ The queue follows the clinic's arrival flow:
 
 `01-C1-W` = `[daily number]-[station]-[W walk-in / S scheduled]`.
 
+**Consultation charges:** on a consultation station, the doctor ticks any of *Clearance*, *Medical certificate* and *Additional procedure*, then finishes with **💳 Professional fee → Cashier** or **No charge**. Anything to pay sends the patient to the Cashier station next (before their other services); the Cashier screen shows what to collect, and the front desk shows *To pay* / *Paid*. Charges appear in the Excel report and never on the TV.
+
 **Route:** in Today's patients, *✎ Edit* on a patient's route adds, removes or reorders the services still to come, or deletes the rest of the route. Finished services and the one being served now stay as they are; a patient who stays first in a line keeps their place.
 
 - The daily number starts at 01 every day (Manila time) and is shared by walk-in and scheduled patients.
