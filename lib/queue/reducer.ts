@@ -10,12 +10,21 @@ export const DEFAULT_SETTINGS: Settings = {
     { code: "C1", name: "Consultation 1", service: "consultation", location: "Clinic Room 1", selfCheckIn: true, active: true },
     { code: "C2", name: "Consultation 2", service: "consultation", location: "Clinic Room 2", selfCheckIn: true, active: true },
     { code: "C3", name: "Consultation 3", service: "consultation", location: "Clinic Room 3", selfCheckIn: true, active: true },
-    { code: "P1", name: "Procedures (ECG / 2D Echo)", service: "procedure", location: "Procedure Room", selfCheckIn: false, active: true },
+    { code: "E1", name: "2D Echo 1", service: "procedure", location: "2D Echo Room 1", selfCheckIn: false, active: true },
+    { code: "E2", name: "2D Echo 2", service: "procedure", location: "2D Echo Room 2", selfCheckIn: false, active: true },
+    { code: "ECG", name: "ECG", service: "procedure", location: "ECG Room", selfCheckIn: false, active: true },
+    { code: "ABPM", name: "ABPM", service: "procedure", location: "ABPM Room", selfCheckIn: false, active: true },
+    { code: "HT", name: "Holter", service: "procedure", location: "Holter Room", selfCheckIn: false, active: true },
+    { code: "TM", name: "Treadmill", service: "procedure", location: "Treadmill Room", selfCheckIn: false, active: true },
+    { code: "ABI", name: "ABI", service: "procedure", location: "ABI Room", selfCheckIn: false, active: true },
+    { code: "BIO", name: "Biosensor", service: "procedure", location: "Biosensor Room", selfCheckIn: false, active: true },
+    { code: "WT", name: "6-Minute Walk", service: "procedure", location: "6-Minute Walk Area", selfCheckIn: false, active: true },
     { code: "L1", name: "Laboratory", service: "laboratory", location: "Laboratory", selfCheckIn: false, active: true },
     { code: "HD", name: "HMO Desk", service: "hmo", location: "HMO Desk", selfCheckIn: false, active: true },
     { code: "CA", name: "Cashier", service: "cashier", location: "Cashier", selfCheckIn: false, active: true },
     { code: "XR", name: "X-ray", service: "imaging", location: "X-ray Room", selfCheckIn: false, active: true },
     { code: "US", name: "Ultrasound", service: "imaging", location: "Ultrasound Room", selfCheckIn: false, active: true },
+    { code: "CN", name: "Concierge", service: "other", location: "Concierge", selfCheckIn: false, active: true },
   ],
   cardCount: 30,
   ticker: "Please wait for your queue number to be called. Senior citizens, PWDs and pregnant patients are served through the priority lane.",
@@ -433,7 +442,7 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
 }
 
 /** Items a doctor can mark for payment at the cashier, besides the professional fee. */
-export const BILLING_ITEMS = ["Clearance", "Medical certificate", "Additional procedure"];
+export const BILLING_ITEMS = ["Admin fee", "Clearance", "Medical certificate", "Additional procedure"];
 
 function cleanBilling(input: Billing | undefined): Billing | null {
   if (!input || (input.fee !== "pf" && input.fee !== "none")) return null;

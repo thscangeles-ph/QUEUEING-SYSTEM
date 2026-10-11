@@ -54,7 +54,8 @@ export function CheckIn() {
   if (!state) return <PatientFrame><p className="py-16 text-center text-[#756b59]">{queue.error || "Loading…"}</p></PatientFrame>;
   const existing = storedTicket(state);
   const consults = state.settings.stations.filter((station) => station.active && station.selfCheckIn);
-  const others = state.settings.stations.filter((station) => station.active && !station.selfCheckIn);
+  // Tests a patient may already be scheduled for; desks such as the cashier or concierge are not offered.
+  const others = state.settings.stations.filter((station) => station.active && !station.selfCheckIn && ["procedure", "laboratory", "imaging"].includes(station.service));
 
   const submit = async () => {
     setBusy(true);
