@@ -1326,14 +1326,12 @@ function downloadQueueReport(xlsx, state, now) {
   let deskTab = readSetting("thsc-queue-desk-tab") === "hmo" ? "hmo" : "regular";
   const isHmoTab = () => deskTab === "hmo";
   const inTab = (v) => (v.kind === "H") === isHmoTab();
-  const hmoDesk = () => state?.settings.stations.find((s) => s.active && s.service === "hmo");
   const HMO_COMPANIES = ["Maxicare", "Intellicare", "MediCard", "PhilCare", "Cocolife", "Avega", "Pacific Cross", "ValuCare", "Etiqa", "Insular Health Care", "Kaiser", "Generali", "Caritas Health Shield", "AXA", "Sun Life Grepa"];
   const arr = { newPatient: false, priority: false };
   const form = { kind: "W", newPatient: false, arrival: null, name: "", mobile: "", notes: "", hmo: "", loa: "", priority: false, stations: [] };
-  /** Empties the registration form; HMO patients start with the HMO Desk as their first service. */
+  /** Empties the registration form; the services list starts blank for every patient, HMO included. */
   function resetForm() {
-    const desk = isHmoTab() && hmoDesk();
-    Object.assign(form, { kind: isHmoTab() ? "H" : "W", newPatient: false, arrival: null, name: "", mobile: "", notes: "", hmo: "", loa: "", priority: false, stations: desk ? [desk.code] : [] });
+    Object.assign(form, { kind: isHmoTab() ? "H" : "W", newPatient: false, arrival: null, name: "", mobile: "", notes: "", hmo: "", loa: "", priority: false, stations: [] });
     ["#reg-name", "#reg-mobile", "#reg-notes", "#reg-hmo", "#reg-loa"].forEach((sel) => { const input = $(sel); if (input) input.value = ""; });
   }
   resetForm();
@@ -1342,7 +1340,6 @@ function downloadQueueReport(xlsx, state, now) {
   let search = "";
 
   function mountDesk() {
-    if (isHmoTab() && !form.stations.length && !form.name && hmoDesk()) form.stations = [hmoDesk().code];
     $("#main").innerHTML = `
       <p class="note" id="storage-note">${sync.mode === "server"
         ? `<b>Synced queue.</b> Every computer that opens this file with the sync server <b>${esc(serverHost(syncServer()))}</b> shares this queue: front desk, stations and the lobby TV. Change it in <a href="#setup">Sync setup</a>.`
@@ -1358,7 +1355,7 @@ function downloadQueueReport(xlsx, state, now) {
             <div class="panel-h"><div><h2>Step 1 · ${isHmoTab() ? "HMO queue number" : "Queue number"} on arrival</h2><p>Generate the patient's number as soon as they arrive, before registration.</p></div><button class="btn sm dark" id="call-reg" data-act="callReg">Call next to register</button></div>
             <div class="panel-b">
               ${isHmoTab()
-                ? `<div class="gen" style="grid-template-columns:1fr"><button class="btn" data-act="arrive" data-kind="H" id="arr-hmo" style="background:#6b48a8">🎫 HMO number</button></div><div id="hmo-desk-note"></div>`
+                ? `<div class="gen" style="grid-template-columns:1fr"><button class="btn" data-act="arrive" data-kind="H" id="arr-hmo" style="background:#6b48a8">🎫 HMO number</button></div>`
                 : `<div class="gen" style="grid-template-columns:1fr"><button class="btn" data-act="arrive" data-kind="W" id="arr-reg">🎫 Queue number</button></div><p style="margin:6px 0 0;font-size:12px;color:var(--muted)">Walk-in or scheduled is chosen at registration.</p>`}
               <div class="toggles"><button type="button" class="tog" id="arr-new" data-act="togArrNew" aria-pressed="false"><span class="box">✓</span><span><b>New patient</b><small>First visit to THSC</small></span></button><button type="button" class="tog" id="arr-prio" data-act="togArrPrio" aria-pressed="false"><span class="box">✓</span><span><b>Priority lane</b><small>Senior, PWD, pregnant</small></span></button></div><div class="gen-opts" style="justify-content:flex-end"><label><input type="checkbox" id="arr-print">Print a slip for each number</label></div>
               <div id="newnum"></div>
@@ -1438,7 +1435,6 @@ function downloadQueueReport(xlsx, state, now) {
     $("#tab-count-hmo").textContent = state.visits.filter((v) => v.kind === "H" && inClinic(v)).length;
     if ($("#arr-reg")) $("#arr-reg").textContent = `🎫 Queue number (next: ${pad2(state.nextSeq)})`;
     if ($("#arr-hmo")) $("#arr-hmo").textContent = `🎫 HMO number (next: HMO-${pad2(state.nextHmoSeq ?? 1)})`;
-    if ($("#hmo-desk-note")) $("#hmo-desk-note").innerHTML = hmoDesk() ? "" : `<p class="note" style="margin:10px 0 0">There is no HMO Desk station yet, so HMO patients go straight to their doctor. <button type="button" class="btn sm" data-act="addHmoDesk">Add HMO Desk station</button></p>`;
     if (isHmoTab()) form.kind = "H";
     const active = state.visits.filter((v) => !v.cancelled && inTab(v));
     const waits = active.map((v) => v.steps[0]).filter((s) => s?.calledAt && s.queuedAt).map((s) => (s.calledAt - s.queuedAt) / 60000);
@@ -1959,12 +1955,6 @@ function downloadQueueReport(xlsx, state, now) {
         latestArrival = null; issued = null; search = "";
         resetForm(); mountDesk(); updateDesk();
         break;
-      case "addHmoDesk": {
-        const used = new Set(state.settings.stations.map((s) => s.code));
-        const code = ["HD", "HMO", "H1", "H2"].find((c) => !used.has(c));
-        void dispatch({ type: "updateSettings", settings: { ...state.settings, stations: [...state.settings.stations, { code, name: "HMO Desk", service: "hmo", location: "HMO Desk", selfCheckIn: false, active: true }] } }, `HMO Desk station added (${code}). Open it on the HMO computer under Stations.`).then((r) => { if (r.ok && view === "desk" && isHmoTab() && !form.stations.length) { form.stations = [code]; updateDesk(); } });
-        break;
-      }
       case "editRoute": openRouteEditor(id); break;
       case "closeRoute": routeEdit = null; renderRouteEditor(); break;
       case "closeRouteBg": if (event.target === el) { routeEdit = null; renderRouteEditor(); } break;
