@@ -381,6 +381,28 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       const next = currentStep(visit);
       return { ok: true, visitId: visit.id, label: next ? ticketLabel(visit, next.station) : undefined };
     }
+    case "callBack": {
+      // Calls a patient this station already served back to it (e.g. the doctor needs them again).
+      const station = findStation(state, action.station);
+      if (!station) return fail("Unknown station.");
+      const visit = findVisit(action.visitId);
+      if (!visit || visit.cancelled || !visit.steps.some((step) => step.station === station.code && step.status === "done")) return fail(`That patient has not been served at ${station.name} today.`);
+      const open = currentStep(visit);
+      if (open?.station === station.code) return fail(open.status === "called" ? "That patient is already being served here." : "That patient is already in this station's line.");
+      if (open?.status === "called") return fail(`${ticketLabel(visit, open.station)} is being served at ${findStation(state, open.station)?.name ?? open.station} right now.`);
+      if (visit.steps.length >= MAX_STEPS) return fail(`A visit can have at most ${MAX_STEPS} services.`);
+      // Like Call next, this completes whoever the station was serving.
+      servingAt(state, station.code).forEach((other) => finishStep(other, now));
+      // The patient's next service waits until they are done here again.
+      if (open) { open.status = "pending"; open.queuedAt = null; }
+      const step = makeStep(station.code, now, false);
+      Object.assign(step, { status: "called", queuedAt: now, calledAt: now, calls: 1 });
+      const index = visit.steps.findIndex((item) => item.status !== "done");
+      visit.steps.splice(index < 0 ? visit.steps.length : index, 0, step);
+      const label = ticketLabel(visit, station.code);
+      announce(state, { at: now, kind: "ticket", label, station: station.code, destination: station.location || station.name });
+      return { ok: true, visitId: visit.id, label };
+    }
     case "miss": {
       const visit = findVisit(action.visitId);
       const step = visit && currentStep(visit);

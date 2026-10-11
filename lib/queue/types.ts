@@ -125,6 +125,7 @@ export type QueueAction =
   | { type: "recall"; visitId: string }
   | { type: "complete"; visitId: string; sendTo?: string; billing?: Billing }
   | { type: "miss"; visitId: string }
+  | { type: "callBack"; station: string; visitId: string }
   | { type: "requeue"; visitId: string }
   /** Replaces the services still to come; finished services and the one being served now stay as they are. */
   | { type: "setRoute"; visitId: string; stations: string[] }
