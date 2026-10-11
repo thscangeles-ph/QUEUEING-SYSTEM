@@ -1,4 +1,4 @@
-import type { ActionResult, AnnounceLanguage, Announcement, PatientKind, QueueAction, QueueState, Settings, Station, Step, Visit, VisitInput } from "./types";
+import type { ActionResult, AnnounceLanguage, Announcement, Billing, PatientKind, QueueAction, QueueState, Settings, Station, Step, Visit, VisitInput } from "./types";
 import { parseYouTube } from "./youtube";
 
 export const TIME_ZONE = "Asia/Manila";
@@ -364,6 +364,8 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
         if (!station?.active) return fail("Choose an available station to send the patient to.");
         if (visit.steps.length >= MAX_STEPS) return fail(`A visit can have at most ${MAX_STEPS} services.`);
       }
+      const billing = cleanBilling(action.billing);
+      if (billing) currentStep(visit)!.billing = billing;
       finishStep(visit, now, action.sendTo);
       const next = currentStep(visit);
       return { ok: true, visitId: visit.id, label: next ? ticketLabel(visit, next.station) : undefined };
@@ -430,7 +432,22 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
   }
 }
 
-/** Removes names, mobile numbers and notes so the TV board and patient phones never receive them. */
+/** Items a doctor can mark for payment at the cashier, besides the professional fee. */
+export const BILLING_ITEMS = ["Clearance", "Medical certificate", "Additional procedure"];
+
+function cleanBilling(input: Billing | undefined): Billing | null {
+  if (!input || (input.fee !== "pf" && input.fee !== "none")) return null;
+  const items = Array.isArray(input.items) ? input.items.map((item) => clean(item, 40)).filter((item) => BILLING_ITEMS.includes(item)) : [];
+  return { fee: input.fee, items: [...new Set(items)] };
+}
+
+function withoutBilling(step: Step): Step {
+  const copy = { ...step };
+  delete copy.billing;
+  return copy;
+}
+
+/** Removes names, mobile numbers, notes and charges so the TV board and patient phones never receive them. */
 export function publicView(state: QueueState): QueueState {
-  return { ...state, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "" })) };
+  return { ...state, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", steps: visit.steps.map(withoutBilling) })) };
 }
