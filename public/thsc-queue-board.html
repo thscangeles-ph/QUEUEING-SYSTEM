@@ -501,6 +501,17 @@ function waitingFor(state, station) {
     })
         .sort((a, b) => Number(b.priority) - Number(a.priority) || (currentStep(a).queuedAt ?? 0) - (currentStep(b).queuedAt ?? 0) || a.seq - b.seq);
 }
+/**
+ * Whether a TV call is still open. Arrival numbers stay up until the desk registers the patient, and station calls
+ * until the station completes the patient (or calls the next one); after that the number leaves "Now calling".
+ */
+function callStillOpen(state, item) {
+    if (item.kind === "registration") return waitingToRegister(state).some((visit) => arrivalLabel(visit) === item.label);
+    if (item.kind === "card") return (state.cards ?? []).some((card) => `Card ${card.number}` === item.label);
+    return servingAt(state, item.station).some((visit) => ticketLabel(visit, item.station) === item.label);
+}
+/** The most recent call that is still open, shown as "Now calling" on the TV. */
+const openCall = (state) => [...state.announcements].reverse().find((item) => callStillOpen(state, item));
 function servingAt(state, station) {
     return state.visits
         .filter((visit) => {
@@ -1769,7 +1780,7 @@ function downloadQueueReport(xlsx, state, now) {
     const now = Date.now();
     $("#tv-time").textContent = clock.format(now);
     $("#tv-date").textContent = longDate.format(now);
-    const latest = state.announcements[state.announcements.length - 1];
+    const latest = openCall(state);
     const fresh = Boolean(latest && now - latest.at < 15000);
     $("#hero").classList.toggle("fresh", fresh);
     // A new call covers the video so patients who are watching it don't miss their number.
@@ -1882,7 +1893,7 @@ function downloadQueueReport(xlsx, state, now) {
     }
 
     const stations = state.settings.stations.filter((s) => s.active);
-    const latest = list[list.length - 1];
+    const latest = openCall(state);
     $("#hero").innerHTML = latest
       ? `<p class="k">Now calling</p><p class="num mono">${esc(latest.label)}</p><p class="go">Please proceed to <b>${esc(latest.destination)}</b></p>`
       : `<p class="k">Welcome</p><p class="go" style="max-width:80%">Please wait for your queue number to appear on this screen.</p>`;

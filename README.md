@@ -50,7 +50,7 @@ The queue follows the clinic's arrival flow:
 | --- | --- | --- |
 | Front desk | `/` or `/queue` | Concierge: arrival numbers, registration, today's patient list, one-time queue message, Excel report, settings |
 | Stations | `/queue/station?s=C1` | Doctors, procedure and lab staff: *Call next*, call again, did not respond, complete, or complete and send to another station |
-| TV display | `/queue/display` | Lobby TV: now calling, now serving at each station, next in line. Tap once to turn on the chime and voice announcement |
+| TV display | `/queue/display` | Lobby TV: now calling (a number leaves it once the patient is registered or the station completes them), now serving at each station, next in line. Tap once to turn on the chime and voice announcement |
 | QR check-in | `/queue/checkin` | Scheduled patients scan the QR poster on arrival and get their `S` queue number on their phone |
 | Check-in poster | `/queue/poster` | Printable QR poster for the entrance |
 | Patient ticket | `/queue/ticket?id=…` | Live status on the patient's phone (opened after QR check-in, or from the link in the queue message) |
