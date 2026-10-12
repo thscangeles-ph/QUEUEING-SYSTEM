@@ -440,13 +440,25 @@ function validateStations(state, codes) {
     }
     return result;
 }
+/**
+ * The number the next arrival gets: the lowest number freed by an arrival removed before registering
+ * (so 03 is given again after 03 is removed), otherwise the next new number.
+ */
+function nextNumber(state, hmo) {
+    const next = hmo ? state.nextHmoSeq ?? 1 : state.nextSeq;
+    const used = new Set(state.visits.filter((visit) => (visit.kind === "H") === hmo && !(visit.cancelled && !isRegistered(visit))).map((visit) => visit.seq));
+    for (let seq = 1; seq < next; seq += 1)
+        if (!used.has(seq))
+            return seq;
+    return next;
+}
 function newVisit(state, kind, priority, newPatient, now, source) {
     const hmo = kindOf(kind) === "H";
     if (state.visits.filter((visit) => (visit.kind === "H") === hmo).length >= 999)
         return "The daily queue limit of 999 patients has been reached.";
     const visit = {
         id: newId(),
-        seq: hmo ? state.nextHmoSeq ?? 1 : state.nextSeq,
+        seq: nextNumber(state, hmo),
         kind: kindOf(kind),
         name: "",
         mobile: "",
@@ -466,9 +478,12 @@ function newVisit(state, kind, priority, newPatient, now, source) {
         messagedAt: null,
         steps: [],
     };
-    if (hmo)
-        state.nextHmoSeq = (state.nextHmoSeq ?? 1) + 1;
-    else
+    // A reused number leaves the counter where it is.
+    if (hmo) {
+        if (visit.seq === (state.nextHmoSeq ?? 1))
+            state.nextHmoSeq = visit.seq + 1;
+    }
+    else if (visit.seq === state.nextSeq)
         state.nextSeq += 1;
     state.visits.push(visit);
     return visit;
@@ -518,7 +533,8 @@ function waitingFor(state, station) {
  * until the station completes the patient (or calls the next one); after that the number leaves "Now calling".
  */
 function callStillOpen(state, item) {
-    if (item.kind === "registration") return waitingToRegister(state).some((visit) => arrivalLabel(visit) === item.label);
+    // Arrival numbers can be given again after removal, so the call must be for this arrival, not an earlier one.
+    if (item.kind === "registration") return waitingToRegister(state).some((visit) => arrivalLabel(visit) === item.label && visit.createdAt <= item.at);
     if (item.kind === "card") return (state.cards ?? []).some((card) => `Card ${card.number}` === item.label);
     return servingAt(state, item.station).some((visit) => ticketLabel(visit, item.station) === item.label);
 }
@@ -811,6 +827,11 @@ function run(state, action, now) {
             const visit = findVisit(action.visitId);
             if (!visit)
                 return fail("Patient not found.");
+            // An arrival number removed before registering is dropped, so the next arrival can be given it again.
+            if (!isRegistered(visit)) {
+                state.visits = state.visits.filter((item) => item !== visit);
+                return { ok: true };
+            }
             visit.cancelled = true;
             return { ok: true };
         }
@@ -1511,8 +1532,8 @@ function downloadQueueReport(xlsx, state, now) {
     document.querySelectorAll('[data-act="deskTab"]').forEach((b) => { const on = b.dataset.tab === deskTab; b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); });
     $("#tab-count-regular").textContent = state.visits.filter((v) => v.kind !== "H" && inClinic(v)).length;
     $("#tab-count-hmo").textContent = state.visits.filter((v) => v.kind === "H" && inClinic(v)).length;
-    if ($("#arr-reg")) $("#arr-reg").textContent = `🎫 Queue number (next: ${pad2(state.nextSeq)})`;
-    if ($("#arr-hmo")) $("#arr-hmo").textContent = `🎫 HMO number (next: HMO-${pad2(state.nextHmoSeq ?? 1)})`;
+    if ($("#arr-reg")) $("#arr-reg").textContent = `🎫 Queue number (next: ${pad2(nextNumber(state, false))})`;
+    if ($("#arr-hmo")) $("#arr-hmo").textContent = `🎫 HMO number (next: HMO-${pad2(nextNumber(state, true))})`;
     if (isHmoTab()) form.kind = "H";
     renderTvSound();
     const active = state.visits.filter((v) => !v.cancelled && inTab(v));
@@ -1548,9 +1569,9 @@ function downloadQueueReport(xlsx, state, now) {
     document.querySelectorAll('[data-act="kind"]').forEach((b) => { b.classList.toggle("on", b.dataset.kind === form.kind); b.setAttribute("aria-checked", String(b.dataset.kind === form.kind)); });
     if (form.arrival && !waitingReg.some((v) => v.id === form.arrival)) form.arrival = null;
     const sel = $("#reg-arrival");
-    sel.innerHTML = `<option value="">New number (${isHmoTab() ? `HMO-${pad2(state.nextHmoSeq ?? 1)}` : pad2(state.nextSeq)}) — patient has no number yet</option>` + waitingReg.map((v) => `<option value="${v.id}">${esc(arrivalLabel(v))} · arrived ${formatTime(v.createdAt)}</option>`).join("");
+    sel.innerHTML = `<option value="">New number (${isHmoTab() ? `HMO-${pad2(nextNumber(state, true))}` : pad2(nextNumber(state, false))}) — patient has no number yet</option>` + waitingReg.map((v) => `<option value="${v.id}">${esc(arrivalLabel(v))} · arrived ${formatTime(v.createdAt)}</option>`).join("");
     sel.value = form.arrival ?? "";
-    const previewSeq = (form.arrival && state.visits.find((v) => v.id === form.arrival)?.seq) || (isHmoTab() ? state.nextHmoSeq ?? 1 : state.nextSeq);
+    const previewSeq = (form.arrival && state.visits.find((v) => v.id === form.arrival)?.seq) || nextNumber(state, isHmoTab());
     const stations = state.settings.stations.filter((s) => s.active);
     form.stations = form.stations.filter((code) => stations.some((s) => s.code === code));
     $("#reg-steps").innerHTML = form.stations.map((code, i) => `<li><span class="n">${i + 1}.</span><b class="mono">${esc(ticketLabel({ seq: previewSeq, kind: form.kind }, code))}</b><span class="name">${esc(stationName(state, code))}</span><button type="button" aria-label="Remove" data-act="unstep" data-index="${i}">✕</button></li>`).join("");
@@ -2162,7 +2183,7 @@ function downloadQueueReport(xlsx, state, now) {
       }
       case "slip": { const v = state.visits.find((x) => x.id === id); if (v) printSlip(arrivalLabel(v), v.createdAt, LOGO); break; }
       case "callReg": dispatch({ type: "callRegistration", visitId: id || undefined, hmo: id ? undefined : isHmoTab() }, (r) => `${r.label} called to register — shown on the TV.`); break;
-      case "removeArrival": { const v = state.visits.find((x) => x.id === id); if (v && confirm(`Remove ${arrivalLabel(v)}? Use this if the patient left before registering.`)) dispatch({ type: "cancel", visitId: id }); break; }
+      case "removeArrival": { const v = state.visits.find((x) => x.id === id); if (v && confirm(`Remove ${arrivalLabel(v)}? Use this if the patient left before registering. The number ${arrivalLabel(v)} will be given to the next arrival.`)) dispatch({ type: "cancel", visitId: id }, `${arrivalLabel(v)} removed — the next Queue number will reuse it.`); break; }
       case "registerArrival": { const v = state.visits.find((x) => x.id === id); if (v) { form.arrival = id; form.kind = v.kind; form.priority = v.priority; form.newPatient = v.newPatient === true; updateDesk(); $("#reg-name").focus(); } break; }
       case "togArrNew": arr.newPatient = !arr.newPatient; updateDesk(); break;
       case "togArrPrio": arr.priority = !arr.priority; updateDesk(); break;
