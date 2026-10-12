@@ -105,6 +105,15 @@ label.field em { font-style: normal; font-weight: 400; color: var(--muted-2); fo
 .nl.one { display: flex; align-items: center; justify-content: space-between; gap: 1vw; }
 .nl.one .h { display: block; margin: 0; } .nl.one .h small { display: block; color: #8c7f66; font-size: 1vw; margin-top: .3vh; }
 .nl.one b.mono { background: #3a3022; border-radius: .5vw; padding: .4vh .8vw; font-size: 2.6vw; white-space: nowrap; } .nl.one i { color: #5c4b2d; font-style: normal; font-size: 2vw; }
+a.btn { text-decoration: none; }
+.cfg-head h1 { margin: 4px 0 4px; font-size: 24px; } .cfg-head p { margin: 0 0 16px; color: var(--muted); }
+.cfg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-top: 16px; }
+.cfg-row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); font-size: 14px; }
+.cfg-row span { color: var(--muted); } .cfg-row b { text-align: right; } .cfg-row small { color: var(--muted); font-weight: 500; }
+.cfg-range { display: flex; align-items: center; gap: 10px; } .cfg-range input { flex: 1; accent-color: var(--brown); } .cfg-range b { min-width: 44px; text-align: right; }
+.cfg-foot { position: sticky; bottom: 0; z-index: 5; display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 16px; padding: 12px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 -6px 18px rgba(46,41,31,.08); }
+.cfg-foot span { margin-right: auto; font-size: 13px; color: var(--muted); } .cfg-foot span.dirty { color: #b4233c; font-weight: 700; }
+@media (max-width: 560px) { .cfg-grid { grid-template-columns: 1fr; } .cfg-foot { flex-wrap: wrap; } .cfg-foot span { flex-basis: 100%; } .cfg-foot .btn { flex: 1; } }
 .desk-bar { display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
 .desk-tabs { display: flex; gap: 6px; }
 .tv-sound { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--muted); padding: 4px 0 6px; }
@@ -362,6 +371,9 @@ function youtubeCommand(frame, func, args = []) {
 const TIME_ZONE = "Asia/Manila";
 const MAX_ANNOUNCEMENTS = 20;
 const MAX_STEPS = 8;
+const DEFAULT_CLINIC = "The Heart Specialists Clinic";
+/** The clinic's name as set in System configuration. */
+const clinicNameOf = (settings) => clean(settings?.clinicName, 80) || DEFAULT_CLINIC;
 const DEFAULT_SETTINGS = {
     stations: [
         { code: "C1", name: "Consultation 1", service: "consultation", location: "Clinic Room 1", selfCheckIn: true, active: true },
@@ -595,7 +607,7 @@ function sanitizeSettings(input) {
     if (video && "error" in video)
         return `YouTube: ${video.error}`;
     const announceLanguage = input.announceLanguage === "en+fil" || input.announceLanguage === "fil" ? input.announceLanguage : "en";
-    return { stations, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage };
+    return { clinicName: clinicNameOf(input), stations, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -931,7 +943,7 @@ function queueMessage(state, visit, trackingUrl) {
     const firstName = visit.name.split(" ")[0] || "there";
     const service = step ? stationName(state, step.station) : "your visit";
     const lines = [
-        `The Heart Specialists Clinic: Hi ${firstName}, your queue number today is ${currentLabel(visit)} for ${service}.`,
+        `${clinicNameOf(state.settings)}: Hi ${firstName}, your queue number today is ${currentLabel(visit)} for ${service}.`,
         "Please stay in the lobby and watch the TV screen for your number. Keep this same number for your consultation, procedures and laboratory tests.",
     ];
     if (trackingUrl)
@@ -972,7 +984,7 @@ const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 60
 const slipTime = new Intl.DateTimeFormat("en-PH", { timeZone: TIME_ZONE, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 const escapeHtml = (value) => value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 /** A small paper ticket for receipt/thermal printers (about 72 mm wide) showing the arrival queue number. */
-function slipHtml(label, issuedAt, logoUrl) {
+function slipHtml(label, issuedAt, logoUrl, clinic = DEFAULT_CLINIC) {
     return `<!doctype html><html><head><meta charset="utf-8"><title>Queue ${escapeHtml(label)}</title><style>
 @page { size: 80mm auto; margin: 4mm; }
 body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; color: #000; text-align: center; width: 72mm; }
@@ -984,7 +996,7 @@ img { height: 22mm; margin-top: 2mm; }
 .m { font-size: 10pt; line-height: 1.35; margin: 4mm 2mm 2mm; border-top: 1px dashed #000; padding-top: 3mm; }
 </style></head><body>
 <img src="${logoUrl}" alt="">
-<p class="c">THE HEART SPECIALISTS CLINIC</p>
+<p class="c">${escapeHtml(clinic.toUpperCase())}</p>
 <p class="k">Your queue number</p>
 <p class="n">${escapeHtml(label)}</p>
 <p class="t">${escapeHtml(slipTime.format(new Date(issuedAt)))}</p>
@@ -993,12 +1005,12 @@ img { height: 22mm; margin-top: 2mm; }
 </body></html>`;
 }
 /** Opens the slip in a small window and sends it to the printer. */
-function printSlip(label, issuedAt, logoUrl) {
+function printSlip(label, issuedAt, logoUrl, clinic) {
     const win = window.open("", "thsc-queue-slip", "width=360,height=560");
     if (!win)
         return false;
     win.document.open();
-    win.document.write(slipHtml(label, issuedAt, logoUrl));
+    win.document.write(slipHtml(label, issuedAt, logoUrl, clinic));
     win.document.close();
     return true;
 }
@@ -1029,7 +1041,7 @@ function buildQueueReport(state, now) {
     const hours = [...arrivalsByHour.keys()].sort((a, b) => a - b);
     const busiest = hours.reduce((best, hour) => (best === null || arrivalsByHour.get(hour).length > arrivalsByHour.get(best).length ? hour : best), null);
     const summary = [
-        ["The Heart Specialists Clinic — Queue Summary Report"],
+        [`${clinicNameOf(state.settings)} — Queue Summary Report`],
         ["Date", longDate.format(now)],
         ["Generated", formatTime(now)],
         [],
@@ -1260,9 +1272,9 @@ function downloadQueueReport(xlsx, state, now) {
   let view = null;
   function route() {
     // Served by the website at /queue/station?s=C1 or /queue/display, the path picks the screen until a #screen link is used.
-    const fromPath = location.pathname.startsWith("/queue/station") ? `station/${new URLSearchParams(location.search).get("s") ?? ""}` : location.pathname.startsWith("/queue/display") ? "display" : "";
+    const fromPath = location.pathname.startsWith("/queue/station") ? `station/${new URLSearchParams(location.search).get("s") ?? ""}` : location.pathname.startsWith("/queue/display") ? "display" : location.pathname.startsWith("/queue/config") ? "config" : "";
     const [name, arg] = (location.hash.replace(/^#/, "") || fromPath).split("/");
-    return { name: ["station", "display", "setup"].includes(name) ? name : "desk", arg: arg ? decodeURIComponent(arg) : "" };
+    return { name: ["station", "display", "setup", "config"].includes(name) ? name : "desk", arg: arg ? decodeURIComponent(arg) : "" };
   }
   function mount() {
     const r = route();
@@ -1271,35 +1283,40 @@ function downloadQueueReport(xlsx, state, now) {
     if (r.name !== "display" && locked()) { view = "gate"; document.body.className = ""; document.title = "Staff PIN · THSC Queue Board"; mountGate(); refreshSync(); return; }
     view = r.name;
     document.body.className = view === "display" ? "tv" : "";
-    document.title = { desk: "Front Desk · THSC Queue Board", station: "Stations · THSC Queue Board", display: "TV Display · THSC Queue Board" }[view];
+    document.title = { desk: "Front Desk · THSC Queue Board", station: "Stations · THSC Queue Board", display: "TV Display · THSC Queue Board", config: "System Configuration · THSC Queue Board" }[view];
     if (view === "display") mountDisplay(); else mountStaff();
     update();
   }
   window.addEventListener("hashchange", mount);
   function update() {
     refreshSync();
+    // The clinic name can change in System configuration on any computer.
+    if (state) document.querySelectorAll(".clinic-name").forEach((el) => { el.textContent = clinicNameOf(state.settings).toUpperCase(); });
     if (view === "desk") updateDesk();
+    else if (view === "config") updateConfig();
     else if (view === "station") updateStation();
     else if (view === "display") updateDisplay();
   }
 
   // ---------- Staff shell ----------
   function mountStaff() {
-    const nav = [["desk", "#desk", "Front desk"], ["station", "#station", "Stations"]];
+    const nav = [["desk", "#desk", "Front desk"], ["station", "#station", "Stations"], ["config", "#config", "⚙ System configuration"]];
     app.innerHTML = `
       <header class="top"><div class="top-in">
         <div class="top-row">
-          <div class="brand"><img src="${LOGO}" alt=""><div><small>THE HEART SPECIALISTS CLINIC</small><b>Queue Board · ${view === "desk" ? "Front Desk" : "Stations"}</b></div></div>
-          <div class="top-actions"><span class="badge-device sync-badge"></span>${view === "desk" ? `<button class="btn sm on-dark" data-act="openSettings">Settings</button>` : ""}</div>
+          <div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state?.settings).toUpperCase())}</small><b>Queue Board · ${{ desk: "Front Desk", station: "Stations", config: "System Configuration" }[view]}</b></div></div>
+          <div class="top-actions"><span class="badge-device sync-badge"></span>${view === "desk" ? `<a class="btn sm on-dark" href="#config">Settings</a>` : ""}</div>
         </div>
         <nav class="nav">${nav.map(([key, href, label]) => `<a href="${href}" class="${view === key ? "on" : ""}">${label}</a>`).join("")}<button data-act="openTv">TV display ↗</button><button data-act="openPoster">Check-in QR ↗</button><a href="#setup">Sync setup</a></nav>
       </div></header>
       <main class="wrap"><p class="sync-banner hidden" id="sync-banner" role="alert"></p><div id="main"></div></main>`;
-    if (view === "desk") mountDesk(); else $("#main").innerHTML = `<div id="station"></div>`;
+    if (view === "desk") mountDesk();
+    else if (view === "config") mountConfig();
+    else $("#main").innerHTML = `<div id="station"></div>`;
   }
 
   const plainHeader = (title) => `<header class="top"><div class="top-in" style="padding-bottom:12px"><div class="top-row">
-      <div class="brand"><img src="${LOGO}" alt=""><div><small>THE HEART SPECIALISTS CLINIC</small><b>Queue Board · ${title}</b></div></div>
+      <div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state?.settings).toUpperCase())}</small><b>Queue Board · ${title}</b></div></div>
       <div class="top-actions"><span class="badge-device sync-badge"></span></div></div></div></header>`;
 
   function mountConnecting() {
@@ -1464,7 +1481,6 @@ function downloadQueueReport(xlsx, state, now) {
           <p class="foot-note">Names and mobile numbers appear only on the front desk and station screens. The TV shows queue numbers only.</p>
         </section>
       </div>
-      <div id="settings"></div>
       <div id="route-editor"></div>`;
     $("#reg-name").value = form.name; $("#reg-mobile").value = form.mobile; $("#reg-notes").value = form.notes;
     if ($("#reg-hmo")) {
@@ -1628,55 +1644,106 @@ function downloadQueueReport(xlsx, state, now) {
     dispatch({ type: "markMessaged", visitId: id }, `Message for ${currentLabel(visit)} copied. Paste it into SMS or Viber${visit.mobile ? ` for ${visit.mobile}` : ""}.`);
   }
 
-  // ---------- Settings ----------
+  // ---------- System configuration ----------
+  // Every setting in one place. Edits go into a draft and apply to every computer when saved.
   let draft = null;
-  function openSettings() { draft = structuredClone(state.settings); renderSettings(); }
+  let draftBase = "";
+  const settingsDirty = () => Boolean(draft) && JSON.stringify(draft) !== draftBase;
+  function resetDraft() { draft = structuredClone(state.settings); draftBase = JSON.stringify(state.settings); }
+  function mountConfig() {
+    // An unsaved draft is kept when moving between screens, until it is saved or discarded.
+    if (!draft) resetDraft();
+    $("#main").innerHTML = `<div id="settings"></div>`;
+    renderSettings();
+  }
+  function updateConfig() {
+    // Saved elsewhere (another computer, or the desk's TV sound control) while nothing here was changed: show it.
+    if (!settingsDirty() && JSON.stringify(state.settings) !== draftBase) { resetDraft(); renderSettings(); return; }
+    renderConfigStatus();
+  }
   function renderSettings() {
     const box = $("#settings");
-    if (!draft) { box.innerHTML = ""; return; }
+    if (!box || !draft) return;
     const inUse = (code) => state.visits.some((v) => !v.cancelled && v.steps.some((s) => s.station === code && s.status !== "done"));
     const services = [["consultation", "Consultation"], ["procedure", "Procedure"], ["laboratory", "Laboratory"], ["imaging", "Imaging"], ["cashier", "Cashier"], ["hmo", "HMO desk"], ["other", "Other"]];
-    box.innerHTML = `<div class="modal-bg" data-act="closeSettingsBg"><section class="panel modal" role="dialog" aria-label="Queue settings">
-      <div class="panel-h"><div><h2>Queue settings</h2><p>Station codes become part of the queue number, e.g. C1 in 01-C1-W. Queues restart automatically at midnight.</p></div><button class="btn sm ghost" data-act="closeSettings">Close</button></div>
-      <div class="panel-b">
-        <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th>QR check-in</th><th>Active</th><th></th></tr></thead><tbody>
-        ${draft.stations.map((s, i) => `<tr>
-          <td><input type="text" class="mono" style="width:76px;font-weight:700" maxlength="4" value="${esc(s.code)}" data-set="code" data-index="${i}" aria-label="Station code"></td>
-          <td><input type="text" value="${esc(s.name)}" data-set="name" data-index="${i}" aria-label="Station name"></td>
-          <td><input type="text" value="${esc(s.location)}" placeholder="e.g. Clinic Room 1" data-set="location" data-index="${i}" aria-label="Location"></td>
-          <td><select data-set="service" data-index="${i}" aria-label="Service type">${services.map(([v, l]) => `<option value="${v}" ${s.service === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
-          <td style="text-align:center"><input type="checkbox" ${s.selfCheckIn ? "checked" : ""} data-set="selfCheckIn" data-index="${i}" aria-label="Patients can choose this station at QR check-in" title="Patients can choose this station at QR check-in"></td>
-          <td style="text-align:center"><input type="checkbox" ${s.active ? "checked" : ""} data-set="active" data-index="${i}" aria-label="Active"></td>
-          <td style="text-align:right"><button class="btn icon ghost" ${inUse(s.code) ? "disabled title=\"Patients are still queued here — set it inactive instead\"" : "title=\"Remove station\""} data-act="removeStation" data-index="${i}" aria-label="Remove station">✕</button></td>
-        </tr>`).join("")}
-        </tbody></table></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sm outline" data-act="addStation">＋ Add station</button>${standardChanges().length ? `<button class="btn sm outline" data-act="addStandard" title="${esc(standardChanges().join(", "))}">＋ Update to the standard stations (${esc(standardChanges().length > 5 ? `${standardChanges().slice(0, 4).join(", ")} +${standardChanges().length - 4} more` : standardChanges().join(", "))})</button>` : ""}</div>
-        <div class="set-grid">
-          <label class="field">TV display message<input type="text" maxlength="240" value="${esc(draft.ticker)}" data-set="ticker"></label>
-          <div style="display:grid;gap:8px;border:1px solid #e8dfce;border-radius:12px;padding:14px">
-            <label class="field">Spoken announcements on the TV<em>The chime plays first, then the queue number is read out in the language you choose.</em>
-              <select data-set="announceLanguage">${[["en", "English only"], ["en+fil", "English, then Tagalog"], ["fil", "Tagalog only"]].map(([v, l]) => `<option value="${v}" ${(draft.announceLanguage ?? "en") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn sm outline" data-act="testVoice">▶ Test announcement</button><span style="font-size:12px;color:var(--muted)">Plays on this computer.</span></div>
-            <p class="yt-hint" id="voice-hint"></p>
-          </div>
-          <div style="display:grid;gap:8px;border:1px solid #e8dfce;border-radius:12px;padding:14px">
-            <label class="field">YouTube on the TV while patients wait<em>Paste the clinic's YouTube channel ID (starts with UC), a playlist link or a video link. Leave empty to show the queue only. Needs internet.</em><input type="text" maxlength="300" value="${esc(draft.youtube ?? "")}" placeholder="e.g. https://www.youtube.com/playlist?list=PL…" data-set="youtube" id="yt-input"></label>
+    const volume = videoVolumeOf(draft);
+    box.innerHTML = `
+      <div class="cfg-head"><div><h1>System configuration</h1><p>Every Queue Board setting in one place. Saved changes reach every computer, the stations and the lobby TV within a few seconds.</p></div></div>
+      <section class="panel"><div class="panel-h"><div><h2>Stations</h2><p>Station codes become part of the queue number, e.g. C1 in 01-C1-W. Set a station inactive to hide it without losing it.</p></div></div>
+        <div class="panel-b">
+          <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th>QR check-in</th><th>Active</th><th></th></tr></thead><tbody>
+          ${draft.stations.map((s, i) => `<tr>
+            <td><input type="text" class="mono" style="width:76px;font-weight:700" maxlength="4" value="${esc(s.code)}" data-set="code" data-index="${i}" aria-label="Station code"></td>
+            <td><input type="text" value="${esc(s.name)}" data-set="name" data-index="${i}" aria-label="Station name"></td>
+            <td><input type="text" value="${esc(s.location)}" placeholder="e.g. Clinic Room 1" data-set="location" data-index="${i}" aria-label="Location"></td>
+            <td><select data-set="service" data-index="${i}" aria-label="Service type">${services.map(([v, l]) => `<option value="${v}" ${s.service === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
+            <td style="text-align:center"><input type="checkbox" ${s.selfCheckIn ? "checked" : ""} data-set="selfCheckIn" data-index="${i}" aria-label="Patients can choose this station at QR check-in" title="Patients can choose this station at QR check-in"></td>
+            <td style="text-align:center"><input type="checkbox" ${s.active ? "checked" : ""} data-set="active" data-index="${i}" aria-label="Active"></td>
+            <td style="text-align:right"><button class="btn icon ghost" ${inUse(s.code) ? "disabled title=\"Patients are still queued here — set it inactive instead\"" : "title=\"Remove station\""} data-act="removeStation" data-index="${i}" aria-label="Remove station">✕</button></td>
+          </tr>`).join("")}
+          </tbody></table></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sm outline" data-act="addStation">＋ Add station</button>${standardChanges().length ? `<button class="btn sm outline" data-act="addStandard" title="${esc(standardChanges().join(", "))}">＋ Update to the standard stations (${esc(standardChanges().join(", "))})</button>` : ""}</div>
+        </div></section>
+      <div class="cfg-grid">
+        <section class="panel"><div class="panel-h"><div><h2>Clinic</h2><p>Shown on every screen, the TV, printed slips, patient messages and the Excel report.</p></div></div>
+          <div class="panel-b" style="display:grid;gap:12px">
+            <label class="field">Clinic name<input type="text" maxlength="80" value="${esc(draft.clinicName ?? DEFAULT_CLINIC)}" data-set="clinicName" placeholder="${esc(DEFAULT_CLINIC)}"></label>
+            <label class="field">TV display message<em>Scrolls along the bottom of the lobby TV.</em><input type="text" maxlength="240" value="${esc(draft.ticker)}" data-set="ticker"></label>
+          </div></section>
+        <section class="panel"><div class="panel-h"><div><h2>TV video</h2><p>YouTube shown on the lobby TV while patients wait. Needs internet.</p></div><button class="btn sm outline" data-act="openTv">TV display ↗</button></div>
+          <div class="panel-b" style="display:grid;gap:10px">
+            <label class="field">YouTube channel, playlist or video<em>Paste the clinic's channel ID (starts with UC), a playlist link or a video link. Leave empty to show the queue only.</em><input type="text" maxlength="300" value="${esc(draft.youtube ?? "")}" placeholder="e.g. https://www.youtube.com/playlist?list=…" data-set="youtube" id="yt-input"></label>
             <p class="yt-hint" id="yt-hint"></p>
             <label class="check" style="border:0;padding:0"><input type="checkbox" ${draft.videoSound ? "checked" : ""} data-set="videoSound"><span>Play the video's sound <small>Muted automatically while queue numbers are announced</small></span></label>
-          </div>
-        </div>
-        <div class="set-foot"><button class="btn danger" data-act="resetDay">Clear today's queue</button><button class="btn" data-act="saveSettings">Save settings</button></div>
-      </div></section></div>`;
+            <label class="field">Video volume<span class="cfg-range"><input type="range" min="0" max="100" step="5" value="${volume}" data-set="videoVolume" aria-label="Video volume"><b class="mono" id="cfg-volume">${volume}%</b></span></label>
+          </div></section>
+        <section class="panel"><div class="panel-h"><div><h2>Announcements</h2><p>The chime plays first, then the queue number is read out on the TV.</p></div></div>
+          <div class="panel-b" style="display:grid;gap:10px">
+            <label class="field">Spoken language<select data-set="announceLanguage">${[["en", "English only"], ["en+fil", "English, then Tagalog"], ["fil", "Tagalog only"]].map(([v, l]) => `<option value="${v}" ${(draft.announceLanguage ?? "en") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn sm outline" data-act="testVoice">▶ Test announcement</button><span style="font-size:12px;color:var(--muted)">Plays on this computer.</span></div>
+            <p class="yt-hint" id="voice-hint"></p>
+          </div></section>
+        <section class="panel"><div class="panel-h"><div><h2>Today's queue</h2><p>Numbers start at 01 every day and restart automatically at midnight (Philippine time).</p></div></div>
+          <div class="panel-b" id="cfg-today"></div></section>
+        <section class="panel"><div class="panel-h"><div><h2>This computer</h2><p>How this computer shares the queue. Each computer is set up on its own.</p></div><a class="btn sm outline" href="#setup">Sync setup</a></div>
+          <div class="panel-b" id="cfg-computer"></div></section>
+      </div>
+      <div class="cfg-foot"><span id="cfg-dirty"></span><button class="btn ghost" data-act="discardSettings">Discard changes</button><button class="btn" data-act="saveSettings">Save configuration</button></div>`;
     box.querySelectorAll("[data-set]").forEach((input) => input.addEventListener(input.type === "checkbox" || input.tagName === "SELECT" ? "change" : "input", () => {
       const field = input.dataset.set;
-      const value = input.type === "checkbox" ? input.checked : field === "code" ? input.value.toUpperCase() : input.value;
+      const value = input.type === "checkbox" ? input.checked : input.type === "range" ? Number(input.value) : field === "code" ? input.value.toUpperCase() : input.value;
       if (input.dataset.index !== undefined) draft.stations[Number(input.dataset.index)][field] = value; else draft[field] = value;
       if (field === "code") input.value = value;
       if (field === "youtube") showYouTubeHint();
       if (field === "announceLanguage") showVoiceHint();
+      if (field === "videoVolume") $("#cfg-volume").textContent = `${value}%`;
+      refreshDirty();
     }));
     showYouTubeHint();
     showVoiceHint();
+    renderConfigStatus();
+  }
+  function refreshDirty() {
+    const dirty = settingsDirty();
+    const label = $("#cfg-dirty");
+    if (!label) return;
+    label.textContent = dirty ? "● Unsaved changes" : "All changes saved";
+    label.className = dirty ? "dirty" : "";
+    document.querySelector('[data-act="saveSettings"]').disabled = !dirty;
+    document.querySelector('[data-act="discardSettings"]').disabled = !dirty;
+  }
+  /** The live parts of the configuration page: today's numbers and this computer's connection. */
+  function renderConfigStatus() {
+    const today = $("#cfg-today");
+    if (!today) return;
+    const visits = state.visits.filter((v) => !v.cancelled);
+    const open = visits.filter((v) => visitStatus(v) !== "completed").length;
+    const row = (k, v) => `<div class="cfg-row"><span>${k}</span><b>${v}</b></div>`;
+    today.innerHTML = `${row("Date", esc(longDate.format(Date.now())))}${row("Next queue number", `<span class="mono">${pad2(nextNumber(state, false))}</span>`)}${row("Next HMO number", `<span class="mono">HMO-${pad2(nextNumber(state, true))}</span>`)}${row("Patients today", `${visits.length} <small>(${open} still in the clinic)</small>`)}
+      <div style="margin-top:12px"><button class="btn danger sm" data-act="resetDay">Clear today's queue</button></div>`;
+    const [text, tone] = syncLabel();
+    $("#cfg-computer").innerHTML = `${row("Sharing", sync.mode === "server" ? "Synced with other computers" : sync.mode === "local" ? "This computer only" : "Connecting…")}${sync.mode !== "local" ? row("Sync server", `<span class="mono">${esc(serverHost(syncServer()))}</span>`) : ""}${row("Status", `<span class="badge-device ${tone}">${esc(text)}</span>`)}${row("Staff PIN", sync.mode === "server" ? "Accepted on this computer" : "Not needed (this computer only)")}`;
+    refreshDirty();
   }
 
   /** Standard stations (e.g. Cashier, X-ray, Ultrasound) that this clinic's saved settings do not have yet, by code or name. */
@@ -1852,7 +1919,7 @@ function downloadQueueReport(xlsx, state, now) {
     mountedVideo = currentVideo();
     const body = mountedVideo
       ? `<div class="tv-body video">
-        <div class="tv-left"><div class="vid"><iframe id="yt" src="${esc(videoFrameSrc(mountedVideo))}" title="The Heart Specialists Clinic videos" allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe><div class="vid-over hidden" id="vid-over"></div></div><section class="tiles small" id="tiles"></section></div>
+        <div class="tv-left"><div class="vid"><iframe id="yt" src="${esc(videoFrameSrc(mountedVideo))}" title="${esc(clinicNameOf(state.settings))} videos" allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe><div class="vid-over hidden" id="vid-over"></div></div><section class="tiles small" id="tiles"></section></div>
         <div class="tv-right"><section class="hero compact" id="hero"></section><section class="tv-next"><h2>Next in line</h2><div id="reg-call"></div><div id="next" style="margin-top:1.2vh;min-height:0;overflow:hidden"></div></section></div>
       </div>`
       : `<div class="tv-body">
@@ -1860,7 +1927,7 @@ function downloadQueueReport(xlsx, state, now) {
         <section class="tv-next"><h2>Next in line</h2><div id="reg-call"></div><div id="next" style="margin-top:1.2vh;min-height:0;overflow:hidden"></div></section>
       </div>`;
     app.innerHTML = `<div class="tv-app">
-      <header class="tv-head"><div class="brand"><img src="${LOGO}" alt=""><div><small>THE HEART SPECIALISTS CLINIC</small><b>Queue Board</b></div></div><div class="tv-clock"><b id="tv-time"></b><span id="tv-date"></span></div></header>
+      <header class="tv-head"><div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state.settings).toUpperCase())}</small><b>Queue Board</b></div></div><div class="tv-clock"><b id="tv-time"></b><span id="tv-date"></span></div></header>
       ${body}
       <footer class="tv-foot"><div class="ticker"><span id="ticker"></span></div><div class="tv-ctl"><button data-act="sound" id="sound-toggle">🔇 Sound off</button><button data-act="fullscreen">⛶ Full screen</button><span class="badge-device sync-badge" style="align-self:center"></span><a href="#desk">Front desk</a></div></footer>
     </div><button class="sound-btn" id="sound-btn" data-act="startTv">🔊 Click anywhere to start: full screen, chime &amp; voice announcements</button>`;
@@ -2141,9 +2208,7 @@ function downloadQueueReport(xlsx, state, now) {
         break;
       }
       case "verify": dispatch({ type: "verify", visitId: id }, "Check-in verified."); break;
-      case "openSettings": openSettings(); break;
-      case "closeSettings": draft = null; renderSettings(); break;
-      case "closeSettingsBg": if (event.target === el) { draft = null; renderSettings(); } break;
+      case "discardSettings": if (confirm("Discard the changes you have not saved?")) { resetDraft(); renderSettings(); } break;
       case "addStandard": {
         const old = oldProcedureStation();
         if (old) {
@@ -2166,8 +2231,8 @@ function downloadQueueReport(xlsx, state, now) {
         void dispatch({ type: "updateSettings", settings: { ...state.settings, videoSound: on, videoVolume } }, on ? `TV video sound on (${videoVolume}%).` : "TV video sound off.");
         break;
       }
-      case "saveSettings": void dispatch({ type: "updateSettings", settings: draft }, sync.mode === "server" ? "Settings saved. Every computer updates automatically." : "Settings saved. Every open window updates automatically.").then((r) => { if (r.ok) { draft = null; renderSettings(); } }); break;
-      case "resetDay": if (confirm(`Clear today's queue${sync.mode === "server" ? " on every computer" : ""}? All queue numbers and calls for today are removed and numbering restarts at 01. Settings are kept.`)) { void dispatch({ type: "resetDay" }, "Today's queue was cleared.").then(() => { issued = null; draft = null; if (view === "desk") { renderSettings(); updateDesk(); } }); } break;
+      case "saveSettings": void dispatch({ type: "updateSettings", settings: draft }, sync.mode === "server" ? "Configuration saved. Every computer updates automatically." : "Configuration saved. Every open window updates automatically.").then((r) => { if (r.ok) { resetDraft(); renderSettings(); } }); break;
+      case "resetDay": if (confirm(`Clear today's queue${sync.mode === "server" ? " on every computer" : ""}? All queue numbers and calls for today are removed and numbering restarts at 01. Settings are kept.`)) { void dispatch({ type: "resetDay" }, "Today's queue was cleared.").then(() => { issued = null; if (view === "desk") updateDesk(); }); } break;
       case "arrive": {
         if (arriving) break;
         arriving = true;
@@ -2177,11 +2242,11 @@ function downloadQueueReport(xlsx, state, now) {
           if (!r.ok) return;
           latestArrival = r.visitId; arr.priority = false; arr.newPatient = false;
           if (view === "desk") updateDesk();
-          if (print && !printSlip(r.label, Date.now(), LOGO)) toast("Allow pop-ups for this file to print queue slips.", true);
+          if (print && !printSlip(r.label, Date.now(), LOGO, clinicNameOf(state.settings))) toast("Allow pop-ups for this file to print queue slips.", true);
         });
         break;
       }
-      case "slip": { const v = state.visits.find((x) => x.id === id); if (v) printSlip(arrivalLabel(v), v.createdAt, LOGO); break; }
+      case "slip": { const v = state.visits.find((x) => x.id === id); if (v) printSlip(arrivalLabel(v), v.createdAt, LOGO, clinicNameOf(state.settings)); break; }
       case "callReg": dispatch({ type: "callRegistration", visitId: id || undefined, hmo: id ? undefined : isHmoTab() }, (r) => `${r.label} called to register — shown on the TV.`); break;
       case "removeArrival": { const v = state.visits.find((x) => x.id === id); if (v && confirm(`Remove ${arrivalLabel(v)}? Use this if the patient left before registering. The number ${arrivalLabel(v)} will be given to the next arrival.`)) dispatch({ type: "cancel", visitId: id }, `${arrivalLabel(v)} removed — the next Queue number will reuse it.`); break; }
       case "registerArrival": { const v = state.visits.find((x) => x.id === id); if (v) { form.arrival = id; form.kind = v.kind; form.priority = v.priority; form.newPatient = v.newPatient === true; updateDesk(); $("#reg-name").focus(); } break; }

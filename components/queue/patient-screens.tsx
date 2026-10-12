@@ -7,21 +7,21 @@ import QRCode from "qrcode";
 import { BellRing, CheckCircle2, Clock, Printer, Ticket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { currentLabel, currentStep, findStation } from "@/lib/queue/reducer";
+import { clinicNameOf, currentLabel, currentStep, DEFAULT_CLINIC, findStation } from "@/lib/queue/reducer";
 import { estimatedWait, formatEstimate, patientsAhead, visitStatus } from "@/lib/queue/format";
 import type { QueueState } from "@/lib/queue/types";
 import { readStorage, useNow, useQueue, writeStorage } from "./use-queue";
 
 const TICKET_KEY = "thsc-queue-ticket";
 
-function PatientFrame({ children }: { children: React.ReactNode }) {
+function PatientFrame({ children, clinic = DEFAULT_CLINIC }: { children: React.ReactNode; clinic?: string }) {
   return (
     <main className="min-h-screen bg-[#f7f4ed] text-[#2e291f]">
       <header className="bg-[#2f281c] px-5 py-4 text-white">
         <div className="mx-auto flex max-w-md items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/theheartspecialists.png" alt="The Heart Specialists Clinic logo" width="52" height="40" className="h-10 w-[52px] object-contain" />
-          <div><p className="text-xs font-semibold tracking-[0.08em] text-[#f0c864]">THE HEART SPECIALISTS CLINIC</p><p className="text-lg font-bold">Queue</p></div>
+          <div><p className="text-xs font-semibold tracking-[0.08em] text-[#f0c864]">{clinic.toUpperCase()}</p><p className="text-lg font-bold">Queue</p></div>
         </div>
       </header>
       <div className="mx-auto max-w-md px-5 py-6">{children}</div>
@@ -67,7 +67,7 @@ export function CheckIn() {
   };
 
   return (
-    <PatientFrame>
+    <PatientFrame clinic={clinicNameOf(state.settings)}>
       <h1 className="text-2xl font-bold tracking-tight">Scheduled patient check-in</h1>
       <p className="mt-1 text-[#6a604f]">Get your queue number as soon as you arrive. Walk-in patients, please go to the front desk.</p>
       {existing && (
@@ -139,13 +139,13 @@ export function TicketView() {
     called: { title: "It's your turn!", text: `Please proceed to ${station?.location || station?.name || "the station"}.`, icon: <BellRing />, tone: "bg-[#d8a321] text-[#2f281c]" },
     waiting: { title: ahead === 0 ? "You're next" : `${ahead} patient${ahead > 1 ? "s" : ""} ahead of you`, text: `Waiting for ${station?.name ?? "your service"}. Watch the lobby TV for your number.`, icon: <Clock />, tone: "bg-[#fff2c8] text-[#5f4307]" },
     missed: { title: "We called your number", text: "Please approach the front desk so we can put you back in line.", icon: <BellRing />, tone: "bg-[#fde8eb] text-[#9b1f35]" },
-    completed: { title: "All done for today", text: "Thank you for visiting The Heart Specialists Clinic.", icon: <CheckCircle2 />, tone: "bg-[#edf5e8] text-[#41612c]" },
+    completed: { title: "All done for today", text: `Thank you for visiting ${clinicNameOf(state.settings)}.`, icon: <CheckCircle2 />, tone: "bg-[#edf5e8] text-[#41612c]" },
   };
   const message = messages[status ?? "waiting"] ?? messages.waiting;
   const wait = now ? estimatedWait(state, visit, now) : null;
 
   return (
-    <PatientFrame>
+    <PatientFrame clinic={clinicNameOf(state.settings)}>
       <section className="rounded-2xl bg-[#2f281c] p-6 text-center text-white">
         <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#f0c864]">Your queue number</p>
         <p className="mt-2 font-mono text-5xl font-extrabold tracking-wide">{currentLabel(visit)}</p>

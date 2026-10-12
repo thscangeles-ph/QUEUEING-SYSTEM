@@ -5,6 +5,10 @@ export const TIME_ZONE = "Asia/Manila";
 const MAX_ANNOUNCEMENTS = 20;
 const MAX_STEPS = 8;
 
+export const DEFAULT_CLINIC = "The Heart Specialists Clinic";
+/** The clinic's name as set in System configuration. */
+export const clinicNameOf = (settings?: Partial<Settings>) => clean(settings?.clinicName, 80) || DEFAULT_CLINIC;
+
 export const DEFAULT_SETTINGS: Settings = {
   stations: [
     { code: "C1", name: "Consultation 1", service: "consultation", location: "Clinic Room 1", selfCheckIn: true, active: true },
@@ -237,7 +241,8 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   const announceLanguage: AnnounceLanguage = language === "en+fil" || language === "fil" ? language : "en";
   const volume = Math.round(Number(input.videoVolume ?? previous.videoVolume ?? 60));
   const videoVolume = Number.isFinite(volume) ? Math.min(100, Math.max(0, volume)) : 60;
-  return { stations, cardCount, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage };
+  const clinicName = clinicNameOf({ clinicName: input.clinicName ?? previous.clinicName });
+  return { clinicName, stations, cardCount, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage };
 }
 
 /**

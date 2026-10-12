@@ -72,6 +72,8 @@ export type Announcement = {
 };
 
 export type Settings = {
+  /** The clinic's name on every screen, slip, message and report; missing means The Heart Specialists Clinic. */
+  clinicName?: string;
   stations: Station[];
   cardCount: number;
   ticker: string;

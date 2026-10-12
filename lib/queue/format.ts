@@ -1,4 +1,4 @@
-import { currentLabel, currentStep, findStation, isRegistered, TIME_ZONE, waitingFor } from "./reducer";
+import { clinicNameOf, currentLabel, currentStep, findStation, isRegistered, TIME_ZONE, waitingFor } from "./reducer";
 import type { Announcement, AnnounceLanguage, QueueState, Station, Visit } from "./types";
 
 export type VisitStatus = "registration" | "waiting" | "called" | "missed" | "completed" | "cancelled" | "pending";
@@ -56,7 +56,7 @@ export function queueMessage(state: QueueState, visit: Visit, trackingUrl?: stri
   const firstName = visit.name.split(" ")[0] || "there";
   const service = step ? stationName(state, step.station) : "your visit";
   const lines = [
-    `The Heart Specialists Clinic: Hi ${firstName}, your queue number today is ${currentLabel(visit)} for ${service}.`,
+    `${clinicNameOf(state.settings)}: Hi ${firstName}, your queue number today is ${currentLabel(visit)} for ${service}.`,
     "Please stay in the lobby and watch the TV screen for your number. Keep this same number for your consultation, procedures and laboratory tests.",
   ];
   if (trackingUrl) lines.push(`Live status: ${trackingUrl}`);
