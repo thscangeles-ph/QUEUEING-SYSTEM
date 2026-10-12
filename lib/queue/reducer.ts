@@ -97,12 +97,23 @@ function validateStations(state: QueueState, codes: unknown): string[] | string 
   return result;
 }
 
+/**
+ * The number the next arrival gets: the lowest number freed by an arrival removed before registering
+ * (so 03 is given again after 03 is removed), otherwise the next new number.
+ */
+export function nextNumber(state: QueueState, hmo: boolean): number {
+  const next = hmo ? state.nextHmoSeq ?? 1 : state.nextSeq;
+  const used = new Set(state.visits.filter((visit) => (visit.kind === "H") === hmo && !(visit.cancelled && !isRegistered(visit))).map((visit) => visit.seq));
+  for (let seq = 1; seq < next; seq += 1) if (!used.has(seq)) return seq;
+  return next;
+}
+
 function newVisit(state: QueueState, kind: PatientKind, priority: boolean, newPatient: boolean, now: number, source: Visit["source"]): Visit | string {
   const hmo = kindOf(kind) === "H";
   if (state.visits.filter((visit) => (visit.kind === "H") === hmo).length >= 999) return "The daily queue limit of 999 patients has been reached.";
   const visit: Visit = {
     id: newId(),
-    seq: hmo ? state.nextHmoSeq ?? 1 : state.nextSeq,
+    seq: nextNumber(state, hmo),
     kind: kindOf(kind),
     name: "",
     mobile: "",
@@ -123,8 +134,9 @@ function newVisit(state: QueueState, kind: PatientKind, priority: boolean, newPa
     messagedAt: null,
     steps: [],
   };
-  if (hmo) state.nextHmoSeq = (state.nextHmoSeq ?? 1) + 1;
-  else state.nextSeq += 1;
+  // A reused number leaves the counter where it is.
+  if (hmo) { if (visit.seq === (state.nextHmoSeq ?? 1)) state.nextHmoSeq = visit.seq + 1; }
+  else if (visit.seq === state.nextSeq) state.nextSeq += 1;
   state.visits.push(visit);
   return visit;
 }
@@ -448,6 +460,11 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
     case "cancel": {
       const visit = findVisit(action.visitId);
       if (!visit) return fail("Patient not found.");
+      // An arrival number removed before registering is dropped, so the next arrival can be given it again.
+      if (!isRegistered(visit)) {
+        state.visits = state.visits.filter((item) => item !== visit);
+        return { ok: true };
+      }
       visit.cancelled = true;
       return { ok: true };
     }

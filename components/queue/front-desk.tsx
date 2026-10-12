@@ -5,7 +5,7 @@ import { BellRing, Check, CheckCircle2, Clock, IdCard, MessageSquareText, Plus, 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { currentLabel, currentStep, ticketLabel } from "@/lib/queue/reducer";
+import { currentLabel, currentStep, nextNumber, ticketLabel } from "@/lib/queue/reducer";
 import { formatTime, formatWait, minutesSince, queueMessage, STATUS_LABEL, STATUS_TONE, stationName, visitStatus } from "@/lib/queue/format";
 import type { ActionResult, PatientKind, QueueAction, QueueState, Visit } from "@/lib/queue/types";
 import { Panel, StaffShell } from "./staff-shell";
@@ -181,7 +181,7 @@ function RegisterForm({ state, run, shared, initialCard }: { state: QueueState; 
               {stations.map((code, index) => (
                 <li key={`${code}-${index}`} className="flex items-center gap-2 rounded-lg border border-[#e8dfce] bg-[#faf7f0] px-3 py-1.5 text-sm">
                   <span className="font-mono font-bold text-[#8b6512]">{index + 1}.</span>
-                  <span className="font-mono font-semibold">{ticketLabel({ seq: state.nextSeq, kind }, code)}</span>
+                  <span className="font-mono font-semibold">{ticketLabel({ seq: nextNumber(state, kind === "H"), kind }, code)}</span>
                   <span className="flex-1 truncate text-[#5e5443]">{stationName(state, code)}</span>
                   <button type="button" aria-label={`Remove ${stationName(state, code)}`} onClick={() => setStations((current) => current.filter((_, position) => position !== index))} className="text-[#857967] hover:text-[#b4233c]"><X size={15} /></button>
                 </li>
