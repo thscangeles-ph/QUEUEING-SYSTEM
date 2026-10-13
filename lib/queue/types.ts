@@ -93,6 +93,8 @@ export type QueueState = {
   nextSeq: number;
   /** Next HMO number (HMO-01, HMO-02, …); missing on queues saved before HMO numbers existed. */
   nextHmoSeq?: number;
+  /** Last report from the lobby TV: when it was seen and whether its sound is on, shown on the staff screens. */
+  tv?: { seenAt: number; sound: boolean };
   visits: Visit[];
   cards: Card[];
   announcements: Announcement[];
@@ -128,6 +130,7 @@ export type QueueAction =
   | { type: "complete"; visitId: string; sendTo?: string; billing?: Billing }
   | { type: "miss"; visitId: string }
   | { type: "callBack"; station: string; visitId: string }
+  | { type: "tvStatus"; sound: boolean }
   | { type: "requeue"; visitId: string }
   /** Replaces the services still to come; finished services and the one being served now stay as they are. */
   | { type: "setRoute"; visitId: string; stations: string[] }
@@ -137,4 +140,4 @@ export type QueueAction =
 
 export type ActionResult = { ok: true; visitId?: string; label?: string; card?: number } | { ok: false; error: string };
 
-export const PUBLIC_ACTIONS: QueueAction["type"][] = ["selfCheckIn"];
+export const PUBLIC_ACTIONS: QueueAction["type"][] = ["selfCheckIn", "tvStatus"];
