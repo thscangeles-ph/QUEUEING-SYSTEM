@@ -285,6 +285,10 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 
 /* Sync */
 .badge-device.ok { background: #33421f; color: #cfe6b8; } .badge-device.bad { background: var(--bad-bg); color: var(--bad); }
+.tv-badge.bad { animation: queued-blink-badge 1.6s ease-in-out infinite; } .tv-badge:empty { display: none; }
+@keyframes queued-blink-badge { 50% { background: #b4233c; color: #fff; } }
+.sound-btn.nag { left: 50%; right: auto; bottom: 12vh; transform: translateX(-50%); max-width: 80vw; background: #b4233c; color: #fff; font-size: 2vw; padding: 2vh 3vw; animation: nag-pulse 1.4s ease-in-out infinite; }
+@keyframes nag-pulse { 50% { box-shadow: 0 0 0 1.2vw rgba(180,35,60,.35); } }
 .sync-banner { background: var(--bad-bg); color: var(--bad); border: 1px solid #f3cdd4; border-radius: 12px; padding: 10px 14px; font-size: 13px; font-weight: 600; line-height: 1.5; margin: 0 0 16px; }
 .sync-result { border-radius: 12px; padding: 10px 14px; font-size: 13px; font-weight: 600; line-height: 1.5; margin: 0; } .sync-result.ok { background: var(--ok-bg); color: var(--ok); } .sync-result.err { background: var(--bad-bg); color: var(--bad); }
 .wrap a { color: var(--primary); font-weight: 600; }
@@ -759,6 +763,11 @@ function run(state, action, now) {
             const next = currentStep(visit);
             return { ok: true, visitId: visit.id, label: next ? ticketLabel(visit, next.station) : undefined };
         }
+        case "tvStatus": {
+            // The lobby TV reports every 30 seconds (it has no staff PIN), so staff can see whether calls will be heard.
+            state.tv = { seenAt: now, sound: Boolean(action.sound) };
+            return { ok: true };
+        }
         case "callBack": {
             // Calls a patient this station already served back to it (e.g. the doctor needs them again).
             const station = findStation(state, action.station);
@@ -1159,10 +1168,14 @@ function downloadQueueReport(xlsx, state, now) {
   let state = null;
   if (sync.mode === "local") state = loadLocal();
 
+  // The sync server's clock minus this computer's, so a computer whose clock is off still knows which calls are new.
+  let clockOffset = 0;
+  const serverNow = () => Date.now() + (sync.mode === "server" ? clockOffset : 0);
   async function request(init, since, pin = readSetting(PIN_KEY), server = syncServer()) {
     const url = `${server}/api/queue${since === null || since === undefined ? "" : `?since=${since}`}`;
     const response = await fetch(url, { ...init, cache: "no-store", headers: { "Content-Type": "application/json", ...(pin ? { "x-queue-pin": pin } : {}) } });
     const body = await response.json().catch(() => ({ error: `The sync server answered with error ${response.status}.` }));
+    if (typeof body.now === "number") clockOffset = body.now - Date.now();
     return { response, body };
   }
 
@@ -1252,7 +1265,22 @@ function downloadQueueReport(xlsx, state, now) {
     if (sync.mode === "connecting") return ["Connecting…", "", ""];
     return [`Synced · ${serverHost(syncServer())}`, "ok", "Every computer using this sync server shares this queue."];
   }
+  /** Whether calls are heard: the lobby TV's last report (every 30 seconds) and its sound. */
+  function tvSoundStatus() {
+    const tv = state?.tv;
+    if (!tv || serverNow() - tv.seenAt > 75000) return { tone: "", text: "📺 TV not open", warn: "The TV display is not open, so this call is not shown or heard. Open TV display on the TV computer." };
+    return tv.sound
+      ? { tone: "ok", text: "📺 TV sound on", warn: "" }
+      : { tone: "bad", text: "🔇 TV sound off", warn: "The TV's sound is off, so this call was not heard. Click once anywhere on the TV screen to turn the sound on." };
+  }
+  /** After a call: warn the person calling when the TV will not announce it. */
+  const warnIfSilent = (result) => { if (result?.ok && tvSoundStatus().warn) toast(tvSoundStatus().warn, true); };
+  setInterval(() => { if (view !== "display" && state) refreshSync(); }, 10000);
   function refreshSync() {
+    if (state) {
+      const tv = tvSoundStatus();
+      document.querySelectorAll(".tv-badge").forEach((el) => { el.textContent = tv.text; el.className = `badge-device tv-badge ${tv.tone}`; el.title = tv.warn || "Calls are chimed and read out on the TV."; });
+    }
     const [text, tone, title] = syncLabel();
     document.querySelectorAll(".sync-badge").forEach((el) => { el.textContent = text; el.className = `badge-device sync-badge ${tone}`; el.title = title; });
     const banner = $("#sync-banner");
@@ -1305,7 +1333,7 @@ function downloadQueueReport(xlsx, state, now) {
       <header class="top"><div class="top-in">
         <div class="top-row">
           <div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state?.settings).toUpperCase())}</small><b>Queue Board · ${{ desk: "Front Desk", station: "Stations", config: "System Configuration" }[view]}</b></div></div>
-          <div class="top-actions"><span class="badge-device sync-badge"></span>${view === "desk" ? `<a class="btn sm on-dark" href="#config">Settings</a>` : ""}</div>
+          <div class="top-actions"><span class="badge-device tv-badge"></span><span class="badge-device sync-badge"></span>${view === "desk" ? `<a class="btn sm on-dark" href="#config">Settings</a>` : ""}</div>
         </div>
         <nav class="nav">${nav.map(([key, href, label]) => `<a href="${href}" class="${view === key ? "on" : ""}">${label}</a>`).join("")}<button data-act="openTv">TV display ↗</button><button data-act="openPoster">Check-in QR ↗</button><a href="#setup">Sync setup</a></nav>
       </div></header>
@@ -1933,6 +1961,9 @@ function downloadQueueReport(xlsx, state, now) {
     </div><button class="sound-btn" id="sound-btn" data-act="startTv">🔊 Click anywhere to start: full screen, chime &amp; voice announcements</button>`;
     clearInterval(tvTimer);
     tvTimer = setInterval(() => { if (view === "display") tick(); else clearInterval(tvTimer); }, 1000);
+    clearInterval(tvReportTimer);
+    tvReportTimer = setInterval(() => { if (view === "display") reportTv(); else clearInterval(tvReportTimer); }, 30000);
+    void reportTv();
     const frame = document.getElementById("yt");
     if (frame) frame.addEventListener("load", () => setTimeout(applyVideoSound, 1500));
     if (sound) setSound(true); else autoStartSound();
@@ -1950,7 +1981,7 @@ function downloadQueueReport(xlsx, state, now) {
   window.addEventListener("resize", () => { if (view === "display") fitNumbers(); });
 
   function tick() {
-    const now = Date.now();
+    const now = serverNow();
     $("#tv-time").textContent = clock.format(now);
     $("#tv-date").textContent = longDate.format(now);
     const latest = openCall(state);
@@ -2029,11 +2060,24 @@ function downloadQueueReport(xlsx, state, now) {
     if (!btn) return;
     const full = Boolean(document.fullscreenElement) || (innerWidth >= screen.width - 1 && innerHeight >= screen.height - 1);
     btn.classList.toggle("hidden", sound && full);
-    btn.textContent = sound ? "⛶ Click anywhere for full screen" : "🔊 Click anywhere to start: full screen, chime & voice announcements";
+    if (sound) btn.classList.remove("nag");
+    btn.textContent = sound ? "⛶ Click anywhere for full screen" : btn.classList.contains("nag") ? "🔇 A number was called but the sound is off — click anywhere to turn it on" : "🔊 Click anywhere to start: full screen, chime & voice announcements";
   }
   document.addEventListener("fullscreenchange", () => { if (view === "display") refreshStartButton(); });
   window.addEventListener("resize", () => { if (view === "display") refreshStartButton(); });
 
+  /** Tells the staff screens that this TV is open and whether its sound is on (no PIN needed for this). */
+  let tvReportTimer;
+  async function reportTv() {
+    if (view !== "display" || !state) return;
+    const action = { type: "tvStatus", sound };
+    try {
+      if (sync.mode === "local") {
+        const applied = applyAction(loadLocal(), action, Date.now());
+        if (applied.result.ok) { state = applied.state; localStorage.setItem(KEY, JSON.stringify(state)); channel?.postMessage("changed"); }
+      } else if (sync.mode === "server") await request({ method: "POST", body: JSON.stringify({ action }) });
+    } catch { /* the next report tries again */ }
+  }
   function setSound(on) {
     sound = on;
     if (on) {
@@ -2047,6 +2091,7 @@ function downloadQueueReport(xlsx, state, now) {
     refreshStartButton();
     $("#sound-toggle").textContent = on ? "🔊 Sound on" : "🔇 Sound off";
     applyVideoSound();
+    void reportTv();
   }
 
   /** Plays the video's sound at the front desk's volume, or mutes it. */
@@ -2061,10 +2106,12 @@ function downloadQueueReport(xlsx, state, now) {
     // Announce calls made since the last update, oldest first.
     const list = state.announcements;
     const index = list.findIndex((a) => a.id === seen);
-    const fresh = list.slice(index + 1).filter((a) => Date.now() - a.at < 60000);
+    const fresh = list.slice(index + 1).filter((a) => serverNow() - a.at < 60000);
     seen = list[list.length - 1]?.id ?? null;
     const gap = announcementGap(state.settings.announceLanguage);
     if (sound) fresh.forEach((item, i) => setTimeout(() => announce(item), i * gap));
+    // A call came in but this TV is silent: make the start button impossible to miss.
+    else if (fresh.length) { $("#sound-btn")?.classList.add("nag"); refreshStartButton(); }
     // Duck the video while numbers are read out, then bring its sound back.
     if (sound && fresh.length && state.settings.videoSound) {
       ducked = true;
@@ -2247,7 +2294,7 @@ function downloadQueueReport(xlsx, state, now) {
         break;
       }
       case "slip": { const v = state.visits.find((x) => x.id === id); if (v) printSlip(arrivalLabel(v), v.createdAt, LOGO, clinicNameOf(state.settings)); break; }
-      case "callReg": dispatch({ type: "callRegistration", visitId: id || undefined, hmo: id ? undefined : isHmoTab() }, (r) => `${r.label} called to register — shown on the TV.`); break;
+      case "callReg": dispatch({ type: "callRegistration", visitId: id || undefined, hmo: id ? undefined : isHmoTab() }, (r) => `${r.label} called to register — shown on the TV.`).then(warnIfSilent); break;
       case "removeArrival": { const v = state.visits.find((x) => x.id === id); if (v && confirm(`Remove ${arrivalLabel(v)}? Use this if the patient left before registering. The number ${arrivalLabel(v)} will be given to the next arrival.`)) dispatch({ type: "cancel", visitId: id }, `${arrivalLabel(v)} removed — the next Queue number will reuse it.`); break; }
       case "registerArrival": { const v = state.visits.find((x) => x.id === id); if (v) { form.arrival = id; form.kind = v.kind; form.priority = v.priority; form.newPatient = v.newPatient === true; updateDesk(); $("#reg-name").focus(); } break; }
       case "togArrNew": arr.newPatient = !arr.newPatient; updateDesk(); break;
@@ -2264,10 +2311,10 @@ function downloadQueueReport(xlsx, state, now) {
       case "priority": { const v = state.visits.find((x) => x.id === id); if (v) dispatch({ type: "updateVisit", visitId: id, priority: !v.priority }); break; }
       case "cancel": { const v = state.visits.find((x) => x.id === id); if (v && confirm(`Cancel ${currentLabel(v)}${v.name ? ` (${v.name})` : ""}?`)) dispatch({ type: "cancel", visitId: id }); break; }
       case "requeue": dispatch({ type: "requeue", visitId: id }, "Back in line."); break;
-      case "callNext": dispatch({ type: "call", station }); break;
-      case "callOne": dispatch({ type: "call", station, visitId: id }); break;
-      case "callBack": dispatch({ type: "callBack", station, visitId: id }, (r) => `${r.label} called back — shown on the TV.`); break;
-      case "recall": dispatch({ type: "recall", visitId: id }); break;
+      case "callNext": dispatch({ type: "call", station }).then(warnIfSilent); break;
+      case "callOne": dispatch({ type: "call", station, visitId: id }).then(warnIfSilent); break;
+      case "callBack": dispatch({ type: "callBack", station, visitId: id }, (r) => `${r.label} called back — shown on the TV.`).then(warnIfSilent); break;
+      case "recall": dispatch({ type: "recall", visitId: id }).then(warnIfSilent); break;
       case "miss": dispatch({ type: "miss", visitId: id }); break;
       case "complete": dispatch({ type: "complete", visitId: id, sendTo: send || undefined }); break;
       case "sound": setSound(!sound); break;

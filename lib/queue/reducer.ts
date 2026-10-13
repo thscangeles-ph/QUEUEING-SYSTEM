@@ -398,6 +398,11 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       const next = currentStep(visit);
       return { ok: true, visitId: visit.id, label: next ? ticketLabel(visit, next.station) : undefined };
     }
+    case "tvStatus": {
+      // The lobby TV reports every 30 seconds (it has no staff PIN), so staff can see whether calls will be heard.
+      state.tv = { seenAt: now, sound: Boolean(action.sound) };
+      return { ok: true };
+    }
     case "callBack": {
       // Calls a patient this station already served back to it (e.g. the doctor needs them again).
       const station = findStation(state, action.station);
