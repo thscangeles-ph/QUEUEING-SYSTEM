@@ -212,7 +212,8 @@ const CDN = {
   'jpeg-lossless.min.js':'https://cdn.jsdelivr.net/npm/jpeg-lossless-decoder-js@2.0.7/release/current/lossless-min.js',
   'openjpegwasm_decode.js':'https://cdn.jsdelivr.net/npm/@cornerstonejs/codec-openjpeg@1.2.4/dist/openjpegwasm_decode.js',
   'charlswasm_decode.js':'https://cdn.jsdelivr.net/npm/@cornerstonejs/codec-charls@1.2.3/dist/charlswasm_decode.js',
-  'libjpegturbo12wasm.js':'https://cdn.jsdelivr.net/npm/@cornerstonejs/codec-libjpeg-turbo-12bit@0.4.7/dist/libjpegturbo12wasm.js' };
+  'libjpegturbo12wasm.js':'https://cdn.jsdelivr.net/npm/@cornerstonejs/codec-libjpeg-turbo-12bit@0.4.7/dist/libjpegturbo12wasm.js',
+  'libde265.mjs':'https://cdn.jsdelivr.net/npm/@yume-chan/libde265@1.0.0/libde265.mjs' };
 const load = src => new Promise((ok,fail)=>{ const s=document.createElement('script'); s.src=src; s.onload=()=>ok(src); s.onerror=fail; document.head.append(s); });
 const local = name => new URL('dicom-lib/'+name, location.href).href;
 // Resolves to the address the script came from, so a WebAssembly file can be fetched from the same place.
@@ -734,6 +735,59 @@ function hevcCodec(prefix,b,p){
   const cons=[...b.subarray(p+5,p+11)]; while(cons.length && !cons[cons.length-1]) cons.pop();
   return `${prefix}.${['','A','B','C'][space]}${prof}.${rev.toString(16)}.${tier?'H':'L'}${b[p+11]}${cons.map(c=>'.'+c.toString(16)).join('')}`;
 }
+function displayOrder(keys){
+  // keys[i] orders the frame decoded i-th on screen; returns the display index of each decoded frame and back, or
+  // null when frames are shown in the order they are decoded.
+  const order=[...keys.keys()].sort((a,b)=>keys[a]-keys[b] || a-b);
+  if(order.every((i,d)=>i===d)) return null;
+  const disp=new Int32Array(keys.length), inv=new Int32Array(keys.length);
+  order.forEach((i,d)=>{ disp[i]=d; inv[d]=i; });
+  return {disp, inv};
+}
+function rbspReader(u, from){
+  // Bits of a NAL unit payload with the emulation-prevention bytes (00 00 03) removed.
+  const r=[]; let z=0;
+  for(let i=from;i<u.length;i++){ const c=u[i]; if(z>=2 && c===3){ z=0; continue; } z=c===0?z+1:0; r.push(c); }
+  let p=0;
+  const u1=()=>{ const v=(r[p>>3]>>(7-(p&7)))&1; p++; return v; };
+  const un=n=>{ let v=0; for(let i=0;i<n;i++) v=v*2+u1(); return v; };
+  const ue=()=>{ let lz=0; while(!u1() && lz<32) lz++; return un(lz)+2**lz-1; };
+  return {u1, un, ue, skip:n=>{ p+=n; }};
+}
+function hevcPocTracker(){
+  // Picture order count (H.265 section 8.3.1) of each picture from its first slice header, so that a raw stream
+  // with B-frames can be put in display order.
+  const sps=new Map(), pps=new Map(); let prevLsb=0, prevMsb=0, cvs=0, first=true, eos=false;
+  return {
+    param(t,u){
+      const r=rbspReader(u,2);
+      if(t===33){
+        r.un(4); const sub=r.un(3); r.u1(); r.skip(96);
+        const pp=[], lp=[]; for(let i=0;i<sub;i++){ pp.push(r.u1()); lp.push(r.u1()); }
+        if(sub>0) r.skip(2*(8-sub));
+        for(let i=0;i<sub;i++){ if(pp[i]) r.skip(88); if(lp[i]) r.skip(8); }
+        const id=r.ue(), cf=r.ue(), sep=cf===3?r.u1():0;
+        r.ue(); r.ue(); if(r.u1()){ r.ue(); r.ue(); r.ue(); r.ue(); }
+        r.ue(); r.ue(); sps.set(id,{log2:r.ue()+4, sep});
+      } else if(t===34){ const id=r.ue(); pps.set(id,{sps:r.ue(), dep:r.u1(), outFlag:r.u1(), extra:r.un(3)}); }
+      else if(t===36) eos=true;
+    },
+    poc(t,u){
+      const r=rbspReader(u,2); r.u1();
+      if(t>=16 && t<=23) r.u1();
+      const pp=pps.get(r.ue()), sp=pp && sps.get(pp.sps); if(!sp) throw new Error('missing parameter sets');
+      r.skip(pp.extra); r.ue(); if(pp.outFlag) r.u1(); if(sp.sep) r.skip(2);
+      const idr=t===19||t===20, lsb=idr?0:r.un(sp.log2), max=2**sp.log2;
+      let msb=prevMsb;
+      if(t>=16 && t<=23 && (idr || t<=18 || first || eos)){ msb=0; cvs++; }
+      else if(lsb<prevLsb && prevLsb-lsb>=max/2) msb=prevMsb+max;
+      else if(lsb>prevLsb && lsb-prevLsb>max/2) msb=prevMsb-max;
+      if(((u[1]&7)-1)===0 && !(t>=6 && t<=9) && !(t<=14 && t%2===0)){ prevLsb=lsb; prevMsb=msb; }
+      first=false; eos=false;
+      return cvs*4294967296+msb+lsb;
+    },
+  };
+}
 function demuxMp4(b){
   const moov=mp4Boxes(b,0,b.length).find(x=>x.type==='moov');
   if(!moov) throw new Error('The MP4 video in this file has no index (moov box).');
@@ -761,10 +815,19 @@ function demuxMp4(b){
       let off = wide ? u32be(b,co.data+8+8*c)*4294967296+u32be(b,co.data+12+8*c) : u32be(b,co.data+8+4*c);
       for(let k=0;k<per && si<n;k++,si++){ const len=fixed||u32be(b,sz.data+12+4*si); samples.push({data:b.subarray(off,off+len), key:!keys||keys.has(si)}); off+=len; }
     }
+    // Display order from the decode times (stts) plus the composition offsets (ctts) of B-frames.
+    let order=null;
+    if(kids.ctts && kids.stts){
+      const cts=new Float64Array(n); let t=0, i=0;
+      for(let e=0;e<u32be(b,kids.stts.data+4);e++){ const cnt=u32be(b,kids.stts.data+8+8*e), d=u32be(b,kids.stts.data+12+8*e); for(let c=0;c<cnt && i<n;c++,i++){ cts[i]=t; t+=d; } }
+      const c=kids.ctts, signed=b[c.data]===1; i=0;
+      for(let e=0;e<u32be(b,c.data+4);e++){ const cnt=u32be(b,c.data+8+8*e); let off=u32be(b,c.data+12+8*e); if(signed && off>=2147483648) off-=4294967296; for(let k=0;k<cnt && i<n;k++,i++) cts[i]+=off; }
+      order=displayOrder(cts);
+    }
     // Frame rate from the most common frame duration.
     const scale=u32be(b,mdhd.data+(b[mdhd.data]===1?20:12)); let fps=0;
     if(kids.stts && scale){ let most=0, d=0; for(let i=0;i<u32be(b,kids.stts.data+4);i++){ const cnt=u32be(b,kids.stts.data+8+8*i); if(cnt>most){ most=cnt; d=u32be(b,kids.stts.data+12+8*i); } } if(d) fps=scale/d; }
-    return {container:'MP4', codec, description:b.slice(cfg.data,cfg.end), samples, w, h, fps};
+    return {container:'MP4', codec, description:b.slice(cfg.data,cfg.end), samples, w, h, fps, order};
   }
   throw new Error('This MP4 file has no video track.');
 }
@@ -777,11 +840,14 @@ function splitAnnexB(b, hevc){
     else i++;
   }
   if(start>=0) push(b.length);
-  const SC=new Uint8Array([0,0,0,1]), samples=[], params=new Map();
-  let cur=[], vcl=false, key=false, hasParams=false, sps=null;
+  const SC=new Uint8Array([0,0,0,1]), samples=[], params=new Map(), pocs=[];
+  let cur=[], vcl=false, key=false, hasParams=false, sps=null, poc=hevc?hevcPocTracker():null;
   const close=()=>{
     // A keyframe must carry the parameter sets, so that decoding can start there after a seek.
-    if(vcl) samples.push({data:concat((key && !hasParams ? [...params.values(),...cur] : cur).flatMap(u=>[SC,u])), key});
+    if(vcl){
+      samples.push({data:concat((key && !hasParams ? [...params.values(),...cur] : cur).flatMap(u=>[SC,u])), key});
+      if(poc){ const u=cur.find(x=>((x[0]>>1)&63)<32); try{ pocs.push(poc.poc((u[0]>>1)&63,u)); }catch{ poc=null; } }
+    }
     cur=[]; vcl=false; key=false; hasParams=false;
   };
   for(const u of units){
@@ -792,6 +858,7 @@ function splitAnnexB(b, hevc){
     const prefix = hevc ? isParam || t===39 || (t>=41&&t<=44) || (t>=48&&t<=55) : isParam || t===6 || (t>=14&&t<=18);
     if(t===(hevc?35:9) || (vcl && (prefix || newPic))) close();
     if(isParam){ params.set(t,u); hasParams=true; if(t===(hevc?33:7) && !sps) sps=u; }
+    if(poc && (isParam || t===36)) try{ poc.param(t,u); }catch{ poc=null; }
     cur.push(u);
     if(isVcl){ vcl=true; if(hevc ? t>=16 && t<=21 : t===5) key=true; }
   }
@@ -800,26 +867,123 @@ function splitAnnexB(b, hevc){
   let codec;
   if(hevc){
     const r=[]; for(const c of sps){ if(c===3 && r.length>=2 && r[r.length-1]===0 && r[r.length-2]===0) continue; r.push(c); }   // drop emulation-prevention bytes
-    codec=hevcCodec('hvc1',r,3);
+    codec=hevcCodec('hvc1',new Uint8Array(r),3);
   } else codec=`avc1.${hex2(sps[1])}${hex2(sps[2])}${hex2(sps[3])}`;
-  return {container:'stream', codec, samples};
+  return {container:'stream', codec, samples, order:poc ? displayOrder(pocs) : null};
 }
 async function prepareVideo(inst){
   const el=inst.pix, ds=inst.ds;
   if(!el || !el.fragments || !el.fragments.length) throw new Error('The video data in this file is damaged.');
-  if(typeof VideoDecoder==='undefined') throw new Error('This browser cannot play DICOM video. Use a recent Chrome or Edge.');
   const parts=el.fragments.map(fr=>ds.byteArray.subarray(fr.position, fr.position+fr.length));
   const data=parts.length===1 ? parts[0] : concat(parts);
   const v = fourcc(data,4)==='ftyp' ? demuxMp4(data) : splitAnnexB(data, /^HEVC/.test(TS[inst.ts][0]));
   const w=v.w||inst.cols, h=v.h||inst.rows;
   v.config={codec:v.codec, codedWidth:w, codedHeight:h, optimizeForLatency:true};
   if(v.description) v.config.description=v.description;
-  const ok=await VideoDecoder.isConfigSupported(v.config).then(r=>r.supported, ()=>false);
-  if(!ok) throw new Error(/^(hvc1|hev1)/.test(v.codec)
-    ? 'This browser cannot decode HEVC (H.265) video on this computer. Try Microsoft Edge or Chrome on Windows with hardware video decoding.'
-    : `This browser cannot decode this H.264 video (${v.codec}). Try a recent Chrome or Edge.`);
+  const native = typeof VideoDecoder!=='undefined' && await VideoDecoder.isConfigSupported(v.config).then(r=>r.supported, ()=>false);
+  // HEVC falls back to the software decoder; H.264 is decoded by every current browser.
+  if(!native){
+    if(!/^(hvc1|hev1)/.test(v.codec)) throw new Error(`This browser cannot decode this H.264 video (${v.codec}). Try a recent Chrome or Edge.`);
+    if(typeof Worker==='undefined') throw new Error('This browser cannot decode HEVC (H.265) video. Try a recent Chrome or Edge.');
+    v.soft=true;
+  }
   inst.video=v; inst.frames=v.samples.length; inst.cols=w; inst.rows=h; inst.spp=3;
   if(!inst.fps && v.fps) inst.fps=v.fps;
+}
+// Software HEVC decoding for browsers without it (Linux, Firefox, Windows without hardware HEVC): libde265 compiled
+// to WebAssembly, run in a worker so decoding does not freeze the page. SoftHevcDecoder offers the small part of
+// the WebCodecs VideoDecoder interface that videoFrame() uses, so both decoders share the same seeking logic.
+// Unlike WebCodecs it returns frames in decode order; videoFrame() puts them in display order.
+const HEVC_WORKER = `
+const libs = LIBS;
+let M; const decs = new Map();
+const ready = (async () => { for (const u of libs) { try { M = await (await import(u)).default(); return; } catch (e) { /* try the next copy */ } }
+  throw new Error('The HEVC decoder could not be loaded. Keep the dicom-lib folder next to this page, or connect to the internet.'); })();
+let queue = Promise.resolve();
+onmessage = e => { queue = queue.then(() => handle(e.data)).catch(err => postMessage({ type: 'error', sid: e.data.sid, message: String(err && err.message || err) })); };
+async function handle(d) {
+  await ready;
+  if (d.type === 'open') { decs.set(d.sid, new M.Decoder()); return; }
+  const x = decs.get(d.sid); if (!x) return;
+  if (d.type === 'close') { x.delete(); decs.delete(d.sid); return; }
+  if (d.type === 'decode') { x.pushData(new Uint8Array(d.data), BigInt(d.pts)); x.pushEndOfFrame(); drain(d.sid, x); postMessage({ type: 'dequeued', sid: d.sid }); return; }
+  if (d.type === 'flush') { x.flushData(); drain(d.sid, x); postMessage({ type: 'flushed', sid: d.sid }); }
+}
+function drain(sid, x) {
+  for (let guard = 0; guard < 10000; guard++) {
+    const r = x.decode(); let img;
+    while ((img = x.getNextPicture())) { emit(sid, img); img.delete(); }
+    if (!M.isOk(r.error)) { if (r.error !== M.Error.ERROR_WAITING_FOR_INPUT_DATA) postMessage({ type: 'error', sid, message: M.getErrorText(r.error) }); return; }
+    if (!r.more) return;
+  }
+}
+function emit(sid, img) {
+  // YCbCr (4:2:0, 4:2:2, 4:4:4 or monochrome; 8 to 16 bits) to RGBA, BT.709 for HD and BT.601 otherwise unless signalled.
+  const Y = img.getImagePlane(0), w = img.getWidth(0), h = img.getHeight(0), cf = img.chromaFormat;
+  const bits = img.getBitsPerPixel(0), wide = bits > 8, sh = bits - 8;
+  const out = new Uint8ClampedArray(w * h * 4), mc = img.matrixCoefficients, full = img.isFullRange;
+  const k709 = mc === 1 || (mc !== 5 && mc !== 6 && h >= 720), kr = k709 ? 0.2126 : 0.299, kb = k709 ? 0.0722 : 0.114;
+  const ys = full ? 1 : 255 / 219, cs = full ? 1 : 255 / 224, yo = full ? 0 : 16;
+  const rv = 2 * (1 - kr) * cs, bu = 2 * (1 - kb) * cs, gu = -bu * kb / (1 - kr - kb), gv = -rv * kr / (1 - kr - kb);
+  const at = (pl, x, y) => wide ? (pl.bytes[y * pl.stride + 2 * x] | (pl.bytes[y * pl.stride + 2 * x + 1] << 8)) >> sh : pl.bytes[y * pl.stride + x];
+  const U = cf ? img.getImagePlane(1) : null, V = cf ? img.getImagePlane(2) : null, sx = cf === 3 ? 0 : 1, sy = cf === 1 ? 1 : 0;
+  for (let y = 0, j = 0; y < h; y++) for (let x = 0; x < w; x++, j += 4) {
+    const l = (at(Y, x, y) - yo) * ys;
+    if (!cf) { out[j] = out[j + 1] = out[j + 2] = l; out[j + 3] = 255; continue; }
+    const u = at(U, x >> sx, y >> sy) - 128, v = at(V, x >> sx, y >> sy) - 128;
+    out[j] = l + rv * v; out[j + 1] = l + gu * u + gv * v; out[j + 2] = l + bu * u; out[j + 3] = 255;
+  }
+  postMessage({ type: 'frame', sid, w, h, pts: Number(img.pts), rgba: out.buffer }, [out.buffer]);
+}`;
+let hevcWorker=null, hevcSid=0;
+function getHevcWorker(){
+  if(hevcWorker) return hevcWorker;
+  const libs=[new URL('dicom-lib/libde265.mjs', location.href).href, DICOM_LIB_CDN['libde265.mjs']];
+  const w=new Worker(URL.createObjectURL(new Blob([HEVC_WORKER.replace('LIBS', JSON.stringify(libs))],{type:'text/javascript'})),{type:'module'});
+  w.handlers=new Map();
+  w.onmessage=e=>{ const h=w.handlers.get(e.data.sid); if(h) h(e.data); };
+  w.onerror=e=>{ e.preventDefault(); for(const h of w.handlers.values()) h({type:'error', message:'The HEVC decoder stopped ('+(e.message||'worker error')+').'}); hevcWorker=null; w.terminate(); };
+  return hevcWorker=w;
+}
+class SoftHevcDecoder{
+  constructor({output,error}){
+    this.output=output; this.error=error; this.state='unconfigured'; this.decodeQueueSize=0; this.flushes=[];
+    this.sid=++hevcSid; this.w=getHevcWorker(); this.w.handlers.set(this.sid, m=>this.onMessage(m));
+    this.w.postMessage({type:'open', sid:this.sid});
+  }
+  configure(cfg){
+    this.state='configured'; this.lenSize=0; this.params=null;
+    const d=cfg.description;
+    if(d){
+      // MP4 samples hold length-prefixed NAL units; the parameter sets live in the hvcC box.
+      this.lenSize=(d[21]&3)+1; const ps=[]; let p=23;
+      for(let a=0;a<d[22];a++){ const n=(d[p+1]<<8)|d[p+2]; p+=3; for(let k=0;k<n;k++){ const len=(d[p]<<8)|d[p+1]; ps.push(new Uint8Array([0,0,0,1]), d.subarray(p+2,p+2+len)); p+=2+len; } }
+      this.params=concat(ps);
+    }
+  }
+  decode(chunk){
+    let d=chunk.data;
+    if(this.lenSize){
+      const parts=chunk.type==='key'?[this.params]:[]; let p=0;
+      while(p+this.lenSize<=d.length){ let len=0; for(let k=0;k<this.lenSize;k++) len=len*256+d[p+k]; p+=this.lenSize; parts.push(new Uint8Array([0,0,0,1]), d.subarray(p,p+len)); p+=len; }
+      d=concat(parts);
+    } else d=d.slice();
+    this.decodeQueueSize++;
+    this.w.postMessage({type:'decode', sid:this.sid, pts:chunk.pts||0, data:d.buffer}, [d.buffer]);
+  }
+  flush(){ return new Promise((ok,fail)=>{ this.flushes.push({ok,fail}); this.w.postMessage({type:'flush', sid:this.sid}); }); }
+  close(){
+    if(this.state==='closed') return;
+    this.state='closed'; this.w.postMessage({type:'close', sid:this.sid}); this.w.handlers.delete(this.sid);
+    for(const f of this.flushes.splice(0)) f.fail(new Error('The decoder was closed.'));
+  }
+  onMessage(m){
+    if(this.state==='closed') return;
+    if(m.type==='frame') this.output({displayWidth:m.w, displayHeight:m.h, pts:m.pts, rgba:new Uint8ClampedArray(m.rgba), close(){}});
+    else if(m.type==='dequeued') this.decodeQueueSize--;
+    else if(m.type==='flushed'){ const f=this.flushes.shift(); if(f) f.ok(); }
+    else if(m.type==='error') this.error(new Error(m.message));
+  }
 }
 function decodeVideo(inst, f){
   const v=inst.video; if(!v) return Promise.reject(new Error(inst.videoError||'This video could not be read.'));
@@ -833,25 +997,32 @@ function closeVideo(inst){
 }
 let videoCanvas;
 function videoToFrame(frame){
+  if(frame.rgba) return {gray:false, w:frame.displayWidth, h:frame.displayHeight, rgba:frame.rgba};   // from the software decoder
   const w=frame.displayWidth, h=frame.displayHeight, c=videoCanvas=videoCanvas||document.createElement('canvas');
   if(c.width!==w || c.height!==h){ c.width=w; c.height=h; }
   const g=c.getContext('2d',{willReadFrequently:true}); g.drawImage(frame,0,0,w,h);
   return {gray:false,w,h,rgba:g.getImageData(0,0,w,h).data};
 }
 async function videoFrame(inst, t){
-  const v=inst.video, n=v.samples.length, k=frameKey(inst,t);
+  const v=inst.video, n=v.samples.length, k=frameKey(inst,t), ord=v.order;
   const ready=()=>{ const e=cache.get(k); return (e && e.fr) || (v.sess && v.sess.got.get(t)); };
   let fr=ready(); if(fr) return fr;
+  // Each decoded frame carries the position it was fed at; v.order (from MP4 timing or HEVC picture order counts)
+  // turns that into its display index. Without it, frames are shown in decode order or come out of the decoder in
+  // display order, so the n-th frame out after a keyframe is frame key+n.
+  const dec=ord ? ord.inv[t] : t;
   let s=v.sess;
-  // Keep feeding the running decoder when the frame is just ahead; otherwise start again at the keyframe before it.
-  // Frames come out in display order, so the n-th frame out after a keyframe is frame key+n (closed GOPs).
-  if(!s || s.ended || s.error || t<s.k+s.out || t>s.k+s.out+150){
+  // Keep feeding the running decoder when frame t is still to come; otherwise start again at a keyframe before it.
+  if(!s || s.ended || s.error || t<s.keepFrom || s.seen.has(t) || dec>s.fed+150){
     if(s && s.dec.state!=='closed') s.dec.close();
-    let key=t; while(key>0 && !v.samples[key].key) key--;
-    s=v.sess={k:key, fed:key, out:0, keepFrom:t-2, got:new Map(), wake:null, ended:false, error:null};
-    s.dec=new VideoDecoder({
+    // The keyframe must also be shown no later than frame t: with open GOPs, frames shown just before a keyframe
+    // depend on the keyframe before it.
+    let key=dec; while(key>0 && !(v.samples[key].key && (!ord || ord.disp[key]<=t))) key--;
+    s=v.sess={k:key, fed:key, out:0, keepFrom:t-2, seen:new Set(), got:new Map(), wake:null, ended:false, error:null};
+    s.dec=new (v.soft?SoftHevcDecoder:VideoDecoder)({
       output:frame=>{
-        const idx=s.k+s.out++;
+        const idx = ord ? ord.disp[v.soft ? frame.pts : Math.round(frame.timestamp/1000)] : s.k+s.out;
+        s.out++; s.seen.add(idx);
         if(idx>=s.keepFrom && idx<n){ const f2=videoToFrame(frame); putFrame(inst,idx,f2); s.got.set(idx,f2); if(s.got.size>6) s.got.delete(s.got.keys().next().value); }
         frame.close(); if(s.wake) s.wake();
       },
@@ -866,7 +1037,8 @@ async function videoFrame(inst, t){
     if(s.out!==lastOut){ lastOut=s.out; stalled=0; }
     if(s.fed<n && (s.fed-(s.k+s.out)<24 || stalled>8)){
       const smp=v.samples[s.fed];
-      s.dec.decode(new EncodedVideoChunk({type:smp.key?'key':'delta', timestamp:s.fed*1000, data:smp.data}));
+      const type=smp.key?'key':'delta';
+      s.dec.decode(v.soft ? {type, data:smp.data, pts:s.fed} : new EncodedVideoChunk({type, timestamp:s.fed*1000, data:smp.data}));
       s.fed++; stalled=0;
       if(s.dec.decodeQueueSize>4) await nap(20);
     } else if(s.fed>=n && !s.ended){
@@ -1300,7 +1472,7 @@ function renderDetails(){
     rows('Series',[['Modality',inst.modality],['Description',str(ds,'x0008103e')],['Number',inst.seriesNo!=null?String(inst.seriesNo):''],['Body part',str(ds,'x00180015')],['Equipment',[str(ds,'x00080070'),str(ds,'x00081090')].filter(Boolean).join(' ')],['Station',str(ds,'x00081010')]]) +
     (set.kind==='pdf' ? rows('Document',[['Title',str(ds,'x00420010')],['Size',fmtBytes(inst.pdf.length)],['File',inst.name]]) :
     rows('Image',[['Size',`${inst.cols} × ${inst.rows} pixels`],['Frames',inst.frames>1?String(inst.frames):''],['Frame rate',inst.fps?`${inst.fps.toFixed(1)} fps`:''],['Heart rate',str(ds,'x00181088')?str(ds,'x00181088')+' bpm':''],
-      ['Colour',`${inst.photo}${inst.spp>1?'':`, ${inst.bs}-bit`}`],['Stored as',(TS[inst.ts]||[inst.ts])[0]+(inst.video?` · ${inst.video.container==='MP4'?'MP4 file':'raw stream'} · ${inst.video.codec}`:'')],['Lossy',str(ds,'x00282110')==='01'?'Yes'+(str(ds,'x00282112')?` (ratio ${str(ds,'x00282112').split('\\')[0]})`:''):''],
+      ['Colour',`${inst.photo}${inst.spp>1?'':`, ${inst.bs}-bit`}`],['Stored as',(TS[inst.ts]||[inst.ts])[0]+(inst.video?` · ${inst.video.container==='MP4'?'MP4 file':'raw stream'} · ${inst.video.codec}${inst.video.soft?' · software decoder':''}`:'')],['Lossy',str(ds,'x00282110')==='01'?'Yes'+(str(ds,'x00282112')?` (ratio ${str(ds,'x00282112').split('\\')[0]})`:''):''],
       ['Calibration',calib],['Instance',inst.instNo!=null?String(inst.instNo):''],['File',`${inst.name} · ${fmtBytes(inst.size)}`]]));
 }
 function tagRows(ds, depth, out){
