@@ -102,7 +102,7 @@ The file carries its own copy of the queue rules (`lib/queue/reducer.ts`, `forma
 
 ### ECG Strip Extractor
 
-`/ecg` (also *ECG strips ↗* on the Queue Board) saves only the tracing from an ECG PDF, leaving out the patient's name, ID and other text printed around it.
+`/ecg` (also *ECG strips ↗* in the Queue Board menu, and the *ECG strips* panel on the ECG station screen) saves only the tracing from an ECG PDF, leaving out the patient's name, ID and other text printed around it.
 
 1. Drop the ECG PDF on the page (or click to choose it). *Try a sample ECG* shows how it works with a synthetic tracing.
 2. The box finds the pink grid paper by itself (*Grid found*). Drag it, resize it by its handles, or draw a new one; *Auto-detect tracing* and *Full page* reset it, and *Use this box on all pages* copies it to every page.

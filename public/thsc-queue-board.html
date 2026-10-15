@@ -1889,6 +1889,7 @@ function downloadQueueReport(xlsx, state, now) {
     const others = stations.filter((s) => s.code !== station.code);
     const consult = station.service === "consultation";
     const cashier = stations.find((s) => s.service === "cashier");
+    const ecg = station.code === "ECG" || /\bECG\b/i.test(station.name);
     // The screen is redrawn on every update; starting the blink part-way through keeps it smooth across redraws.
     const blinkDelay = -(Date.now() % 2400);
     box.innerHTML = `
@@ -1912,6 +1913,7 @@ function downloadQueueReport(xlsx, state, now) {
           ${serving.length && next ? `<p class="hint">${consult ? `Choose <b>Professional fee</b> or <b>No charge</b> first — calling the next patient completes ${esc(ticketLabel(serving[0], station.code))} with no charges recorded.` : `Calling the next patient marks ${esc(ticketLabel(serving[0], station.code))} as complete.`}</p>` : ""}
         </div>
         <div class="col">
+          ${ecg ? `<section class="panel"><div class="panel-h"><div><h2>ECG strips</h2><p>Save only the tracing from the ECG PDF, without the patient's name and ID.</p></div><button class="btn sm outline" data-act="openEcg">ECG Strip Extractor ↗</button></div></section>` : ""}
           <section class="panel"><div class="panel-h"><div><h2>Waiting for ${esc(station.name)}</h2><p>Priority lane patients are called first, then in arrival order.</p></div></div>
             <div class="panel-b">${waiting.length ? `<ol class="wlist">${waiting.map((v, i) => `<li><span class="pos">${i + 1}</span><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${v.kind === "H" ? ` <span class="tag hmo">HMO${v.hmo ? ` · ${esc(v.hmo)}` : ""}</span>` : ""}${station.service === "cashier" && payItems(state, v).length ? ` <span class="tag pay">💳 ${payItems(state, v).map(esc).join(", ")}</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
           </section>
