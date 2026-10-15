@@ -1,0 +1,10 @@
+Libraries used by the DICOM Viewer (public/dicom-viewer.html), unmodified except where noted.
+
+dicomParser.min.js       dicom-parser 1.8.21 (npm), MIT, see dicomParser.LICENSE.txt
+                         (source map comment removed)
+jpeg-lossless.min.js     jpeg-lossless-decoder-js 2.0.7 (npm, release/current/lossless-min.js), MIT,
+                         see jpeg-lossless.LICENSE.txt
+openjpegwasm_decode.*    @cornerstonejs/codec-openjpeg 1.2.4 (npm, dist/), MIT; a WebAssembly build of
+                         OpenJPEG, BSD 2-clause, https://github.com/uclouvain/openjpeg/blob/master/LICENSE
+charlswasm_decode.*      @cornerstonejs/codec-charls 1.2.3 (npm, dist/), MIT, see charls-codec.LICENSE.txt;
+                         a WebAssembly build of CharLS, BSD 3-clause, https://github.com/team-charls/charls
