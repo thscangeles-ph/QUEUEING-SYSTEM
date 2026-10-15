@@ -115,7 +115,7 @@ The PDF is read and saved in the browser; it is never uploaded, even from the Ve
 
 ### DICOM Viewer
 
-`/dicom` (also *DICOM viewer ↗* on the Queue Board) opens DICOM images in the browser: 2D Echo clips, X-ray, ultrasound and studies exported to CD or USB.
+`/dicom` (also *DICOM viewer ↗* on the Queue Board) opens DICOM images in the browser: 2D Echo clips, X-ray, ultrasound, MPEG-4 video clips and studies exported to CD or USB.
 
 1. Drop DICOM files or a whole folder on the page, or use *Open files* / *Open folder*. Files that are not images (DICOMDIR, reports, viewer programs on the CD) are skipped. *Try a sample echo clip* shows how it works with a synthetic clip.
 2. The left column lists each patient's studies. Every echo clip is its own item and plays by itself at its recorded frame rate; single images of a series form a stack you scroll through. Encapsulated PDF reports open with *Open the PDF*.
@@ -125,7 +125,9 @@ The PDF is read and saved in the browser; it is never uploaded, even from the Ve
 
 *Details* shows the patient, study and image information; *All tags* lists every DICOM tag with a search box.
 
-It reads uncompressed (implicit/explicit VR, big endian, deflated), JPEG Baseline, JPEG Extended (12-bit), JPEG Lossless, JPEG-LS, JPEG 2000, HTJ2K and RLE images, in grayscale, RGB, YBR and palette colour. It cannot open MPEG/H.264 video clips; those items say so. Files are read on the computer and never uploaded, even from the Vercel site. It is a quick reference viewer, not a diagnostic workstation.
+It reads uncompressed (implicit/explicit VR, big endian, deflated), JPEG Baseline, JPEG Extended (12-bit), JPEG Lossless, JPEG-LS, JPEG 2000, HTJ2K and RLE images, in grayscale, RGB, YBR and palette colour.
+
+**Video clips** (MPEG-4 AVC/H.264, stored either as an MP4 file or as a raw stream, in one or several fragments) play like any other clip: frame by frame, with contrast, measurements and *Save image*. They are decoded by the browser's own video decoder (WebCodecs), so they need a recent Chrome or Edge; Firefox and Safari may not play them. HEVC/H.265 clips play only where the browser can decode HEVC (usually Chrome or Edge on Windows with hardware video decoding); elsewhere the item says so. MPEG-2 clips cannot be played in a browser. Files are read on the computer and never uploaded, even from the Vercel site. It is a quick reference viewer, not a diagnostic workstation.
 
 The page is `public/dicom-viewer.html`; its libraries (dicom-parser 1.8.21, jpeg-lossless-decoder-js 2.0.7, and the OpenJPEG 1.2.4, CharLS 1.2.3 and libjpeg-turbo 12-bit 0.4.7 WebAssembly codecs from Cornerstone) are in `public/dicom-lib/`, so it works on the clinic network without internet. To use it from disk, copy the HTML file with the `dicom-lib` folder; without the folder it loads the libraries from jsDelivr (needs internet). Opened from disk, JPEG 2000, JPEG-LS and 12-bit JPEG images always need internet, because browsers do not load WebAssembly from local files.
 

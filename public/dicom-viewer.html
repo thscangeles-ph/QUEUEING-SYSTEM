@@ -250,11 +250,11 @@ const TS = {
   '1.2.840.10008.1.2.4.202':['HTJ2K Lossless RPCL','j2k'],
   '1.2.840.10008.1.2.4.203':['HTJ2K','j2k'],
   '1.2.840.10008.1.2.5':['RLE Lossless','rle'],
-  '1.2.840.10008.1.2.4.100':['MPEG-2 video',null],'1.2.840.10008.1.2.4.101':['MPEG-2 video',null],
-  '1.2.840.10008.1.2.4.102':['MPEG-4 video',null],'1.2.840.10008.1.2.4.103':['MPEG-4 video',null],
-  '1.2.840.10008.1.2.4.104':['MPEG-4 video',null],'1.2.840.10008.1.2.4.105':['MPEG-4 video',null],
-  '1.2.840.10008.1.2.4.106':['MPEG-4 video',null],'1.2.840.10008.1.2.4.107':['HEVC video',null],'1.2.840.10008.1.2.4.108':['HEVC video',null],
+  '1.2.840.10008.1.2.4.107':['HEVC/H.265 video','video'],'1.2.840.10008.1.2.4.108':['HEVC/H.265 video','video'],
 };
+// MPEG-4 AVC/H.264 (also the fragmentable ".1" variants) plays through the browser's video decoder; MPEG-2 cannot.
+for(const v of ['102','103','104','105','106']) for(const x of ['','.1']) TS['1.2.840.10008.1.2.4.'+v+x]=['MPEG-4 AVC/H.264 video','video'];
+for(const v of ['100','101']) for(const x of ['','.1']) TS['1.2.840.10008.1.2.4.'+v+x]=['MPEG-2 video',null];
 
 // Names (and VRs, for files written without them) of the tags staff are likely to look for.
 const DICT = {};
@@ -409,6 +409,7 @@ async function readFiles(files){
       if(!ds){ skipped++; continue; }
       const inst=makeInstance(ds,bytes,f.name||'file');
       if(!inst.pix && !inst.pdf){ others++; continue; }
+      if(TS[inst.ts] && TS[inst.ts][1]==='video') await prepareVideo(inst).catch(err=>{ inst.videoError=err.message; });
       if(!S.insts.has(inst.sop)){ S.insts.set(inst.sop,inst); added++; firstNew.push(inst); }
     }catch(err){ console.warn(f.name, err); failed++; }
   }
@@ -502,6 +503,7 @@ async function drawThumbs(){
     const pick=set.frames[set.kind==='stack'?Math.floor(set.frames.length/2):0];
     try{
       const fr=await getFrame(pick.inst,pick.f);
+      if(pick.inst.video && S.set!==set) closeVideo(pick.inst);
       if(run!==thumbRun) return;
       const img=paint(fr,pick.inst,defaultVoi(set,fr),false,document.createElement('canvas'));
       const ar=pick.inst.aspect||1, s=Math.min(c.width/img.width, c.height/(img.height*ar));
@@ -614,7 +616,9 @@ async function decodeWasm(bytes, inst, kind){
 async function decodeFrame(inst, f){
   if(!inst.pix) throw new Error('This file has no image.');
   const ts=TS[inst.ts], kind = ts ? ts[1] : (inst.encapsulated ? null : 'raw');
+  if(ts && /^MPEG-2/.test(ts[0])) throw new Error('This clip is MPEG-2 video, which web browsers cannot play. Export it as MPEG-4 (H.264) or as images instead.');
   if(!kind) throw new Error(`This image is stored as ${ts?ts[0]:'an unknown format ('+inst.ts+')'}, which this viewer cannot open.`);
+  if(kind==='video') return decodeVideo(inst,f);
   let u8, planar=inst.planar, ybrDone=false, w=inst.cols, h=inst.rows;
   if(kind==='raw' || kind==='rawbe'){
     if(inst.encapsulated) throw new Error('The image data in this file is damaged.');
@@ -705,6 +709,175 @@ function paletteLut(inst){
   return inst.pal={n,first,r:read('x00281201'),g:read('x00281202'),b:read('x00281203')};
 }
 
+/* ---------- video (MPEG-4 AVC/H.264 and HEVC/H.265) ---------- */
+// A DICOM video keeps the whole clip in the Pixel Data, either as an MP4 file or as a raw (Annex B) stream.
+// The browser's WebCodecs decoder turns it into frames, which then go through the same pipeline as images,
+// so stepping, contrast, measuring and saving work as for any other clip.
+const u32be=(b,p)=>b[p]*16777216+(b[p+1]<<16)+(b[p+2]<<8)+b[p+3];
+const fourcc=(b,p)=>String.fromCharCode(b[p],b[p+1],b[p+2],b[p+3]);
+const hex2=n=>n.toString(16).padStart(2,'0');
+function mp4Boxes(b,start,end){
+  const out=[]; let p=start;
+  while(p+8<=end){
+    let size=u32be(b,p), hdr=8; const type=fourcc(b,p+4);
+    if(size===1){ size=u32be(b,p+8)*4294967296+u32be(b,p+12); hdr=16; } else if(size===0) size=end-p;
+    if(size<hdr || p+size>end) break;
+    out.push({type, data:p+hdr, end:p+size}); p+=size;
+  }
+  return out;
+}
+function mp4Child(b,box,...path){ for(const t of path) box=box && mp4Boxes(b,box.data,box.end).find(x=>x.type===t); return box; }
+function hevcCodec(prefix,b,p){
+  // From general_profile_space/tier/profile_idc at p: 4 compatibility bytes, 6 constraint bytes, then the level.
+  const space=b[p]>>6, tier=(b[p]>>5)&1, prof=b[p]&31;
+  let compat=u32be(b,p+1), rev=0; for(let i=0;i<32;i++){ rev=rev*2+(compat&1); compat=Math.floor(compat/2); }
+  const cons=[...b.subarray(p+5,p+11)]; while(cons.length && !cons[cons.length-1]) cons.pop();
+  return `${prefix}.${['','A','B','C'][space]}${prof}.${rev.toString(16)}.${tier?'H':'L'}${b[p+11]}${cons.map(c=>'.'+c.toString(16)).join('')}`;
+}
+function demuxMp4(b){
+  const moov=mp4Boxes(b,0,b.length).find(x=>x.type==='moov');
+  if(!moov) throw new Error('The MP4 video in this file has no index (moov box).');
+  for(const trak of mp4Boxes(b,moov.data,moov.end).filter(x=>x.type==='trak')){
+    const hdlr=mp4Child(b,trak,'mdia','hdlr'); if(!hdlr || fourcc(b,hdlr.data+8)!=='vide') continue;
+    const mdhd=mp4Child(b,trak,'mdia','mdhd'), stbl=mp4Child(b,trak,'mdia','minf','stbl');
+    const kids=Object.fromEntries(mp4Boxes(b,stbl.data,stbl.end).map(x=>[x.type,x]));
+    const entry=mp4Boxes(b,kids.stsd.data+8,kids.stsd.end)[0];
+    const w=(b[entry.data+24]<<8)|b[entry.data+25], h=(b[entry.data+26]<<8)|b[entry.data+27];
+    const cfgs=mp4Boxes(b,entry.data+78,entry.end), avcC=cfgs.find(x=>x.type==='avcC'), hvcC=cfgs.find(x=>x.type==='hvcC');
+    let codec;
+    if(avcC) codec=`${entry.type}.${hex2(b[avcC.data+1])}${hex2(b[avcC.data+2])}${hex2(b[avcC.data+3])}`;
+    else if(hvcC) codec=hevcCodec(entry.type,b,hvcC.data+1);
+    else throw new Error(`This MP4 video uses ${entry.type.trim()}, which this viewer cannot play.`);
+    const cfg=avcC||hvcC;
+    // Each frame's bytes: sample sizes, chunk offsets and the sample-to-chunk map.
+    const sz=kids.stsz, fixed=u32be(b,sz.data+4), n=u32be(b,sz.data+8);
+    if(!n) throw new Error('This MP4 video is fragmented, which this viewer cannot play.');
+    const co=kids.stco||kids.co64, nc=u32be(b,co.data+4), wide=co.type==='co64';
+    const sc=kids.stsc, runs=[]; for(let i=0;i<u32be(b,sc.data+4);i++) runs.push([u32be(b,sc.data+8+12*i)-1, u32be(b,sc.data+12+12*i)]);
+    const keys=kids.stss ? new Set(Array.from({length:u32be(b,kids.stss.data+4)},(_,i)=>u32be(b,kids.stss.data+8+4*i)-1)) : null;
+    const samples=[]; let si=0;
+    for(let c=0;c<nc && si<n;c++){
+      let per=0; for(const [first,count] of runs) if(first<=c) per=count;
+      let off = wide ? u32be(b,co.data+8+8*c)*4294967296+u32be(b,co.data+12+8*c) : u32be(b,co.data+8+4*c);
+      for(let k=0;k<per && si<n;k++,si++){ const len=fixed||u32be(b,sz.data+12+4*si); samples.push({data:b.subarray(off,off+len), key:!keys||keys.has(si)}); off+=len; }
+    }
+    // Frame rate from the most common frame duration.
+    const scale=u32be(b,mdhd.data+(b[mdhd.data]===1?20:12)); let fps=0;
+    if(kids.stts && scale){ let most=0, d=0; for(let i=0;i<u32be(b,kids.stts.data+4);i++){ const cnt=u32be(b,kids.stts.data+8+8*i); if(cnt>most){ most=cnt; d=u32be(b,kids.stts.data+12+8*i); } } if(d) fps=scale/d; }
+    return {container:'MP4', codec, description:b.slice(cfg.data,cfg.end), samples, w, h, fps};
+  }
+  throw new Error('This MP4 file has no video track.');
+}
+function splitAnnexB(b, hevc){
+  // NAL units between 00 00 01 start codes, grouped into one access unit (one picture) per frame.
+  const units=[]; let start=-1;
+  const push=end=>{ while(end>start && b[end-1]===0) end--; if(end-start>1) units.push(b.subarray(start,end)); };
+  for(let i=0;i+2<b.length;){
+    if(b[i]===0 && b[i+1]===0 && b[i+2]===1){ if(start>=0) push(i); start=i+=3; }
+    else i++;
+  }
+  if(start>=0) push(b.length);
+  const SC=new Uint8Array([0,0,0,1]), samples=[], params=new Map();
+  let cur=[], vcl=false, key=false, hasParams=false, sps=null;
+  const close=()=>{
+    // A keyframe must carry the parameter sets, so that decoding can start there after a seek.
+    if(vcl) samples.push({data:concat((key && !hasParams ? [...params.values(),...cur] : cur).flatMap(u=>[SC,u])), key});
+    cur=[]; vcl=false; key=false; hasParams=false;
+  };
+  for(const u of units){
+    const t = hevc ? (u[0]>>1)&63 : u[0]&31;
+    const isVcl = hevc ? t<32 : t>=1 && t<=5;
+    const isParam = hevc ? t>=32 && t<=34 : t===7 || t===8;
+    const newPic = isVcl && (hevc ? u[2]&0x80 : u[1]&0x80);   // first slice of a picture
+    const prefix = hevc ? isParam || t===39 || (t>=41&&t<=44) || (t>=48&&t<=55) : isParam || t===6 || (t>=14&&t<=18);
+    if(t===(hevc?35:9) || (vcl && (prefix || newPic))) close();
+    if(isParam){ params.set(t,u); hasParams=true; if(t===(hevc?33:7) && !sps) sps=u; }
+    cur.push(u);
+    if(isVcl){ vcl=true; if(hevc ? t>=16 && t<=21 : t===5) key=true; }
+  }
+  close();
+  if(!sps || !samples.length) throw new Error('The video stream in this file could not be read.');
+  let codec;
+  if(hevc){
+    const r=[]; for(const c of sps){ if(c===3 && r.length>=2 && r[r.length-1]===0 && r[r.length-2]===0) continue; r.push(c); }   // drop emulation-prevention bytes
+    codec=hevcCodec('hvc1',r,3);
+  } else codec=`avc1.${hex2(sps[1])}${hex2(sps[2])}${hex2(sps[3])}`;
+  return {container:'stream', codec, samples};
+}
+async function prepareVideo(inst){
+  const el=inst.pix, ds=inst.ds;
+  if(!el || !el.fragments || !el.fragments.length) throw new Error('The video data in this file is damaged.');
+  if(typeof VideoDecoder==='undefined') throw new Error('This browser cannot play DICOM video. Use a recent Chrome or Edge.');
+  const parts=el.fragments.map(fr=>ds.byteArray.subarray(fr.position, fr.position+fr.length));
+  const data=parts.length===1 ? parts[0] : concat(parts);
+  const v = fourcc(data,4)==='ftyp' ? demuxMp4(data) : splitAnnexB(data, /^HEVC/.test(TS[inst.ts][0]));
+  const w=v.w||inst.cols, h=v.h||inst.rows;
+  v.config={codec:v.codec, codedWidth:w, codedHeight:h, optimizeForLatency:true};
+  if(v.description) v.config.description=v.description;
+  const ok=await VideoDecoder.isConfigSupported(v.config).then(r=>r.supported, ()=>false);
+  if(!ok) throw new Error(/^(hvc1|hev1)/.test(v.codec)
+    ? 'This browser cannot decode HEVC (H.265) video on this computer. Try Microsoft Edge or Chrome on Windows with hardware video decoding.'
+    : `This browser cannot decode this H.264 video (${v.codec}). Try a recent Chrome or Edge.`);
+  inst.video=v; inst.frames=v.samples.length; inst.cols=w; inst.rows=h; inst.spp=3;
+  if(!inst.fps && v.fps) inst.fps=v.fps;
+}
+function decodeVideo(inst, f){
+  const v=inst.video; if(!v) return Promise.reject(new Error(inst.videoError||'This video could not be read.'));
+  const run=()=>videoFrame(inst,f);
+  return v.chain=(v.chain||Promise.resolve()).then(run,run);   // one request at a time per clip
+}
+function closeVideo(inst){
+  const v=inst.video; if(!v) return;
+  const run=()=>{ if(v.sess && v.sess.dec.state!=='closed') v.sess.dec.close(); v.sess=null; };
+  v.chain=(v.chain||Promise.resolve()).then(run,run);
+}
+let videoCanvas;
+function videoToFrame(frame){
+  const w=frame.displayWidth, h=frame.displayHeight, c=videoCanvas=videoCanvas||document.createElement('canvas');
+  if(c.width!==w || c.height!==h){ c.width=w; c.height=h; }
+  const g=c.getContext('2d',{willReadFrequently:true}); g.drawImage(frame,0,0,w,h);
+  return {gray:false,w,h,rgba:g.getImageData(0,0,w,h).data};
+}
+async function videoFrame(inst, t){
+  const v=inst.video, n=v.samples.length, k=frameKey(inst,t);
+  const ready=()=>{ const e=cache.get(k); return (e && e.fr) || (v.sess && v.sess.got.get(t)); };
+  let fr=ready(); if(fr) return fr;
+  let s=v.sess;
+  // Keep feeding the running decoder when the frame is just ahead; otherwise start again at the keyframe before it.
+  // Frames come out in display order, so the n-th frame out after a keyframe is frame key+n (closed GOPs).
+  if(!s || s.ended || s.error || t<s.k+s.out || t>s.k+s.out+150){
+    if(s && s.dec.state!=='closed') s.dec.close();
+    let key=t; while(key>0 && !v.samples[key].key) key--;
+    s=v.sess={k:key, fed:key, out:0, keepFrom:t-2, got:new Map(), wake:null, ended:false, error:null};
+    s.dec=new VideoDecoder({
+      output:frame=>{
+        const idx=s.k+s.out++;
+        if(idx>=s.keepFrom && idx<n){ const f2=videoToFrame(frame); putFrame(inst,idx,f2); s.got.set(idx,f2); if(s.got.size>6) s.got.delete(s.got.keys().next().value); }
+        frame.close(); if(s.wake) s.wake();
+      },
+      error:e=>{ s.error=e; if(s.wake) s.wake(); },
+    });
+    s.dec.configure(v.config);
+  }
+  const nap=ms=>new Promise(r=>{ s.wake=r; setTimeout(r,ms); });
+  let stalled=0, lastOut=s.out;
+  while(!(fr=ready())){
+    if(s.error){ v.sess=null; throw new Error('The video could not be decoded ('+(s.error.message||s.error)+').'); }
+    if(s.out!==lastOut){ lastOut=s.out; stalled=0; }
+    if(s.fed<n && (s.fed-(s.k+s.out)<24 || stalled>8)){
+      const smp=v.samples[s.fed];
+      s.dec.decode(new EncodedVideoChunk({type:smp.key?'key':'delta', timestamp:s.fed*1000, data:smp.data}));
+      s.fed++; stalled=0;
+      if(s.dec.decodeQueueSize>4) await nap(20);
+    } else if(s.fed>=n && !s.ended){
+      s.ended=true; await s.dec.flush().catch(e=>{ s.error=s.error||e; });
+    } else if(s.ended){
+      throw new Error('This frame could not be decoded.');
+    } else { await nap(250); stalled++; }
+  }
+  return fr;
+}
+
 /* ---------- frame cache ---------- */
 function frameKey(inst,f){ return inst.sop+'#'+f; }
 function peekFrame(inst,f){ const e=cache.get(frameKey(inst,f)); return e && e.fr; }
@@ -719,6 +892,12 @@ function getFrame(inst,f){
   }, err=>{ if(cache.get(k)===e) cache.delete(k); throw err; });
   cache.set(k,e);
   return e.p;
+}
+function putFrame(inst,f,fr){
+  // Frames decoded on the way to another one (video): a pending request for this frame picks it up.
+  const k=frameKey(inst,f), e=cache.get(k);
+  if(e){ if(!e.fr) e.fr=fr; return; }
+  const size=fr.rgba.byteLength; cache.set(k,{p:Promise.resolve(fr), fr, size}); cacheBytes+=size; trimCache();
 }
 function trimCache(){
   for(const [k,e] of cache){
@@ -883,6 +1062,7 @@ async function show(i){
 function repaint(){ if(cur){ paint(cur.fr,cur.inst,S.voi,S.view.inv,img); draw(); overlay(); } }
 function selectSet(set){
   stop();
+  for(const i of S.insts.values()) if(i.video && !set.insts.includes(i)) closeVideo(i);   // free the video decoders of other clips
   S.set=set; S.idx=0; S.voi=null; cur=null; S.view={zoom:1,panX:0,panY:0,rot:0,flip:false,inv:false};
   document.querySelectorAll('.set').forEach(b=>b.classList.toggle('sel',b.dataset.id===set.id));
   const sel=document.querySelector('.set.sel'); if(sel) sel.scrollIntoView({block:'nearest',inline:'nearest'});
@@ -941,6 +1121,7 @@ function tick(t){
   const step=1000/S.fps;
   if(t-lastT<step) return;
   const set=S.set, ni=(S.idx+1)%set.frames.length, nf=set.frames[ni];
+  if(nf.inst.video) for(let a=1;a<=6;a++){ const af=set.frames[(S.idx+a)%set.frames.length]; getFrame(af.inst,af.f).catch(()=>{}); }   // keep the video decoder ahead
   if(!peekFrame(nf.inst,nf.f)){ getFrame(nf.inst,nf.f).catch(()=>{}); return; }   // wait for the decoder
   lastT = t-lastT>step*3 ? t : lastT+step;
   show(ni);
@@ -1119,7 +1300,7 @@ function renderDetails(){
     rows('Series',[['Modality',inst.modality],['Description',str(ds,'x0008103e')],['Number',inst.seriesNo!=null?String(inst.seriesNo):''],['Body part',str(ds,'x00180015')],['Equipment',[str(ds,'x00080070'),str(ds,'x00081090')].filter(Boolean).join(' ')],['Station',str(ds,'x00081010')]]) +
     (set.kind==='pdf' ? rows('Document',[['Title',str(ds,'x00420010')],['Size',fmtBytes(inst.pdf.length)],['File',inst.name]]) :
     rows('Image',[['Size',`${inst.cols} × ${inst.rows} pixels`],['Frames',inst.frames>1?String(inst.frames):''],['Frame rate',inst.fps?`${inst.fps.toFixed(1)} fps`:''],['Heart rate',str(ds,'x00181088')?str(ds,'x00181088')+' bpm':''],
-      ['Colour',`${inst.photo}${inst.spp>1?'':`, ${inst.bs}-bit`}`],['Stored as',(TS[inst.ts]||[inst.ts])[0]],['Lossy',str(ds,'x00282110')==='01'?'Yes'+(str(ds,'x00282112')?` (ratio ${str(ds,'x00282112').split('\\')[0]})`:''):''],
+      ['Colour',`${inst.photo}${inst.spp>1?'':`, ${inst.bs}-bit`}`],['Stored as',(TS[inst.ts]||[inst.ts])[0]+(inst.video?` · ${inst.video.container==='MP4'?'MP4 file':'raw stream'} · ${inst.video.codec}`:'')],['Lossy',str(ds,'x00282110')==='01'?'Yes'+(str(ds,'x00282112')?` (ratio ${str(ds,'x00282112').split('\\')[0]})`:''):''],
       ['Calibration',calib],['Instance',inst.instNo!=null?String(inst.instNo):''],['File',`${inst.name} · ${fmtBytes(inst.size)}`]]));
 }
 function tagRows(ds, depth, out){
@@ -1192,6 +1373,7 @@ function setInfo(on){
 $('infoBtn').addEventListener('click',()=>setInfo(!S.showInfo));
 $('closeBtn').addEventListener('click',()=>{
   stop(); S.loadGen++; S.prefetchGen++; thumbRun++;
+  for(const i of S.insts.values()) closeVideo(i);
   S.insts.clear(); S.sets=[]; S.studies=[]; S.set=null; S.measures.clear(); cur=null; S.voi=null;
   cache.clear(); cacheBytes=0;
   rebuild(); draw(); overlay(); renderDetails(); renderTags(); $('cine').hidden=true; $('status').textContent='';
