@@ -211,7 +211,8 @@ const CDN = {
   'dicomParser.min.js':'https://cdn.jsdelivr.net/npm/dicom-parser@1.8.21/dist/dicomParser.min.js',
   'jpeg-lossless.min.js':'https://cdn.jsdelivr.net/npm/jpeg-lossless-decoder-js@2.0.7/release/current/lossless-min.js',
   'openjpegwasm_decode.js':'https://cdn.jsdelivr.net/npm/@cornerstonejs/codec-openjpeg@1.2.4/dist/openjpegwasm_decode.js',
-  'charlswasm_decode.js':'https://cdn.jsdelivr.net/npm/@cornerstonejs/codec-charls@1.2.3/dist/charlswasm_decode.js' };
+  'charlswasm_decode.js':'https://cdn.jsdelivr.net/npm/@cornerstonejs/codec-charls@1.2.3/dist/charlswasm_decode.js',
+  'libjpegturbo12wasm.js':'https://cdn.jsdelivr.net/npm/@cornerstonejs/codec-libjpeg-turbo-12bit@0.4.7/dist/libjpegturbo12wasm.js' };
 const load = src => new Promise((ok,fail)=>{ const s=document.createElement('script'); s.src=src; s.onload=()=>ok(src); s.onerror=fail; document.head.append(s); });
 const local = name => new URL('dicom-lib/'+name, location.href).href;
 // Resolves to the address the script came from, so a WebAssembly file can be fetched from the same place.
@@ -238,7 +239,7 @@ const TS = {
   '1.2.840.10008.1.2.1.99':['Deflated Explicit VR Little Endian','raw'],
   '1.2.840.10008.1.2.2':['Explicit VR Big Endian','rawbe'],
   '1.2.840.10008.1.2.4.50':['JPEG Baseline','jpeg'],
-  '1.2.840.10008.1.2.4.51':['JPEG Extended (12-bit)','jpeg'],
+  '1.2.840.10008.1.2.4.51':['JPEG Extended','jpeg'],
   '1.2.840.10008.1.2.4.57':['JPEG Lossless','jll'],
   '1.2.840.10008.1.2.4.70':['JPEG Lossless (SV1)','jll'],
   '1.2.840.10008.1.2.4.80':['JPEG-LS Lossless','jls'],
@@ -552,7 +553,6 @@ function decodeRLE(bytes, inst){
   return out;
 }
 async function decodeBrowserJpeg(bytes, inst){
-  if(inst.ba>8) throw new Error('This image uses 12-bit JPEG, which this viewer cannot open.');
   // Browsers pick the colour space from the JPEG markers (JFIF, Adobe, else the component IDs). Without
   // JFIF or Adobe markers, follow the DICOM header instead: RGB data must not be converted from YCbCr.
   let src=bytes, toRgb=false;
@@ -586,23 +586,27 @@ function jpegMarkers(b){
 }
 // An Adobe APP14 segment with transform 0: tells the browser the three components are already RGB.
 const ADOBE_RGB=new Uint8Array([0xFF,0xEE,0,14,0x41,0x64,0x6F,0x62,0x65,0,100,0,0,0,0,0]);
-let j2kMod, jlsMod;
+let j2kMod, jlsMod, jpeg12Mod;
 function wasmCodec(script, globalName){
   return DICOM_LIB(script).then(src=>{
     const factory=window[globalName];
     const wasm=src.replace(/\.js$/,'.wasm');
-    return factory({locateFile:()=>wasm}).catch(()=>factory({locateFile:()=>DICOM_LIB_CDN[script].replace(/\.js$/,'.wasm')}));
+    // Codec messages are warnings about the file (e.g. libjpeg tolerating a damaged JPEG), not page errors.
+    const opts=url=>({locateFile:()=>url, print:m=>console.info(m), printErr:m=>console.warn(m)});
+    return factory(opts(wasm)).catch(()=>factory(opts(DICOM_LIB_CDN[script].replace(/\.js$/,'.wasm'))));
   });
 }
 async function decodeWasm(bytes, inst, kind){
   let mod, dec;
   if(kind==='j2k'){ mod=await (j2kMod=j2kMod||wasmCodec('openjpegwasm_decode.js','OpenJPEGWASM')); dec=new mod.J2KDecoder(); }
+  else if(kind==='jpeg12'){ mod=await (jpeg12Mod=jpeg12Mod||wasmCodec('libjpegturbo12wasm.js','libjpegturbo12wasm')); dec=new mod.JPEGDecoder(); }
   else { mod=await (jlsMod=jlsMod||wasmCodec('charlswasm_decode.js','CharLSWASM')); dec=new mod.JpegLSDecoder(); }
   try{
     dec.getEncodedBuffer(bytes.length).set(bytes);
     dec.decode();
     const info=dec.getFrameInfo();
-    const out=new Uint8Array(dec.getDecodedBuffer());  // copy out of the WebAssembly memory
+    // Copy the bytes out of the WebAssembly memory (12-bit JPEG returns 16-bit samples).
+    const raw=dec.getDecodedBuffer(), out=new Uint8Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset+raw.byteLength));
     const planar = kind==='jls' && inst.spp>1 && dec.getInterleaveMode && dec.getInterleaveMode()===0 ? 1 : 0;
     return {u8:out, w:info.width, h:info.height, planar, signed:info.isSigned};
   } finally { dec.delete && dec.delete(); }
@@ -618,7 +622,12 @@ async function decodeFrame(inst, f){
     if(kind==='rawbe' && inst.ba===16) u8=swap16(u8); else if(kind==='rawbe' && inst.ba===32) u8=swap32(u8);
   } else {
     const bytes=encFrame(inst,f);
-    if(kind==='jpeg') return decodeBrowserJpeg(bytes,inst);
+    // Browsers decode 8-bit JPEG; 12-bit JPEG (Extended) needs the libjpeg-turbo 12-bit codec.
+    if(kind==='jpeg' && inst.ba<=8) return decodeBrowserJpeg(bytes,inst);
+    if(kind==='jpeg'){
+      const r=await decodeWasm(bytes,inst,'jpeg12'); u8=r.u8; w=r.w||w; h=r.h||h; planar=0;
+      return makeFrame(inst,u8,w,h,planar,true);   // libjpeg-turbo already turns YCbCr into RGB
+    }
     if(kind==='rle'){ u8=decodeRLE(bytes,inst); planar=0; }
     else if(kind==='jll'){
       const r=new jpeg.lossless.Decoder().decode(bytes.buffer, bytes.byteOffset, bytes.length, inst.ba<=8?1:2);

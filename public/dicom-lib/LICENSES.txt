@@ -8,3 +8,6 @@ openjpegwasm_decode.*    @cornerstonejs/codec-openjpeg 1.2.4 (npm, dist/), MIT; 
                          OpenJPEG, BSD 2-clause, https://github.com/uclouvain/openjpeg/blob/master/LICENSE
 charlswasm_decode.*      @cornerstonejs/codec-charls 1.2.3 (npm, dist/), MIT, see charls-codec.LICENSE.txt;
                          a WebAssembly build of CharLS, BSD 3-clause, https://github.com/team-charls/charls
+libjpegturbo12wasm.*     @cornerstonejs/codec-libjpeg-turbo-12bit 0.4.7 (npm, dist/), ISC; a WebAssembly build of
+                         libjpeg-turbo with 12-bit support, IJG and BSD 3-clause licences,
+                         https://github.com/libjpeg-turbo/libjpeg-turbo/blob/main/LICENSE.md
