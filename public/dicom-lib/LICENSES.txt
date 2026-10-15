@@ -15,3 +15,8 @@ libde265.mjs, .wasm      @yume-chan/libde265 1.0.0 (npm), unmodified: a WebAssem
                          LGPL-3.0 (see libde265.COPYING.txt, which holds the LGPL and GPL texts). Source:
                          https://github.com/yume-chan/libde265 (build) and https://github.com/strukturag/libde265.
                          It is loaded as a separate file and can be replaced with another build of the same version.
+mpeg2dec.mjs, .wasm      FFmpeg 7.1.2 (MPEG-1/2 video decoder, mpegvideo parser, MPEG-PS/TS/raw video demuxers),
+                         LGPL-2.1-or-later (see mpeg2dec.LICENSE.txt), built without GPL parts by tools/mpeg2-wasm/build.sh
+                         from https://github.com/FFmpeg/FFmpeg (tag n7.1.2) and tools/mpeg2-wasm/mpeg2dec.c with
+                         Emscripten 3.1.74. The build script and glue code in this repository let anyone rebuild or
+                         relink it with another FFmpeg.

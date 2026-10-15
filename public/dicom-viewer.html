@@ -253,9 +253,10 @@ const TS = {
   '1.2.840.10008.1.2.5':['RLE Lossless','rle'],
   '1.2.840.10008.1.2.4.107':['HEVC/H.265 video','video'],'1.2.840.10008.1.2.4.108':['HEVC/H.265 video','video'],
 };
-// MPEG-4 AVC/H.264 (also the fragmentable ".1" variants) plays through the browser's video decoder; MPEG-2 cannot.
+// Video, also the fragmentable ".1" variants: MPEG-4 AVC/H.264 plays through the browser's video decoder,
+// MPEG-2 through the page's own decoder.
 for(const v of ['102','103','104','105','106']) for(const x of ['','.1']) TS['1.2.840.10008.1.2.4.'+v+x]=['MPEG-4 AVC/H.264 video','video'];
-for(const v of ['100','101']) for(const x of ['','.1']) TS['1.2.840.10008.1.2.4.'+v+x]=['MPEG-2 video',null];
+for(const v of ['100','101']) for(const x of ['','.1']) TS['1.2.840.10008.1.2.4.'+v+x]=['MPEG-2 video','video'];
 
 // Names (and VRs, for files written without them) of the tags staff are likely to look for.
 const DICT = {};
@@ -617,7 +618,6 @@ async function decodeWasm(bytes, inst, kind){
 async function decodeFrame(inst, f){
   if(!inst.pix) throw new Error('This file has no image.');
   const ts=TS[inst.ts], kind = ts ? ts[1] : (inst.encapsulated ? null : 'raw');
-  if(ts && /^MPEG-2/.test(ts[0])) throw new Error('This clip is MPEG-2 video, which web browsers cannot play. Export it as MPEG-4 (H.264) or as images instead.');
   if(!kind) throw new Error(`This image is stored as ${ts?ts[0]:'an unknown format ('+inst.ts+')'}, which this viewer cannot open.`);
   if(kind==='video') return decodeVideo(inst,f);
   let u8, planar=inst.planar, ybrDone=false, w=inst.cols, h=inst.rows;
@@ -869,13 +869,22 @@ function splitAnnexB(b, hevc){
     const r=[]; for(const c of sps){ if(c===3 && r.length>=2 && r[r.length-1]===0 && r[r.length-2]===0) continue; r.push(c); }   // drop emulation-prevention bytes
     codec=hevcCodec('hvc1',new Uint8Array(r),3);
   } else codec=`avc1.${hex2(sps[1])}${hex2(sps[2])}${hex2(sps[3])}`;
-  return {container:'stream', codec, samples, order:poc ? displayOrder(pocs) : null};
+  return {container:'raw stream', codec, samples, order:poc ? displayOrder(pocs) : null};
 }
 async function prepareVideo(inst){
   const el=inst.pix, ds=inst.ds;
   if(!el || !el.fragments || !el.fragments.length) throw new Error('The video data in this file is damaged.');
   const parts=el.fragments.map(fr=>ds.byteArray.subarray(fr.position, fr.position+fr.length));
   const data=parts.length===1 ? parts[0] : concat(parts);
+  if(/^MPEG-2/.test(TS[inst.ts][0])){
+    if(typeof Worker==='undefined') throw new Error('This browser cannot play MPEG-2 video. Try a recent Chrome or Edge.');
+    const m=await loadMpeg2(data);
+    const container = data[0]===0x47 ? 'transport stream' : data[3]===0xBA ? 'program stream' : 'raw stream';
+    inst.video={container, codec:'mpeg2video', samples:Array.from(m.intra, k=>({key:!!k})), order:displayOrder(m.order), soft:'mpeg2', clip:m.clip, config:{}};
+    inst.frames=m.n; inst.cols=m.w||inst.cols; inst.rows=m.h||inst.rows; inst.spp=3;
+    if(!inst.fps && m.fps) inst.fps=m.fps;
+    return;
+  }
   const v = fourcc(data,4)==='ftyp' ? demuxMp4(data) : splitAnnexB(data, /^HEVC/.test(TS[inst.ts][0]));
   const w=v.w||inst.cols, h=v.h||inst.rows;
   v.config={codec:v.codec, codedWidth:w, codedHeight:h, optimizeForLatency:true};
@@ -885,24 +894,46 @@ async function prepareVideo(inst){
   if(!native){
     if(!/^(hvc1|hev1)/.test(v.codec)) throw new Error(`This browser cannot decode this H.264 video (${v.codec}). Try a recent Chrome or Edge.`);
     if(typeof Worker==='undefined') throw new Error('This browser cannot decode HEVC (H.265) video. Try a recent Chrome or Edge.');
-    v.soft=true;
+    v.soft='hevc';
   }
   inst.video=v; inst.frames=v.samples.length; inst.cols=w; inst.rows=h; inst.spp=3;
   if(!inst.fps && v.fps) inst.fps=v.fps;
 }
-// Software HEVC decoding for browsers without it (Linux, Firefox, Windows without hardware HEVC): libde265 compiled
-// to WebAssembly, run in a worker so decoding does not freeze the page. SoftHevcDecoder offers the small part of
-// the WebCodecs VideoDecoder interface that videoFrame() uses, so both decoders share the same seeking logic.
-// Unlike WebCodecs it returns frames in decode order; videoFrame() puts them in display order.
-const HEVC_WORKER = `
-const libs = LIBS;
-let M; const decs = new Map();
-const ready = (async () => { for (const u of libs) { try { M = await (await import(u)).default(); return; } catch (e) { /* try the next copy */ } }
-  throw new Error('The HEVC decoder could not be loaded. Keep the dicom-lib folder next to this page, or connect to the internet.'); })();
+// Software video decoding in workers, so that decoding does not freeze the page:
+// - HEVC, for browsers without an HEVC decoder (Linux, Firefox, Windows without hardware HEVC): libde265 compiled to
+//   WebAssembly.
+// - MPEG-1/2, which browsers cannot decode at all: FFmpeg's decoder and MPEG stream readers compiled to WebAssembly
+//   (public/dicom-lib/mpeg2dec.*, built by tools/mpeg2-wasm/build.sh).
+// SoftDecoder offers the small part of the WebCodecs VideoDecoder interface that videoFrame() uses, so all decoders
+// share the same seeking logic. Frames carry the position they were fed at, and videoFrame() puts them in display order.
+const YUV_TO_RGBA = `
+function yuvToRgba(w, h, Y, U, V, sx, sy, bits, matrix, full) {
+  // Planes are { bytes, stride }; U and V are null for monochrome. Samples above 8 bits are 16-bit little endian.
+  // BT.709 for HD and BT.601 otherwise, unless the stream says which (matrix coefficients 1, 5 or 6).
+  const out = new Uint8ClampedArray(w * h * 4), wide = bits > 8, sh = bits - 8;
+  const k709 = matrix === 1 || (matrix !== 5 && matrix !== 6 && h >= 720), kr = k709 ? 0.2126 : 0.299, kb = k709 ? 0.0722 : 0.114;
+  const ys = full ? 1 : 255 / 219, cs = full ? 1 : 255 / 224, yo = full ? 0 : 16;
+  const rv = 2 * (1 - kr) * cs, bu = 2 * (1 - kb) * cs, gu = -bu * kb / (1 - kr - kb), gv = -rv * kr / (1 - kr - kb);
+  const at = (pl, x, y) => wide ? (pl.bytes[y * pl.stride + 2 * x] | (pl.bytes[y * pl.stride + 2 * x + 1] << 8)) >> sh : pl.bytes[y * pl.stride + x];
+  for (let y = 0, j = 0; y < h; y++) for (let x = 0; x < w; x++, j += 4) {
+    const l = (at(Y, x, y) - yo) * ys;
+    if (!U) { out[j] = out[j + 1] = out[j + 2] = l; out[j + 3] = 255; continue; }
+    const u = at(U, x >> sx, y >> sy) - 128, v = at(V, x >> sx, y >> sy) - 128;
+    out[j] = l + rv * v; out[j + 1] = l + gu * u + gv * v; out[j + 2] = l + bu * u; out[j + 3] = 255;
+  }
+  return out;
+}
 let queue = Promise.resolve();
 onmessage = e => { queue = queue.then(() => handle(e.data)).catch(err => postMessage({ type: 'error', sid: e.data.sid, message: String(err && err.message || err) })); };
+async function loadLib(libs, what) {
+  for (const u of libs) { try { return await (await import(u)).default(); } catch (e) { /* try the next copy */ } }
+  throw new Error('The ' + what + ' decoder could not be loaded. Keep the dicom-lib folder next to this page' + (libs.length > 1 ? ', or connect to the internet.' : '.'));
+}`;
+const HEVC_WORKER = `
+const ready = loadLib(LIBS, 'HEVC');
+let M; const decs = new Map();
 async function handle(d) {
-  await ready;
+  M = M || await ready;
   if (d.type === 'open') { decs.set(d.sid, new M.Decoder()); return; }
   const x = decs.get(d.sid); if (!x) return;
   if (d.type === 'close') { x.delete(); decs.delete(d.sid); return; }
@@ -918,57 +949,106 @@ function drain(sid, x) {
   }
 }
 function emit(sid, img) {
-  // YCbCr (4:2:0, 4:2:2, 4:4:4 or monochrome; 8 to 16 bits) to RGBA, BT.709 for HD and BT.601 otherwise unless signalled.
-  const Y = img.getImagePlane(0), w = img.getWidth(0), h = img.getHeight(0), cf = img.chromaFormat;
-  const bits = img.getBitsPerPixel(0), wide = bits > 8, sh = bits - 8;
-  const out = new Uint8ClampedArray(w * h * 4), mc = img.matrixCoefficients, full = img.isFullRange;
-  const k709 = mc === 1 || (mc !== 5 && mc !== 6 && h >= 720), kr = k709 ? 0.2126 : 0.299, kb = k709 ? 0.0722 : 0.114;
-  const ys = full ? 1 : 255 / 219, cs = full ? 1 : 255 / 224, yo = full ? 0 : 16;
-  const rv = 2 * (1 - kr) * cs, bu = 2 * (1 - kb) * cs, gu = -bu * kb / (1 - kr - kb), gv = -rv * kr / (1 - kr - kb);
-  const at = (pl, x, y) => wide ? (pl.bytes[y * pl.stride + 2 * x] | (pl.bytes[y * pl.stride + 2 * x + 1] << 8)) >> sh : pl.bytes[y * pl.stride + x];
-  const U = cf ? img.getImagePlane(1) : null, V = cf ? img.getImagePlane(2) : null, sx = cf === 3 ? 0 : 1, sy = cf === 1 ? 1 : 0;
-  for (let y = 0, j = 0; y < h; y++) for (let x = 0; x < w; x++, j += 4) {
-    const l = (at(Y, x, y) - yo) * ys;
-    if (!cf) { out[j] = out[j + 1] = out[j + 2] = l; out[j + 3] = 255; continue; }
-    const u = at(U, x >> sx, y >> sy) - 128, v = at(V, x >> sx, y >> sy) - 128;
-    out[j] = l + rv * v; out[j + 1] = l + gu * u + gv * v; out[j + 2] = l + bu * u; out[j + 3] = 255;
-  }
+  const w = img.getWidth(0), h = img.getHeight(0), cf = img.chromaFormat;
+  const out = yuvToRgba(w, h, img.getImagePlane(0), cf ? img.getImagePlane(1) : null, cf ? img.getImagePlane(2) : null,
+    cf === 3 ? 0 : 1, cf === 1 ? 1 : 0, img.getBitsPerPixel(0), img.matrixCoefficients, img.isFullRange);
   postMessage({ type: 'frame', sid, w, h, pts: Number(img.pts), rgba: out.buffer }, [out.buffer]);
 }`;
-let hevcWorker=null, hevcSid=0;
-function getHevcWorker(){
-  if(hevcWorker) return hevcWorker;
-  const libs=[new URL('dicom-lib/libde265.mjs', location.href).href, DICOM_LIB_CDN['libde265.mjs']];
-  const w=new Worker(URL.createObjectURL(new Blob([HEVC_WORKER.replace('LIBS', JSON.stringify(libs))],{type:'text/javascript'})),{type:'module'});
+const MPEG2_WORKER = `
+const ready = loadLib(LIBS, 'MPEG-2');
+let M; const clips = new Map(), decs = new Map();
+async function handle(d) {
+  M = M || await ready;
+  if (d.type === 'load') { load(d); return; }
+  if (d.type === 'unload') { const c = clips.get(d.clip); if (c) { M._m2_close(c); clips.delete(d.clip); } return; }
+  if (d.type === 'open') {
+    const c = clips.get(d.clip), x = c && M._m2_dec_open(c);
+    if (!x) throw new Error('The MPEG-2 decoder could not start.');
+    decs.set(d.sid, { x, c }); return;
+  }
+  const s = decs.get(d.sid); if (!s) return;
+  if (d.type === 'close') { M._m2_dec_close(s.x); decs.delete(d.sid); return; }
+  // A damaged picture is concealed by the decoder, so send errors are not fatal.
+  if (d.type === 'decode') { M._m2_dec_send(s.x, s.c, d.pts); drain(d.sid, s.x); postMessage({ type: 'dequeued', sid: d.sid }); return; }
+  if (d.type === 'flush') { M._m2_dec_send(s.x, s.c, -1); drain(d.sid, s.x); postMessage({ type: 'flushed', sid: d.sid }); }
+}
+function load(d) {
+  // Split the clip into pictures; report which are intra-coded (keyframes) and the display order: presentation times
+  // when every picture has one, else GOP count and temporal reference from the picture headers.
+  const b = new Uint8Array(d.data), p = M._malloc(b.length); M.HEAPU8.set(b, p);
+  const c = M._m2_open(p, b.length); M._free(p);
+  if (!c) { postMessage({ type: 'error', sid: d.sid, message: 'No MPEG-1 or MPEG-2 video could be read from this clip.' }); return; }
+  clips.set(d.clip, c);
+  const n = M._m2_count(c), intra = new Uint8Array(n), pts = new Float64Array(n), refs = new Float64Array(n);
+  let allPts = true, gop = 0, sawGop = false, base = 0, last = -1;
+  for (let i = 0; i < n; i++) {
+    pts[i] = M._m2_pts(c, i); if (pts[i] !== pts[i]) allPts = false;
+    const at = M._m2_data(c, i), end = at + M._m2_size(c, i), h = M.HEAPU8; let tref = 0;
+    for (let k = at; k + 5 < end; k++) {
+      if (h[k] || h[k + 1] || h[k + 2] !== 1) continue;
+      if (h[k + 3] === 0xB8) { gop++; sawGop = true; }
+      else if (h[k + 3] === 0) { tref = (h[k + 4] << 2) | (h[k + 5] >> 6); intra[i] = ((h[k + 5] >> 3) & 7) === 1 ? 1 : 0; break; }
+    }
+    if (!sawGop) { if (last >= 0 && tref < last - 512) base += 1024; last = tref; }
+    refs[i] = gop * 1048576 + base + tref;
+  }
+  postMessage({ type: 'loaded', sid: d.sid, n, w: M._m2_width(c), h: M._m2_height(c), fps: M._m2_fps(c), intra, order: allPts ? pts : refs });
+}
+function drain(sid, x) {
+  while (M._m2_dec_receive(x)) {
+    const w = M._m2_frame_width(x), h = M._m2_frame_height(x), sx = M._m2_frame_chroma_shift(x, 0), sy = M._m2_frame_chroma_shift(x, 1);
+    const plane = (i, rows) => { const at = M._m2_frame_plane(x, i), stride = M._m2_frame_stride(x, i); return { bytes: M.HEAPU8.subarray(at, at + stride * rows), stride }; };
+    const ch = (h + (1 << sy) - 1) >> sy;
+    const out = yuvToRgba(w, h, plane(0, h), plane(1, ch), plane(2, ch), sx, sy, 8, M._m2_frame_matrix(x), M._m2_frame_full_range(x));
+    postMessage({ type: 'frame', sid, w, h, pts: M._m2_frame_pts(x), rgba: out.buffer }, [out.buffer]);
+  }
+}`;
+const softWorkers={};
+function getWorker(kind){
+  if(softWorkers[kind]) return softWorkers[kind];
+  const libs = kind==='hevc' ? [new URL('dicom-lib/libde265.mjs', location.href).href, DICOM_LIB_CDN['libde265.mjs']] : [new URL('dicom-lib/mpeg2dec.mjs', location.href).href];
+  const src = YUV_TO_RGBA + (kind==='hevc' ? HEVC_WORKER : MPEG2_WORKER).replace('LIBS', JSON.stringify(libs));
+  const w=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})),{type:'module'});
   w.handlers=new Map();
   w.onmessage=e=>{ const h=w.handlers.get(e.data.sid); if(h) h(e.data); };
-  w.onerror=e=>{ e.preventDefault(); for(const h of w.handlers.values()) h({type:'error', message:'The HEVC decoder stopped ('+(e.message||'worker error')+').'}); hevcWorker=null; w.terminate(); };
-  return hevcWorker=w;
+  w.onerror=e=>{ e.preventDefault(); for(const h of [...w.handlers.values()]) h({type:'error', message:'The video decoder stopped ('+(e.message||'worker error')+').'}); softWorkers[kind]=null; w.terminate(); };
+  return softWorkers[kind]=w;
 }
-class SoftHevcDecoder{
-  constructor({output,error}){
+let softSid=0;
+function loadMpeg2(data){
+  // The worker keeps the clip's pictures; decoders opened later refer to it by number.
+  const w=getWorker('mpeg2'), clip=++softSid, sid='load'+clip, copy=data.slice();
+  return new Promise((ok,fail)=>{
+    w.handlers.set(sid, m=>{ w.handlers.delete(sid); if(m.type==='loaded') ok({...m, clip}); else fail(new Error(m.message)); });
+    w.postMessage({type:'load', sid, clip, data:copy.buffer}, [copy.buffer]);
+  });
+}
+class SoftDecoder{
+  constructor({output,error}, kind, clip){
     this.output=output; this.error=error; this.state='unconfigured'; this.decodeQueueSize=0; this.flushes=[];
-    this.sid=++hevcSid; this.w=getHevcWorker(); this.w.handlers.set(this.sid, m=>this.onMessage(m));
-    this.w.postMessage({type:'open', sid:this.sid});
+    this.sid=++softSid; this.w=getWorker(kind); this.w.handlers.set(this.sid, m=>this.onMessage(m));
+    this.w.postMessage({type:'open', sid:this.sid, clip});
   }
   configure(cfg){
     this.state='configured'; this.lenSize=0; this.params=null;
     const d=cfg.description;
     if(d){
-      // MP4 samples hold length-prefixed NAL units; the parameter sets live in the hvcC box.
+      // HEVC in MP4: samples hold length-prefixed NAL units; the parameter sets live in the hvcC box.
       this.lenSize=(d[21]&3)+1; const ps=[]; let p=23;
       for(let a=0;a<d[22];a++){ const n=(d[p+1]<<8)|d[p+2]; p+=3; for(let k=0;k<n;k++){ const len=(d[p]<<8)|d[p+1]; ps.push(new Uint8Array([0,0,0,1]), d.subarray(p+2,p+2+len)); p+=2+len; } }
       this.params=concat(ps);
     }
   }
   decode(chunk){
+    this.decodeQueueSize++;
     let d=chunk.data;
+    // MPEG-2: the worker already holds the pictures, so only the index is sent.
+    if(!d){ this.w.postMessage({type:'decode', sid:this.sid, pts:chunk.pts}); return; }
     if(this.lenSize){
       const parts=chunk.type==='key'?[this.params]:[]; let p=0;
       while(p+this.lenSize<=d.length){ let len=0; for(let k=0;k<this.lenSize;k++) len=len*256+d[p+k]; p+=this.lenSize; parts.push(new Uint8Array([0,0,0,1]), d.subarray(p,p+len)); p+=len; }
       d=concat(parts);
     } else d=d.slice();
-    this.decodeQueueSize++;
     this.w.postMessage({type:'decode', sid:this.sid, pts:chunk.pts||0, data:d.buffer}, [d.buffer]);
   }
   flush(){ return new Promise((ok,fail)=>{ this.flushes.push({ok,fail}); this.w.postMessage({type:'flush', sid:this.sid}); }); }
@@ -1011,15 +1091,17 @@ async function videoFrame(inst, t){
   // turns that into its display index. Without it, frames are shown in decode order or come out of the decoder in
   // display order, so the n-th frame out after a keyframe is frame key+n.
   const dec=ord ? ord.inv[t] : t;
+  // The keyframe to start from must also be shown no later than frame t: with open GOPs, frames shown just before a
+  // keyframe depend on the keyframe before it.
+  let key=dec; while(key>0 && !(v.samples[key].key && (!ord || ord.disp[key]<=t))) key--;
   let s=v.sess;
-  // Keep feeding the running decoder when frame t is still to come; otherwise start again at a keyframe before it.
-  if(!s || s.ended || s.error || t<s.keepFrom || s.seen.has(t) || dec>s.fed+150){
+  // Keep feeding the running decoder when frame t is still to come and no closer keyframe lies ahead of it;
+  // otherwise start again at the keyframe.
+  if(!s || s.ended || s.error || t<s.keepFrom || s.seen.has(t) || key>s.fed){
     if(s && s.dec.state!=='closed') s.dec.close();
-    // The keyframe must also be shown no later than frame t: with open GOPs, frames shown just before a keyframe
-    // depend on the keyframe before it.
-    let key=dec; while(key>0 && !(v.samples[key].key && (!ord || ord.disp[key]<=t))) key--;
-    s=v.sess={k:key, fed:key, out:0, keepFrom:t-2, seen:new Set(), got:new Map(), wake:null, ended:false, error:null};
-    s.dec=new (v.soft?SoftHevcDecoder:VideoDecoder)({
+    // Frames shown before the keyframe (open GOPs) are decoded without their references, so they are not kept.
+    s=v.sess={k:key, fed:key, out:0, keepFrom:Math.max(t-2, ord?ord.disp[key]:key), seen:new Set(), got:new Map(), wake:null, ended:false, error:null};
+    const callbacks={
       output:frame=>{
         const idx = ord ? ord.disp[v.soft ? frame.pts : Math.round(frame.timestamp/1000)] : s.k+s.out;
         s.out++; s.seen.add(idx);
@@ -1027,7 +1109,8 @@ async function videoFrame(inst, t){
         frame.close(); if(s.wake) s.wake();
       },
       error:e=>{ s.error=e; if(s.wake) s.wake(); },
-    });
+    };
+    s.dec = v.soft ? new SoftDecoder(callbacks, v.soft, v.clip) : new VideoDecoder(callbacks);
     s.dec.configure(v.config);
   }
   const nap=ms=>new Promise(r=>{ s.wake=r; setTimeout(r,ms); });
@@ -1472,7 +1555,7 @@ function renderDetails(){
     rows('Series',[['Modality',inst.modality],['Description',str(ds,'x0008103e')],['Number',inst.seriesNo!=null?String(inst.seriesNo):''],['Body part',str(ds,'x00180015')],['Equipment',[str(ds,'x00080070'),str(ds,'x00081090')].filter(Boolean).join(' ')],['Station',str(ds,'x00081010')]]) +
     (set.kind==='pdf' ? rows('Document',[['Title',str(ds,'x00420010')],['Size',fmtBytes(inst.pdf.length)],['File',inst.name]]) :
     rows('Image',[['Size',`${inst.cols} × ${inst.rows} pixels`],['Frames',inst.frames>1?String(inst.frames):''],['Frame rate',inst.fps?`${inst.fps.toFixed(1)} fps`:''],['Heart rate',str(ds,'x00181088')?str(ds,'x00181088')+' bpm':''],
-      ['Colour',`${inst.photo}${inst.spp>1?'':`, ${inst.bs}-bit`}`],['Stored as',(TS[inst.ts]||[inst.ts])[0]+(inst.video?` · ${inst.video.container==='MP4'?'MP4 file':'raw stream'} · ${inst.video.codec}${inst.video.soft?' · software decoder':''}`:'')],['Lossy',str(ds,'x00282110')==='01'?'Yes'+(str(ds,'x00282112')?` (ratio ${str(ds,'x00282112').split('\\')[0]})`:''):''],
+      ['Colour',`${inst.photo}${inst.spp>1?'':`, ${inst.bs}-bit`}`],['Stored as',(TS[inst.ts]||[inst.ts])[0]+(inst.video?` · ${inst.video.container==='MP4'?'MP4 file':inst.video.container} · ${inst.video.codec}${inst.video.soft?' · software decoder':''}`:'')],['Lossy',str(ds,'x00282110')==='01'?'Yes'+(str(ds,'x00282112')?` (ratio ${str(ds,'x00282112').split('\\')[0]})`:''):''],
       ['Calibration',calib],['Instance',inst.instNo!=null?String(inst.instNo):''],['File',`${inst.name} · ${fmtBytes(inst.size)}`]]));
 }
 function tagRows(ds, depth, out){
@@ -1545,7 +1628,7 @@ function setInfo(on){
 $('infoBtn').addEventListener('click',()=>setInfo(!S.showInfo));
 $('closeBtn').addEventListener('click',()=>{
   stop(); S.loadGen++; S.prefetchGen++; thumbRun++;
-  for(const i of S.insts.values()) closeVideo(i);
+  for(const i of S.insts.values()){ closeVideo(i); if(i.video && i.video.clip && softWorkers.mpeg2) softWorkers.mpeg2.postMessage({type:'unload', clip:i.video.clip}); }
   S.insts.clear(); S.sets=[]; S.studies=[]; S.set=null; S.measures.clear(); cur=null; S.voi=null;
   cache.clear(); cacheBytes=0;
   rebuild(); draw(); overlay(); renderDetails(); renderTags(); $('cine').hidden=true; $('status').textContent='';

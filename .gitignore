@@ -17,3 +17,6 @@
 
 # queue data (QUEUE_STORE=file)
 /.queue-data
+
+# FFmpeg checkout and objects for the DICOM Viewer MPEG-2 decoder (tools/mpeg2-wasm/build.sh)
+/tools/mpeg2-wasm/build
