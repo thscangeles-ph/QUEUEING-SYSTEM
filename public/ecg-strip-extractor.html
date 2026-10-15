@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ECG Strip Extractor</title>
+<link rel="icon" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: instrument-style workbench — page rail on the left, large preview stage with crop box on the right; stacks on phones. */
+:root{
+  --paper:#0E1115; --panel:#161A20; --ink:#E6E9ED; --muted:#97A0AC; --line:#2A3039;
+  --trace:#D2D7DE; --trace-soft:#242931; --ok:#4CC38A; --ok-soft:#14301F; --warn:#E5A84E; --warn-soft:#352711;
+  --shade:rgba(0,0,0,.6); color-scheme:dark;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.45}
+.app{display:flex;flex-direction:column;min-height:100%;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:14px 20px;gap:14px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.brand svg{flex:none}
+.brand h1{font-family:var(--f-display);font-weight:600;font-size:22px;letter-spacing:.01em;margin:0;line-height:1}
+.brand .file{font-family:var(--f-mono);font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46ch}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,select{font:inherit;color:inherit}
+.btn{border:1px solid var(--line);background:var(--panel);padding:8px 13px;border-radius:7px;cursor:pointer;font-weight:500;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--trace);border-color:var(--trace);color:var(--panel)}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn:disabled{opacity:.5;cursor:not-allowed;filter:none}
+.btn:focus-visible,select:focus-visible,.pg:focus-visible,.drop:focus-visible{outline:2px solid var(--muted);outline-offset:2px}
+select{border:1px solid var(--line);background:var(--panel);padding:7px 9px;border-radius:7px}
+.work{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;flex:1;min-height:0}
+aside{display:flex;flex-direction:column;gap:10px;min-width:0}
+.drop{border:1.5px dashed var(--line);border-radius:10px;padding:16px 14px;text-align:center;background:var(--panel);cursor:pointer;color:var(--muted)}
+.drop strong{display:block;color:var(--ink);font-weight:600;margin-bottom:2px}
+.drop:hover{border-color:var(--muted)}
+.list{display:flex;flex-direction:column;gap:8px;overflow:auto;max-height:calc(100vh - 230px);padding:2px}
+.pg{display:grid;grid-template-columns:88px minmax(0,1fr);gap:10px;align-items:center;padding:8px;border:1px solid var(--line);border-radius:9px;background:var(--panel);cursor:pointer;text-align:left}
+.pg.sel{border-color:var(--muted)}
+.pg.off{opacity:.55}
+.pg canvas{width:88px;height:auto;display:block;border:1px solid var(--line);background:#fff}
+.pg .meta{display:flex;flex-direction:column;gap:4px;min-width:0}
+.pg .t{font-weight:600;display:flex;align-items:center;gap:8px;justify-content:space-between}
+.pg .mm{font-family:var(--f-mono);font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.pg label{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer}
+.chip{font-size:11px;font-weight:600;padding:2px 7px;border-radius:99px;letter-spacing:.02em;width:max-content}
+.chip.grid,.chip.est,.chip.man{background:var(--paper);color:var(--muted);border:1px solid var(--line)}
+.chip.full{background:var(--paper);color:var(--muted);border:1px solid var(--line)}
+.stage{background:var(--panel);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;min-width:0;min-height:0}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line)}
+.toolbar .sp{flex:1}
+.duo{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;min-width:0}
+.values{background:var(--panel);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;min-width:0;max-height:calc(68vh + 90px)}
+.vhead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:12px 12px 8px}
+.vhead h2{font-family:var(--f-display);font-weight:600;font-size:16px;margin:0 0 2px}
+.vopt{padding:0 12px 10px;border-bottom:1px solid var(--line)}
+.vlist{overflow:auto;padding:8px 8px 12px;display:flex;flex-direction:column;gap:2px;min-height:120px}
+.vempty{color:var(--muted);margin:8px 6px;line-height:1.5}
+.vrow{display:flex;align-items:center;gap:4px;padding:3px 4px;border-radius:6px;min-width:0}
+.vrow:hover{background:var(--paper)}
+.vcells{display:flex;flex-wrap:wrap;gap:4px;flex:1;min-width:0}
+.vcell{font:inherit;font-size:13px;color:var(--ink);background:transparent;border:1px solid transparent;border-radius:5px;padding:2px 6px;cursor:copy;text-align:left;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.vcell:hover,.vcell:focus-visible{border-color:var(--line);background:var(--panel);outline:none}
+.vcell.num{font-family:var(--f-mono);font-size:12.5px}
+.vcopy{flex:none;font:inherit;font-size:11px;color:var(--muted);background:transparent;border:1px solid var(--line);border-radius:5px;padding:2px 7px;cursor:pointer;opacity:0}
+.vrow:hover .vcopy,.vcopy:focus-visible{opacity:1}
+@media (hover:none){.vcopy{opacity:1}}
+@media (max-width:980px){.duo{grid-template-columns:minmax(0,1fr)}.values{max-height:none}}
+.pagesel{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0}
+.selbtns{display:flex;gap:6px}
+.pchip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--line);border-radius:7px;background:var(--paper);font-family:var(--f-mono);font-size:12.5px;cursor:pointer;color:var(--ink);font-variant-numeric:tabular-nums}
+.pchip input{margin:0;accent-color:var(--muted)}
+.pchip.off{color:var(--muted);border-style:dashed;background:transparent}
+.pchip.cur{border-color:var(--muted);box-shadow:inset 0 -2px 0 var(--muted)}
+.pchip:focus-within{outline:2px solid var(--muted);outline-offset:2px}
+.btn.sm{padding:5px 10px;font-size:12.5px}
+.nav{display:flex;align-items:center;gap:6px;margin-right:6px}
+.nav[hidden]{display:none!important}
+.btn.icon{padding:6px 11px;font-size:16px;line-height:1}
+.inc{display:flex;align-items:center;gap:5px;cursor:pointer;margin-left:4px}
+.empty{cursor:pointer}
+.readout{font-family:var(--f-mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.readout b{color:var(--ink);font-weight:500}
+.canvasArea{flex:1;display:flex;align-items:center;justify-content:center;padding:18px;background:var(--paper);min-height:300px;overflow:hidden;border-radius:0 0 12px 12px}
+.wrap{position:relative;display:inline-block;line-height:0;max-width:100%;touch-action:none;user-select:none;overflow:hidden;box-shadow:0 2px 14px rgba(0,0,0,.12);cursor:crosshair}
+.wrap canvas{display:block;max-width:100%;max-height:68vh;width:auto;height:auto;background:#fff}
+.crop{position:absolute;border:2px solid #fff;outline:1px solid rgba(0,0,0,.45);box-shadow:0 0 0 9999px var(--shade);cursor:move}
+.crop .h{position:absolute;width:14px;height:14px;background:var(--panel);border:1.5px solid var(--muted);border-radius:3px;transform:translate(-50%,-50%)}
+.h[data-h=nw]{left:0;top:0;cursor:nwse-resize}.h[data-h=n]{left:50%;top:0;cursor:ns-resize}.h[data-h=ne]{left:100%;top:0;cursor:nesw-resize}
+.h[data-h=e]{left:100%;top:50%;cursor:ew-resize}.h[data-h=se]{left:100%;top:100%;cursor:nwse-resize}.h[data-h=s]{left:50%;top:100%;cursor:ns-resize}
+.h[data-h=sw]{left:0;top:100%;cursor:nesw-resize}.h[data-h=w]{left:0;top:50%;cursor:ew-resize}
+.foot{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;justify-content:space-between;color:var(--muted);font-size:12.5px}
+.foot p{margin:0;max-width:75ch}
+.empty{color:var(--muted);text-align:center;line-height:1.6}
+.empty .btn{margin-top:12px}
+#dropOverlay{position:fixed;inset:0;background:color-mix(in srgb,var(--paper) 85%,transparent);border:3px dashed var(--muted);display:flex;align-items:center;justify-content:center;font-family:var(--f-display);font-size:28px;color:var(--ink);z-index:20;pointer-events:none}
+#toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:9px 16px;border-radius:8px;font-weight:500;z-index:30;max-width:calc(100% - 32px)}
+.busy{display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.busy{animation:none}}
+@media (max-width:820px){
+  .work{grid-template-columns:minmax(0,1fr)}
+  .list{flex-direction:row;max-height:none;overflow-x:auto}
+  .pg{min-width:230px}
+  .canvasArea{padding:10px}
+}
+</style>
+<style>html,body{margin:0}body{font-size:14px}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+
+
+<div class="app">
+  <header>
+    <div class="brand">
+      <svg width="34" height="22" viewBox="0 0 34 22" aria-hidden="true"><path d="M1 13h8l2-4 3 11 4-19 3 12h12" fill="none" stroke="var(--trace)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/></svg>
+      <div style="min-width:0">
+        <h1>ECG Strip Extractor</h1>
+        <div class="file" id="fileName">No file</div>
+      </div>
+    </div>
+    <div class="actions">
+      <a class="btn" id="boardLink" href="/queue" hidden>Queue Board</a>
+      <label class="readout" for="dpi">Quality</label>
+      <select id="dpi">
+        <option value="200">200 dpi · smaller file</option>
+        <option value="300" selected>300 dpi · print</option>
+        <option value="600">600 dpi · archival</option>
+      </select>
+      <button class="btn primary" id="saveBtn" disabled>
+        <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m0 0 3.5-3.5M8 10 4.5 6.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span id="saveLabel">Save tracing as PDF</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="work">
+    <aside>
+      <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose an ECG PDF">
+        <strong>Drop ECG PDF here</strong>
+        or click to choose a file
+      </div>
+      <div class="pagesel" id="pagesel" hidden>
+        <span class="readout">Pages to save</span>
+        <div class="chips" id="chips"></div>
+        <div class="selbtns"><button class="btn sm" id="selAll">Select all</button><button class="btn sm" id="selNone">Clear all</button></div>
+      </div>
+      <div class="list" id="list" hidden></div>
+    </aside>
+
+    <div class="duo">
+    <section class="stage">
+      <div class="toolbar">
+        <div class="nav" id="nav" hidden><button class="btn icon" id="prevBtn" aria-label="Previous page">&#8249;</button><span class="readout" id="pageNo"></span><button class="btn icon" id="nextBtn" aria-label="Next page">&#8250;</button><label class="readout inc" for="incBox"><input type="checkbox" id="incBox" checked> Include</label></div>
+        <button class="btn" id="autoBtn" disabled>Auto-detect tracing</button>
+        <button class="btn" id="allBtn" disabled>Use this box on all pages</button>
+        <button class="btn" id="fullBtn" disabled>Full page</button>
+        <span class="sp"></span>
+        <span class="readout" id="readout"></span>
+      </div>
+      <div class="canvasArea" id="canvasArea">
+        <div class="empty" id="empty"><span id="emptyMsg">Loading…</span><br><button class="btn sm" id="sampleBtn" type="button" hidden>Try a sample ECG</button></div>
+        <div class="wrap" id="wrap" hidden>
+          <div class="crop" id="crop">
+            <span class="h" data-h="nw"></span><span class="h" data-h="n"></span><span class="h" data-h="ne"></span><span class="h" data-h="e"></span>
+            <span class="h" data-h="se"></span><span class="h" data-h="s"></span><span class="h" data-h="sw"></span><span class="h" data-h="w"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="values" aria-label="Values from the PDF">
+      <div class="vhead">
+        <div><h2>Report values</h2><span class="readout" id="vSub">Load a PDF to see its text</span></div>
+        <button class="btn sm" id="copyAll" disabled>Copy all</button>
+      </div>
+      <label class="readout inc vopt" for="vInside"><input type="checkbox" id="vInside"> Include text inside the box (lead labels)</label>
+      <div class="vlist" id="vList"><p class="vempty">Patient details and measurements printed on the ECG appear here. Click any value to copy it.</p></div>
+    </section>
+    </div>
+  </main>
+
+  <div class="foot">
+    <p>Drag the box to adjust, or draw a new one. Only what is inside the box goes into the new PDF, so names and IDs printed outside it are left out. Page size is kept true to scale, so 25 mm/s and 10 mm/mV stay correct when printed at 100%. The PDF is read and saved on this computer; nothing is uploaded.</p>
+    <span class="readout" id="summary"></span>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept="application/pdf,.pdf" hidden>
+<div id="dropOverlay" hidden>Drop the ECG PDF</div>
+<div id="toast" hidden></div>
+
+<script>
+// The PDF libraries ship next to this page (ecg-lib/), so it works on the clinic network without internet.
+// A copy of this file opened from disk without that folder loads them from cdnjs instead.
+(function(){
+const CDN = { 'pdf.min.js':'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+  'pdf.worker.min.js':'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
+  'pdf-lib.min.js':'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js' };
+const load = src => new Promise((ok,fail)=>{ const s=document.createElement('script'); s.src=src; s.onload=ok; s.onerror=fail; document.head.append(s); });
+const local = name => new URL('ecg-lib/'+name, location.href).href;
+const either = name => load(local(name)).then(()=>local(name), ()=>load(CDN[name]).then(()=>CDN[name]));
+Promise.all([either('pdf.min.js'), either('pdf-lib.min.js')]).then(([pdfSrc])=>{
+  // The worker comes from the same place as pdf.js, so the two versions always match.
+  window.ECG_WORKER_SRC = pdfSrc===CDN['pdf.min.js'] ? CDN['pdf.worker.min.js'] : local('pdf.worker.min.js');
+  window.startEcgExtractor();
+}, ()=>{
+  const e=document.getElementById('empty');
+  e.textContent='The PDF tools could not be loaded. Keep the ecg-lib folder next to this file, or connect to the internet, then reload.';
+});
+})();
+</script>
+<script>
+window.startEcgExtractor = function(){
+const $ = id => document.getElementById(id);
+const PT2MM = 25.4/72;
+const ANALYSIS_W = 1400;
+const MIN = 0.02;
+pdfjsLib.GlobalWorkerOptions.workerSrc = window.ECG_WORKER_SRC;
+
+const S = { doc:null, name:'', pages:[], cur:-1, sample:false, loadId:0 };
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const fmt = v => v.toFixed(1);
+
+let toastT;
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true,3200); }
+
+/* ---------- detection ---------- */
+function bands(counts, thresh, gap){
+  const out=[]; let s=-1, last=-1, sum=0;
+  for(let i=0;i<counts.length;i++){
+    if(counts[i]>=thresh){
+      if(s<0){ s=i; sum=0; }
+      else if(i-last>gap){ out.push({a:s,b:last,sum}); s=i; sum=0; }
+      last=i; sum+=counts[i];
+    }
+  }
+  if(s>=0) out.push({a:s,b:last,sum});
+  return out;
+}
+function detect(canvas){
+  const W=canvas.width, H=canvas.height;
+  const d=canvas.getContext('2d',{willReadFrequently:true}).getImageData(0,0,W,H).data;
+  const colored=new Uint8Array(W*H), dark=new Uint8Array(W*H);
+  const rowC=new Uint32Array(H), rowD=new Uint32Array(H);
+  for(let y=0;y<H;y++){ for(let x=0;x<W;x++){
+    const i=(y*W+x), p=i*4, r=d[p],g=d[p+1],b=d[p+2];
+    const mx=Math.max(r,g,b), mn=Math.min(r,g,b);
+    if(mx-mn>=20 && mx>110){ colored[i]=1; rowC[y]++; }
+    else if(mx<170){ dark[i]=1; rowD[y]++; }
+  }}
+  // 1) coloured grid paper
+  const rb=bands(rowC, W*0.12, Math.round(H*0.04)).sort((p,q)=>q.sum-p.sum)[0];
+  if(rb && (rb.b-rb.a)>H*0.08){
+    const colC=new Uint32Array(W);
+    for(let y=rb.a;y<=rb.b;y++){ const o=y*W; for(let x=0;x<W;x++) if(colored[o+x]) colC[x]++; }
+    const cb=bands(colC,(rb.b-rb.a+1)*0.12,Math.round(W*0.03)).sort((p,q)=>q.sum-p.sum)[0];
+    if(cb && (cb.b-cb.a)>W*0.2){
+      return {crop:{x:cb.a/W,y:rb.a/H,w:(cb.b-cb.a+1)/W,h:(rb.b-rb.a+1)/H},source:'grid'};
+    }
+  }
+  // 2) no grid: tallest block of ink (tracings are tall, text lines are short)
+  const db=bands(rowD,1,Math.round(H*0.02)).sort((p,q)=>(q.b-q.a)-(p.b-p.a))[0];
+  if(db && (db.b-db.a)>H*0.12){
+    let x1=W,x2=-1;
+    for(let y=db.a;y<=db.b;y++){ const o=y*W; for(let x=0;x<W;x++) if(dark[o+x]){ if(x<x1)x1=x; if(x>x2)x2=x; } }
+    if(x2>x1){
+      const pad=0.006;
+      const c={x:x1/W-pad,y:db.a/H-pad,w:(x2-x1+1)/W+2*pad,h:(db.b-db.a+1)/H+2*pad};
+      c.x=clamp(c.x,0,1); c.y=clamp(c.y,0,1); c.w=Math.min(c.w,1-c.x); c.h=Math.min(c.h,1-c.y);
+      return {crop:c,source:'est'};
+    }
+  }
+  return {crop:{x:0,y:0,w:1,h:1},source:'full'};
+}
+
+/* ---------- loading ---------- */
+async function loadPdf(bytes, name, sample){
+  const id=++S.loadId;
+  setBusy(true);
+  $('empty').hidden=false; $('wrap').hidden=true; $('empty').textContent='Opening '+name+'…';
+  $('list').innerHTML=''; $('chips').innerHTML=''; $('pagesel').hidden=true;
+  let doc;
+  try{ doc=await pdfjsLib.getDocument({data:bytes}).promise; }
+  catch(e){ $('empty').textContent='This file could not be opened as a PDF. Check that it is not password-protected, then try again.'; setBusy(false); return; }
+  if(id!==S.loadId){ doc.destroy(); return; }
+  if(S.doc) S.doc.destroy();
+  S.doc=doc; S.name=name; S.sample=sample; S.pages=[]; S.cur=-1;
+  $('fileName').textContent = sample ? 'Sample ECG (synthetic) · drop your own PDF to replace' : name+' · '+doc.numPages+' page'+(doc.numPages>1?'s':'');
+  for(let i=1;i<=doc.numPages;i++){
+    $('empty').textContent='Reading page '+i+' of '+doc.numPages+'…';
+    const page=await doc.getPage(i);
+    const vp1=page.getViewport({scale:1});
+    const scale=ANALYSIS_W/Math.max(vp1.width,vp1.height);
+    const vp=page.getViewport({scale});
+    const c=document.createElement('canvas'); c.width=Math.round(vp.width); c.height=Math.round(vp.height);
+    const ctx=c.getContext('2d',{willReadFrequently:true}); ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height);
+    await page.render({canvasContext:ctx,viewport:vp}).promise;
+    if(id!==S.loadId) return;
+    const det=detect(c);
+    let words=[]; try{ words=textItems((await page.getTextContent()).items,vp1); }catch(e){}
+    const pg={n:i,wPt:vp1.width,hPt:vp1.height,canvas:c,crop:det.crop,source:det.source,detected:det,include:true,thumb:null,el:null,words};
+    S.pages.push(pg); addItem(pg);
+    if(i>1) setInclude(pg,false);
+    if(i===1) select(0);
+  }
+  setBusy(false);
+  summary();
+  const found=S.pages.filter(p=>p.source==='grid').length;
+  if(!sample) toast(found ? `Tracing grid found on ${found} of ${S.pages.length} page${S.pages.length>1?'s':''}` : 'No grid paper found. Check the box on each page.');
+}
+
+function setBusy(b){
+  ['autoBtn','allBtn','fullBtn','saveBtn'].forEach(k=>$(k).disabled=b||!S.pages.length);
+}
+
+/* ---------- page list ---------- */
+const chipText={grid:['grid','Grid found'],est:['est','Estimated'],man:['man','Adjusted'],full:['full','Full page']};
+function addItem(pg){
+  const el=document.createElement('div'); el.className='pg'; el.tabIndex=0; el.setAttribute('role','button');
+  const th=document.createElement('canvas'); const r=88/pg.canvas.width; th.width=176; th.height=Math.round(pg.canvas.height*r*2);
+  const meta=document.createElement('div'); meta.className='meta';
+  meta.innerHTML=`<div class="t"><span>Page ${pg.n}</span><span class="chip"></span></div><div class="mm"></div><label><input type="checkbox" id="inc${pg.n}" checked> Include</label>`;
+  el.append(th,meta); pg.el=el; pg.thumb=th;
+  el.addEventListener('click',e=>{ if(e.target.closest('label')) return; select(S.pages.indexOf(pg)); });
+  el.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); select(S.pages.indexOf(pg)); }});
+  meta.querySelector('input').addEventListener('change',e=>setInclude(pg,e.target.checked));
+  $('list').append(el); refreshItem(pg);
+  const chip=document.createElement('label'); chip.className='pchip'; chip.title='Include page '+pg.n;
+  chip.innerHTML=`<input type="checkbox" id="pc${pg.n}" checked><span>${pg.n}</span>`;
+  chip.querySelector('input').addEventListener('change',e=>{ setInclude(pg,e.target.checked); select(S.pages.indexOf(pg)); });
+  pg.chip=chip; $('chips').append(chip); $('pagesel').hidden=false;
+}
+function setInclude(pg,v){
+  pg.include=v; pg.el.classList.toggle('off',!v);
+  const a=pg.el.querySelector('input'); if(a) a.checked=v;
+  if(pg.chip){ pg.chip.classList.toggle('off',!v); pg.chip.querySelector('input').checked=v; }
+  if(cur()===pg) $('incBox').checked=v;
+  summary();
+}
+function refreshItem(pg){
+  if(pg===cur()) renderValues();
+  const th=pg.thumb, x=th.getContext('2d');
+  x.drawImage(pg.canvas,0,0,th.width,th.height);
+  const c=pg.crop; x.fillStyle='rgba(12,15,20,.45)';
+  const X=c.x*th.width,Y=c.y*th.height,Wd=c.w*th.width,Hd=c.h*th.height;
+  x.fillRect(0,0,th.width,Y); x.fillRect(0,Y+Hd,th.width,th.height-Y-Hd); x.fillRect(0,Y,X,Hd); x.fillRect(X+Wd,Y,th.width-X-Wd,Hd);
+  x.strokeStyle='#2D5DA8'; x.lineWidth=2; x.strokeRect(X,Y,Wd,Hd);
+  const [cls,txt]=chipText[pg.source]; const ch=pg.el.querySelector('.chip'); ch.className='chip '+cls; ch.textContent=txt;
+  pg.el.querySelector('.mm').textContent=`${fmt(c.w*pg.wPt*PT2MM)} × ${fmt(c.h*pg.hPt*PT2MM)} mm`;
+}
+
+/* ---------- stage ---------- */
+function cur(){ return S.pages[S.cur]; }
+function select(i){
+  S.cur=i; const pg=cur(); if(!pg) return;
+  S.pages.forEach((p,j)=>{ p.el.classList.toggle('sel',j===i); if(p.chip) p.chip.classList.toggle('cur',j===i); });
+  const wrap=$('wrap'); const old=wrap.querySelector('canvas'); if(old) old.remove();
+  wrap.prepend(pg.canvas); wrap.hidden=false; $('empty').hidden=true;
+  $('nav').hidden=false; $('pageNo').textContent=`Page ${pg.n} of ${S.doc.numPages}`;
+  $('incBox').checked=pg.include; $('prevBtn').disabled=i<=0; $('nextBtn').disabled=i>=S.pages.length-1;
+  drawCrop(); renderValues();
+}
+function drawCrop(){
+  const pg=cur(); if(!pg) return; const c=pg.crop, el=$('crop');
+  el.style.left=(c.x*100)+'%'; el.style.top=(c.y*100)+'%'; el.style.width=(c.w*100)+'%'; el.style.height=(c.h*100)+'%';
+  $('readout').innerHTML=`Page ${pg.n} · box <b>${fmt(c.w*pg.wPt*PT2MM)} × ${fmt(c.h*pg.hPt*PT2MM)} mm</b> of ${fmt(pg.wPt*PT2MM)} × ${fmt(pg.hPt*PT2MM)} mm · ${chipText[pg.source][1]}`;
+}
+function summary(){
+  const inc=S.pages.filter(p=>p.include);
+  $('summary').textContent = S.pages.length ? `${inc.length} of ${S.pages.length} page${S.pages.length>1?'s':''} will be saved` : '';
+  $('saveBtn').disabled=!inc.length;
+}
+
+$('prevBtn').addEventListener('click',()=>{ if(S.cur>0) select(S.cur-1); });
+$('nextBtn').addEventListener('click',()=>{ if(S.cur<S.pages.length-1) select(S.cur+1); });
+$('incBox').addEventListener('change',e=>{ const pg=cur(); if(pg) setInclude(pg,e.target.checked); });
+$('selAll').addEventListener('click',()=>S.pages.forEach(p=>setInclude(p,true)));
+$('selNone').addEventListener('click',()=>S.pages.forEach(p=>setInclude(p,false)));
+$('empty').addEventListener('click',()=>{ if(!S.pages.length) $('fileInput').click(); });
+
+/* ---------- report values (text from the PDF) ---------- */
+function textItems(items,vp){
+  const out=[];
+  for(const it of items){
+    const str=(it.str||'').replace(/\s+/g,' '); if(!str.trim()) continue;
+    const t=it.transform, h=Math.hypot(t[2],t[3])||it.height||8;
+    const [x,y]=vp.convertToViewportPoint(t[4],t[5]);
+    const [x2]=vp.convertToViewportPoint(t[4]+(it.width||0),t[5]);
+    out.push({s:str,x:Math.min(x,x2),x2:Math.max(x,x2),y,h,nx:x/vp.width,ny:(y-h*0.4)/vp.height});
+  }
+  return out;
+}
+function buildLines(words){
+  const ws=[...words].sort((a,b)=>a.y-b.y||a.x-b.x), lines=[];
+  for(const w of ws){
+    const L=lines.length?lines[lines.length-1]:null;
+    if(L && Math.abs(w.y-L.y)<=Math.max(2,Math.min(w.h,L.h)*0.5)) L.ws.push(w); else lines.push({y:w.y,h:w.h,ws:[w]});
+  }
+  return lines.map(L=>{
+    const items=L.ws.sort((a,b)=>a.x-b.x), cells=[]; let cur=null, end=0;
+    for(const w of items){
+      const gap=w.x-end;
+      if(cur!==null && gap<w.h*1.1){ cur+=(gap>w.h*0.15 && !/\s$/.test(cur) && !/^\s/.test(w.s)?' ':'')+w.s; }
+      else{ if(cur!==null) cells.push(cur); cur=w.s; }
+      end=Math.max(end,w.x2);
+    }
+    if(cur!==null) cells.push(cur);
+    return cells.map(c=>c.trim()).filter(Boolean);
+  }).filter(c=>c.length);
+}
+let vLines=[];
+function renderValues(){
+  const pg=cur(), list=$('vList');
+  if(!pg){ return; }
+  const inside=$('vInside').checked, c=pg.crop;
+  const words=inside?pg.words:pg.words.filter(w=>!(w.nx>=c.x&&w.nx<=c.x+c.w&&w.ny>=c.y&&w.ny<=c.y+c.h));
+  vLines=buildLines(words);
+  list.innerHTML='';
+  $('copyAll').disabled=!vLines.length;
+  if(!pg.words.length){
+    $('vSub').textContent=`Page ${pg.n} · no text`;
+    list.innerHTML='<p class="vempty">This page has no selectable text. It is probably a scanned image, so the values cannot be copied from it.</p>'; return;
+  }
+  $('vSub').textContent=`Page ${pg.n} · ${vLines.length} line${vLines.length===1?'':'s'}${inside?'':' outside the box'}`;
+  if(!vLines.length){ list.innerHTML='<p class="vempty">No text outside the box. Tick the option above to show the text inside it.</p>'; return; }
+  for(const cells of vLines){
+    const row=document.createElement('div'); row.className='vrow';
+    const wrapc=document.createElement('div'); wrapc.className='vcells';
+    for(const t of cells){
+      const b=document.createElement('button'); b.type='button'; b.className='vcell'+(/^[-+\d.,/:°%\s]+$/.test(t)?' num':''); b.textContent=t; b.title='Copy "'+t+'"';
+      b.addEventListener('click',()=>copyText(t)); wrapc.append(b);
+    }
+    const cl=document.createElement('button'); cl.type='button'; cl.className='vcopy'; cl.textContent='Copy line';
+    cl.addEventListener('click',()=>copyText(cells.join('\t')));
+    row.append(wrapc,cl); list.append(row);
+  }
+}
+function copyText(t){
+  const done=()=>toast('Copied: '+(t.length>40?t.slice(0,40)+'…':t.replace(/\t/g,'  ')));
+  const fallback=()=>{
+    const ta=document.createElement('textarea'); ta.value=t; ta.setAttribute('readonly',''); ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.append(ta); ta.select(); let ok=false; try{ ok=document.execCommand('copy'); }catch(e){}
+    ta.remove(); ok?done():toast('Copy was blocked. Select the text and press Ctrl+C.');
+  };
+  try{ navigator.clipboard.writeText(t).then(done,fallback); }catch(e){ fallback(); }
+}
+$('copyAll').addEventListener('click',()=>copyText(vLines.map(c=>c.join('\t')).join('\n')));
+$('vInside').addEventListener('change',renderValues);
+
+/* crop interaction */
+const wrap=$('wrap'); let drag=null;
+function norm(e){ const r=wrap.getBoundingClientRect(); return {x:clamp((e.clientX-r.left)/r.width,0,1),y:clamp((e.clientY-r.top)/r.height,0,1)}; }
+wrap.addEventListener('pointerdown',e=>{
+  const pg=cur(); if(!pg) return;
+  const p=norm(e); const h=e.target.dataset && e.target.dataset.h;
+  const mode= h || (e.target===$('crop') ? 'move' : 'new');
+  drag={mode,sx:p.x,sy:p.y,o:{...pg.crop},prevSource:pg.source};
+  wrap.setPointerCapture(e.pointerId); e.preventDefault();
+});
+wrap.addEventListener('pointermove',e=>{
+  if(!drag) return; const pg=cur(); const p=norm(e); const o=drag.o, m=drag.mode;
+  const dx=p.x-drag.sx, dy=p.y-drag.sy;
+  let x1=o.x,y1=o.y,x2=o.x+o.w,y2=o.y+o.h;
+  if(m==='move'){ const nx=clamp(o.x+dx,0,1-o.w), ny=clamp(o.y+dy,0,1-o.h); x1=nx;y1=ny;x2=nx+o.w;y2=ny+o.h; }
+  else if(m==='new'){ x1=Math.min(drag.sx,p.x); x2=Math.max(drag.sx,p.x); y1=Math.min(drag.sy,p.y); y2=Math.max(drag.sy,p.y); }
+  else{
+    if(m.includes('w')) x1=clamp(o.x+dx,0,x2-MIN);
+    if(m.includes('e')) x2=clamp(o.x+o.w+dx,x1+MIN,1);
+    if(m.includes('n')) y1=clamp(o.y+dy,0,y2-MIN);
+    if(m.includes('s')) y2=clamp(o.y+o.h+dy,y1+MIN,1);
+  }
+  pg.crop={x:x1,y:y1,w:x2-x1,h:y2-y1}; pg.source='man'; drawCrop();
+});
+function endDrag(){
+  if(!drag) return; const pg=cur();
+  if(pg.crop.w<MIN||pg.crop.h<MIN){ pg.crop=drag.o; pg.source=drag.prevSource; drawCrop(); }
+  drag=null; refreshItem(pg);
+}
+wrap.addEventListener('pointerup',endDrag); wrap.addEventListener('pointercancel',endDrag);
+
+$('autoBtn').addEventListener('click',()=>{ const pg=cur(); if(!pg) return; pg.crop={...pg.detected.crop}; pg.source=pg.detected.source; drawCrop(); refreshItem(pg); });
+$('fullBtn').addEventListener('click',()=>{ const pg=cur(); if(!pg) return; pg.crop={x:0,y:0,w:1,h:1}; pg.source='full'; drawCrop(); refreshItem(pg); });
+$('allBtn').addEventListener('click',()=>{ const pg=cur(); if(!pg) return; S.pages.forEach(p=>{ if(p!==pg){ p.crop={...pg.crop}; p.source='man'; refreshItem(p);} }); toast('Same box applied to all '+S.pages.length+' pages'); });
+
+/* ---------- export ---------- */
+$('saveBtn').addEventListener('click',async()=>{
+  const inc=S.pages.filter(p=>p.include); if(!inc.length) return;
+  const dpi=+$('dpi').value; const btn=$('saveBtn'), lab=$('saveLabel');
+  setBusy(true); const old=lab.textContent;
+  try{
+    const out=await PDFLib.PDFDocument.create();
+    for(let k=0;k<inc.length;k++){
+      lab.innerHTML=`<span class="busy"></span> Page ${k+1} of ${inc.length}`;
+      const pg=inc[k], c=pg.crop, page=await S.doc.getPage(pg.n);
+      let scale=dpi/72;
+      const area=(c.w*pg.wPt*scale)*(c.h*pg.hPt*scale);
+      if(area>16e6) scale*=Math.sqrt(16e6/area);
+      const vp=page.getViewport({scale});
+      const cv=document.createElement('canvas');
+      cv.width=Math.max(1,Math.round(c.w*vp.width)); cv.height=Math.max(1,Math.round(c.h*vp.height));
+      const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
+      await page.render({canvasContext:ctx,viewport:vp,transform:[1,0,0,1,-c.x*vp.width,-c.y*vp.height]}).promise;
+      const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
+      const img=await out.embedPng(await blob.arrayBuffer());
+      const w=c.w*pg.wPt, h=c.h*pg.hPt;
+      const np=out.addPage([w,h]); np.drawImage(img,{x:0,y:0,width:w,height:h});
+      cv.width=cv.height=0;
+    }
+    out.setTitle('ECG tracing'); out.setProducer('ECG Strip Extractor'); out.setCreator('ECG Strip Extractor');
+    const bytes=await out.save();
+    const base=(S.name||'ecg').replace(/\.pdf$/i,'').replace(/[^\w\-. ]+/g,'_').trim()||'ecg';
+    await offer(new Blob([bytes],{type:'application/pdf'}), base+'-tracing.pdf');
+  }catch(e){ console.error(e); toast('The PDF could not be built. Try a lower quality setting.'); }
+  lab.textContent=old; setBusy(false); summary();
+});
+async function offer(blob,filename){
+  if(window.showSaveFilePicker){
+    try{
+      const h=await window.showSaveFilePicker({suggestedName:filename,types:[{description:'PDF document',accept:{'application/pdf':['.pdf']}}]});
+      const w=await h.createWritable(); await w.write(blob); await w.close();
+      toast('Saved '+h.name); return;
+    }catch(e){ if(e&&e.name==='AbortError'){ toast('Save cancelled'); return; } }
+  }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename;
+  document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  toast('Saved '+filename);
+}
+
+/* ---------- file input & drag-drop ---------- */
+async function takeFile(f){
+  if(!f) return;
+  if(!/pdf$/i.test(f.type) && !/\.pdf$/i.test(f.name)){ toast('That file is not a PDF. Drop an ECG saved as PDF.'); return; }
+  const buf=new Uint8Array(await f.arrayBuffer());
+  loadPdf(buf,f.name,false);
+}
+$('drop').addEventListener('click',()=>$('fileInput').click());
+$('drop').addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); $('fileInput').click(); }});
+$('fileInput').addEventListener('change',e=>{ takeFile(e.target.files[0]); e.target.value=''; });
+let dragDepth=0;
+const hasFiles=e=>e.dataTransfer && Array.from(e.dataTransfer.types||[]).includes('Files');
+window.addEventListener('dragenter',e=>{ if(!hasFiles(e)) return; e.preventDefault(); dragDepth++; $('dropOverlay').hidden=false; });
+window.addEventListener('dragover',e=>{ if(!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect='copy'; });
+window.addEventListener('dragleave',e=>{ if(!hasFiles(e)) return; dragDepth=Math.max(0,dragDepth-1); if(!dragDepth) $('dropOverlay').hidden=true; });
+window.addEventListener('drop',e=>{ if(!hasFiles(e)) return; e.preventDefault(); dragDepth=0; $('dropOverlay').hidden=true; takeFile(e.dataTransfer.files[0]); });
+
+/* ---------- synthetic sample so the tool opens in a working state ---------- */
+function gauss(u,c,w){ return Math.exp(-((u-c)*(u-c))/(2*w*w)); }
+function beat(t){
+  const u=(t%0.833)/0.833;
+  return 0.15*gauss(u,.18,.025)-0.12*gauss(u,.33,.010)+1.1*gauss(u,.36,.012)-0.25*gauss(u,.39,.012)+0.3*gauss(u,.60,.045);
+}
+async function makeSample(){
+  const W=1754,H=1240,mm=150/25.4; const c=document.createElement('canvas'); c.width=W;c.height=H;
+  const x=c.getContext('2d'); x.fillStyle='#fff'; x.fillRect(0,0,W,H);
+  x.fillStyle='#111'; x.font='600 30px Helvetica, Arial, sans-serif'; x.fillText('SAMPLE ECG — synthetic, not patient data',60,80);
+  x.font='22px Helvetica, Arial, sans-serif';
+  x.fillText('Name: Example, Patient     ID: 000000     Age: 54     Sex: M     15-Oct-2026 09:42',60,125);
+  x.fillText('Vent rate 72 bpm     PR 160 ms     QRS 92 ms     QT/QTc 380/416 ms     P-R-T axes 52 45 38',60,160);
+  x.fillText('Normal sinus rhythm. Normal ECG.  Unconfirmed report.',60,195);
+  const gx=60, gy=236, gwMM=277, ghMM=160;
+  for(let i=0;i<=gwMM;i++){ x.strokeStyle=i%5?'#F7CCD4':'#EE8E9F'; x.lineWidth=i%5?1:1.8; x.beginPath(); x.moveTo(gx+i*mm,gy); x.lineTo(gx+i*mm,gy+ghMM*mm); x.stroke(); }
+  for(let j=0;j<=ghMM;j++){ x.strokeStyle=j%5?'#F7CCD4':'#EE8E9F'; x.lineWidth=j%5?1:1.8; x.beginPath(); x.moveTo(gx,gy+j*mm); x.lineTo(gx+gwMM*mm,gy+j*mm); x.stroke(); }
+  const leads=[['I','aVR','V1','V4'],['II','aVL','V2','V5'],['III','aVF','V3','V6'],['II']];
+  const amp={I:.7,II:1,III:.5,aVR:-.8,aVL:.35,aVF:.7,V1:-.6,V2:-.3,V3:.5,V4:1.25,V5:1.1,V6:.9};
+  x.strokeStyle='#111'; x.lineWidth=2; x.lineJoin='round'; x.fillStyle='#111'; x.font='600 20px Helvetica, Arial, sans-serif';
+  for(let r=0;r<4;r++){
+    const cy=gy+(24+40*r)*mm, x0=gx+4*mm;
+    x.beginPath(); x.moveTo(x0,cy); x.lineTo(x0+2*mm,cy); x.lineTo(x0+2*mm,cy-10*mm); x.lineTo(x0+7*mm,cy-10*mm); x.lineTo(x0+7*mm,cy); x.lineTo(x0+9*mm,cy); x.stroke();
+    const xs=x0+10*mm, xe=gx+(gwMM-3)*mm, pps=25*mm;
+    const set=leads[r]; const seg=r<3?2.5:99;
+    x.beginPath();
+    for(let px=xs;px<=xe;px+=1){
+      const t=(px-xs)/pps; const li=Math.min(set.length-1,Math.floor(t/seg));
+      const v=beat(t+0.2)*amp[set[li]]; const y=cy-v*10*mm;
+      if(px===xs) x.moveTo(px,y); else x.lineTo(px,y);
+    }
+    x.stroke();
+    set.forEach((ld,i)=>{ const lx=xs+i*seg*pps; if(lx<xe){ x.fillText(ld,lx+6,cy-13*mm); if(i>0){ x.beginPath(); x.moveTo(lx,cy-4*mm); x.lineTo(lx,cy+4*mm); x.stroke(); } } });
+  }
+  x.fillStyle='#333'; x.font='20px Helvetica, Arial, sans-serif';
+  x.fillText('25 mm/s     10 mm/mV     0.05–150 Hz     Sample device',60,gy+ghMM*mm+38);
+  const blob=await new Promise(r=>c.toBlob(r,'image/png'));
+  const doc=await PDFLib.PDFDocument.create();
+  const img=await doc.embedPng(await blob.arrayBuffer());
+  const p=doc.addPage([841.89,595.28]); p.drawImage(img,{x:0,y:0,width:841.89,height:595.28});
+  return await doc.save();
+}
+$('sampleBtn').addEventListener('click',async e=>{
+  e.stopPropagation(); e.target.disabled=true;
+  try{ await loadPdf(await makeSample(),'sample-ecg.pdf',true); }
+  catch(err){ console.error(err); toast('The sample could not be made in this browser.'); }
+  e.target.disabled=false;
+});
+$('emptyMsg').textContent='Drop an ECG PDF here, or click to choose a file.';
+$('sampleBtn').hidden=false;
+$('boardLink').hidden=!/^https?:$/.test(location.protocol);
+
+};
+</script>
+
+</body>
+</html>

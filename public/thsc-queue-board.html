@@ -1335,7 +1335,7 @@ function downloadQueueReport(xlsx, state, now) {
           <div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state?.settings).toUpperCase())}</small><b>Queue Board · ${{ desk: "Front Desk", station: "Stations", config: "System Configuration" }[view]}</b></div></div>
           <div class="top-actions"><span class="badge-device tv-badge"></span><span class="badge-device sync-badge"></span>${view === "desk" ? `<a class="btn sm on-dark" href="#config">Settings</a>` : ""}</div>
         </div>
-        <nav class="nav">${nav.map(([key, href, label]) => `<a href="${href}" class="${view === key ? "on" : ""}">${label}</a>`).join("")}<button data-act="openTv">TV display ↗</button><button data-act="openPoster">Check-in QR ↗</button><a href="#setup">Sync setup</a></nav>
+        <nav class="nav">${nav.map(([key, href, label]) => `<a href="${href}" class="${view === key ? "on" : ""}">${label}</a>`).join("")}<button data-act="openTv">TV display ↗</button><button data-act="openPoster">Check-in QR ↗</button><button data-act="openEcg">ECG strips ↗</button><a href="#setup">Sync setup</a></nav>
       </div></header>
       <main class="wrap"><p class="sync-banner hidden" id="sync-banner" role="alert"></p><div id="main"></div></main>`;
     if (view === "desk") mountDesk();
@@ -2204,6 +2204,10 @@ function downloadQueueReport(xlsx, state, now) {
         // Patients' phones cannot open this file, so check-in runs on the sync server's web pages.
         if (sync.mode === "server") window.open(`${syncServer()}/queue/poster`, "_blank", "noopener");
         else toast("QR check-in needs a sync server: patients' phones cannot open this file. Turn on syncing in Sync setup.", true);
+        break;
+      case "openEcg":
+        // The ECG Strip Extractor reads PDFs in this browser only, so opening it from the website uploads nothing.
+        window.open(`${/^https?:$/.test(location.protocol) ? location.origin : syncServer()}/ecg`, "_blank", "noopener");
         break;
       case "testVoice": {
         if (!("speechSynthesis" in window)) { toast("This browser cannot speak announcements.", true); break; }

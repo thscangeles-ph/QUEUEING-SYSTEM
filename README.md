@@ -55,6 +55,7 @@ The queue follows the clinic's arrival flow:
 | QR check-in | `/queue/checkin` | Scheduled patients scan the QR poster on arrival and get their `S` queue number on their phone |
 | Check-in poster | `/queue/poster` | Printable QR poster for the entrance |
 | Patient ticket | `/queue/ticket?id=…` | Live status on the patient's phone (opened after QR check-in, or from the link in the queue message) |
+| ECG Strip Extractor | `/ecg` | ECG staff: save only the tracing from an ECG PDF, without the patient details (see [ECG Strip Extractor](#ecg-strip-extractor)) |
 
 **Scheduled patients** get their queue number by scanning the QR poster at the entrance (advance registration). Their check-in shows as *QR check-in · verify* on the front desk until a concierge confirms it. The concierge can also register a scheduled patient manually by choosing *Scheduled (S)*.
 
@@ -98,6 +99,18 @@ Screens refresh every 2 seconds. With Upstash, each open screen makes about one 
 Every computer that uses the same sync server shares one live queue, updated every 2 seconds. The server must be in shared mode (see [Sync modes](#sync-modes)) and running this version of the app: it accepts the file's actions (arrival numbers, YouTube settings) and lets the file call its queue API. If the server has no shared storage, the file says so and keeps its own queue on that computer. **This computer only** keeps the queue in the file's browser storage and works offline.
 
 The file carries its own copy of the queue rules (`lib/queue/reducer.ts`, `format.ts`, `youtube.ts`). When you change those rules, make the same change in the file.
+
+### ECG Strip Extractor
+
+`/ecg` (also *ECG strips ↗* on the Queue Board) saves only the tracing from an ECG PDF, leaving out the patient's name, ID and other text printed around it.
+
+1. Drop the ECG PDF on the page (or click to choose it). *Try a sample ECG* shows how it works with a synthetic tracing.
+2. The box finds the pink grid paper by itself (*Grid found*). Drag it, resize it by its handles, or draw a new one; *Auto-detect tracing* and *Full page* reset it, and *Use this box on all pages* copies it to every page.
+3. Tick the pages to save (page 1 by default), pick the quality (300 dpi for printing) and click **Save tracing as PDF**. Each page keeps its true size, so 25 mm/s and 10 mm/mV stay correct when printed at 100%.
+
+*Report values* lists the text printed outside the box (rate, intervals, axes, interpretation); click a value to copy it. Scanned PDFs have no text to list.
+
+The PDF is read and saved in the browser; it is never uploaded, even from the Vercel site. The page is `public/ecg-strip-extractor.html` and its PDF libraries (pdf.js 3.11.174 and pdf-lib 1.17.1) are in `public/ecg-lib/`, so it works on the clinic network without internet. To use it on a computer from disk, copy the HTML file together with the `ecg-lib` folder; a copy without the folder loads the libraries from cdnjs (needs internet).
 
 ### Install as an app on tablets and phones
 
