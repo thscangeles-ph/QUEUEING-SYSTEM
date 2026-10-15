@@ -56,6 +56,7 @@ The queue follows the clinic's arrival flow:
 | Check-in poster | `/queue/poster` | Printable QR poster for the entrance |
 | Patient ticket | `/queue/ticket?id=…` | Live status on the patient's phone (opened after QR check-in, or from the link in the queue message) |
 | ECG Strip Extractor | `/ecg` | ECG staff: save only the tracing from an ECG PDF, without the patient details (see [ECG Strip Extractor](#ecg-strip-extractor)) |
+| DICOM Viewer | `/dicom` | Echo, X-ray and ultrasound staff: open DICOM files from a CD, USB or folder, play echo clips and measure (see [DICOM Viewer](#dicom-viewer)) |
 
 **Scheduled patients** get their queue number by scanning the QR poster at the entrance (advance registration). Their check-in shows as *QR check-in · verify* on the front desk until a concierge confirms it. The concierge can also register a scheduled patient manually by choosing *Scheduled (S)*.
 
@@ -111,6 +112,22 @@ The file carries its own copy of the queue rules (`lib/queue/reducer.ts`, `forma
 *Report values* lists the text printed outside the box (rate, intervals, axes, interpretation); click a value to copy it. Scanned PDFs have no text to list.
 
 The PDF is read and saved in the browser; it is never uploaded, even from the Vercel site. The page is `public/ecg-strip-extractor.html` and its PDF libraries (pdf.js 3.11.174 and pdf-lib 1.17.1) are in `public/ecg-lib/`, so it works on the clinic network without internet. To use it on a computer from disk, copy the HTML file together with the `ecg-lib` folder; a copy without the folder loads the libraries from cdnjs (needs internet).
+
+### DICOM Viewer
+
+`/dicom` (also *DICOM viewer ↗* on the Queue Board) opens DICOM images in the browser: 2D Echo clips, X-ray, ultrasound and studies exported to CD or USB.
+
+1. Drop DICOM files or a whole folder on the page, or use *Open files* / *Open folder*. Files that are not images (DICOMDIR, reports, viewer programs on the CD) are skipped. *Try a sample echo clip* shows how it works with a synthetic clip.
+2. The left column lists each patient's studies. Every echo clip is its own item and plays by itself at its recorded frame rate; single images of a series form a stack you scroll through. Encapsulated PDF reports open with *Open the PDF*.
+3. Tools: *Contrast* (drag; right-drag works with any tool), *Pan* (or middle-drag), *Zoom* (or Ctrl+wheel, or pinch), *Measure*, plus *Invert*, *Rotate*, *Flip* and *Reset*. The wheel or ← → change frame, Space plays or pauses, ↑ ↓ change item, H hides the patient's name and ID.
+4. **Measurements** use the calibration in the file: ultrasound regions (echo distances in cm or mm; on a Doppler strip, time in ms and velocities in cm/s), else pixel spacing, else the X-ray detector's spacing (marked *at detector*). Uncalibrated images measure in pixels. Pointing at a Doppler strip shows the velocity under the cursor.
+5. **Save image** saves the current frame as PNG at its own resolution, with contrast, rotation and measurements, but without the patient's name or ID.
+
+*Details* shows the patient, study and image information; *All tags* lists every DICOM tag with a search box.
+
+It reads uncompressed (implicit/explicit VR, big endian, deflated), JPEG Baseline, JPEG Lossless, JPEG-LS, JPEG 2000, HTJ2K and RLE images, in grayscale, RGB, YBR and palette colour. It cannot open 12-bit JPEG (Extended) or MPEG/H.264 video clips; those items say so. Files are read on the computer and never uploaded, even from the Vercel site. It is a quick reference viewer, not a diagnostic workstation.
+
+The page is `public/dicom-viewer.html`; its libraries (dicom-parser 1.8.21, jpeg-lossless-decoder-js 2.0.7, and the OpenJPEG 1.2.4 and CharLS 1.2.3 WebAssembly codecs from Cornerstone) are in `public/dicom-lib/`, so it works on the clinic network without internet. To use it from disk, copy the HTML file with the `dicom-lib` folder; without the folder it loads the libraries from jsDelivr (needs internet). Opened from disk, JPEG 2000 and JPEG-LS images always need internet, because browsers do not load WebAssembly from local files.
 
 ### Install as an app on tablets and phones
 
