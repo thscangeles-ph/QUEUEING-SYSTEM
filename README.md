@@ -125,9 +125,9 @@ The PDF is read and saved in the browser; it is never uploaded, even from the Ve
 
 *Details* shows the patient, study and image information; *All tags* lists every DICOM tag with a search box.
 
-It reads uncompressed (implicit/explicit VR, big endian, deflated), JPEG Baseline, JPEG Lossless, JPEG-LS, JPEG 2000, HTJ2K and RLE images, in grayscale, RGB, YBR and palette colour. It cannot open 12-bit JPEG (Extended) or MPEG/H.264 video clips; those items say so. Files are read on the computer and never uploaded, even from the Vercel site. It is a quick reference viewer, not a diagnostic workstation.
+It reads uncompressed (implicit/explicit VR, big endian, deflated), JPEG Baseline, JPEG Extended (12-bit), JPEG Lossless, JPEG-LS, JPEG 2000, HTJ2K and RLE images, in grayscale, RGB, YBR and palette colour. It cannot open MPEG/H.264 video clips; those items say so. Files are read on the computer and never uploaded, even from the Vercel site. It is a quick reference viewer, not a diagnostic workstation.
 
-The page is `public/dicom-viewer.html`; its libraries (dicom-parser 1.8.21, jpeg-lossless-decoder-js 2.0.7, and the OpenJPEG 1.2.4 and CharLS 1.2.3 WebAssembly codecs from Cornerstone) are in `public/dicom-lib/`, so it works on the clinic network without internet. To use it from disk, copy the HTML file with the `dicom-lib` folder; without the folder it loads the libraries from jsDelivr (needs internet). Opened from disk, JPEG 2000 and JPEG-LS images always need internet, because browsers do not load WebAssembly from local files.
+The page is `public/dicom-viewer.html`; its libraries (dicom-parser 1.8.21, jpeg-lossless-decoder-js 2.0.7, and the OpenJPEG 1.2.4, CharLS 1.2.3 and libjpeg-turbo 12-bit 0.4.7 WebAssembly codecs from Cornerstone) are in `public/dicom-lib/`, so it works on the clinic network without internet. To use it from disk, copy the HTML file with the `dicom-lib` folder; without the folder it loads the libraries from jsDelivr (needs internet). Opened from disk, JPEG 2000, JPEG-LS and 12-bit JPEG images always need internet, because browsers do not load WebAssembly from local files.
 
 ### Install as an app on tablets and phones
 
