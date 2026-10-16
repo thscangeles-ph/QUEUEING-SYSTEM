@@ -109,7 +109,11 @@ The file carries its own copy of the queue rules (`lib/queue/reducer.ts`, `forma
 2. The box finds the pink grid paper by itself (*Grid found*). Drag it, resize it by its handles, or draw a new one; *Auto-detect tracing* and *Full page* reset it, and *Use this box on all pages* copies it to every page.
 3. Tick the pages to save (page 1 by default), pick the quality (300 dpi for printing) and click **Save tracing as PDF**. Each page keeps its true size, so 25 mm/s and 10 mm/mV stay correct when printed at 100%.
 
-*Report values* lists the text printed outside the box (rate, intervals, axes, interpretation); click a value to copy it. Scanned PDFs have no text to list.
+*Report values* lists the text printed outside the box (rate, intervals, axes, interpretation, with QT/QTc split into separate QT and QTc values); click a value to copy it. Scanned PDFs have no text to list. *Clear all* removes the loaded ECG.
+
+Each panel can be moved by its ⠿ handle, resized from its bottom-right corner and locked with its padlock; *Reset layout* puts them back. *Full screen* (or the F key) fills the screen.
+
+The page is a copy of the app in [thscangeles-ph/ecg-strip-extractor](https://github.com/thscangeles-ph/ecg-strip-extractor) (`src/index.html`), with the Queue Board link and the local `ecg-lib/` loading added. Bring later changes over from there.
 
 The PDF is read and saved in the browser; it is never uploaded, even from the Vercel site. The page is `public/ecg-strip-extractor.html` and its PDF libraries (pdf.js 3.11.174 and pdf-lib 1.17.1) are in `public/ecg-lib/`, so it works on the clinic network without internet. To use it on a computer from disk, copy the HTML file together with the `ecg-lib` folder; a copy without the folder loads the libraries from cdnjs (needs internet).
 
