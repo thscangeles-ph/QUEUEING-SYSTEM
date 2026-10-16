@@ -12,10 +12,6 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Vendored minified pdf.js and pdf-lib for the ECG Strip Extractor.
-    "public/ecg-lib/**",
-    // Vendored DICOM parser and image codecs for the DICOM Viewer.
-    "public/dicom-lib/**",
   ]),
   {
     files: ["components/ui/**/*.{ts,tsx}", "hooks/use-mobile.ts"],
