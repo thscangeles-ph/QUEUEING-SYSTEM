@@ -438,8 +438,10 @@ const fail = (error) => ({ ok: false, error });
 function makeStep(station, now, first) {
     return { id: newId(), station, status: first ? "waiting" : "pending", queuedAt: first ? now : null, calledAt: null, doneAt: null, calls: 0 };
 }
+/** Where every call sends the patient: the Concierge guides them on to the room or station. */
+const CALL_DESTINATION = "the Concierge";
 function announce(state, entry) {
-    state.announcements = [...state.announcements, { id: newId(), ...entry }].slice(-MAX_ANNOUNCEMENTS);
+    state.announcements = [...state.announcements, { id: newId(), ...entry, destination: CALL_DESTINATION }].slice(-MAX_ANNOUNCEMENTS);
 }
 function validateStations(state, codes) {
     if (!Array.isArray(codes) || !codes.length)
@@ -640,7 +642,7 @@ function run(state, action, now) {
             visit.regCalledAt = now;
             visit.regCalls += 1;
             const label = arrivalLabel(visit);
-            announce(state, { at: now, kind: "registration", label, station: "DESK", destination: "the Front Desk for registration" });
+            announce(state, { at: now, kind: "registration", label, station: "DESK" });
             return { ok: true, visitId: visit.id, label };
         }
         case "register": {
@@ -731,7 +733,7 @@ function run(state, action, now) {
             step.calledAt = now;
             step.calls += 1;
             const label = ticketLabel(target, station.code);
-            announce(state, { at: now, kind: "ticket", label, station: station.code, destination: station.location || station.name });
+            announce(state, { at: now, kind: "ticket", label, station: station.code });
             return { ok: true, visitId: target.id, label };
         }
         case "recall": {
@@ -739,10 +741,9 @@ function run(state, action, now) {
             const step = visit && currentStep(visit);
             if (!visit || !step || step.status !== "called")
                 return fail("That patient has not been called yet.");
-            const station = findStation(state, step.station);
             step.calls += 1;
             step.calledAt = now;
-            announce(state, { at: now, kind: "ticket", label: ticketLabel(visit, step.station), station: step.station, destination: station?.location || station?.name || step.station });
+            announce(state, { at: now, kind: "ticket", label: ticketLabel(visit, step.station), station: step.station });
             return { ok: true };
         }
         case "complete": {
@@ -792,7 +793,7 @@ function run(state, action, now) {
             const index = visit.steps.findIndex((item) => item.status !== "done");
             visit.steps.splice(index < 0 ? visit.steps.length : index, 0, step);
             const label = ticketLabel(visit, station.code);
-            announce(state, { at: now, kind: "ticket", label, station: station.code, destination: station.location || station.name });
+            announce(state, { at: now, kind: "ticket", label, station: station.code });
             return { ok: true, visitId: visit.id, label };
         }
         case "miss": {
@@ -952,13 +953,15 @@ function queueMessage(state, visit, trackingUrl) {
     const firstName = visit.name.split(" ")[0] || "there";
     const service = step ? stationName(state, step.station) : "your visit";
     const lines = [
-        `${clinicNameOf(state.settings)}: Hi ${firstName}, your queue number today is ${currentLabel(visit)} for ${service}.`,
+        `${clinicNameOf(state.settings)}: Hi ${firstName}, your queue number today is ${arrivalLabel(visit)} for ${service}.`,
         "Please stay in the lobby and watch the TV screen for your number. Keep this same number for your consultation, procedures and laboratory tests.",
     ];
     if (trackingUrl)
         lines.push(`Live status: ${trackingUrl}`);
     return lines.join(" ");
 }
+/** The number patients see and hear for a call: 07 for 07-C1-W, HMO-07 for HMO-07-C1 (station and W/S are for staff). */
+const calledNumber = (label) => /^(HMO-)?\d+/.exec(label)?.[0] ?? label;
 /** Reads a queue number aloud in a way TTS voices pronounce clearly, e.g. "zero 1, C 1, W". */
 function spokenLabel(label) {
     return label
@@ -977,12 +980,15 @@ function spokenLabelTagalog(label) {
 /** What the TV says for a call, in the clinic's announcement language(s). */
 function announcementSpeech(item, language = "en") {
     const card = item.label.replace(/\D/g, "");
+    const number = calledNumber(item.label);
+    // "the Concierge" in English is "sa Concierge" in Tagalog.
+    const place = item.destination.replace(/^the /i, "");
     const english = item.kind === "card"
-        ? { lang: "en-US", text: `Card number ${card}. Please proceed to the ${item.destination}.` }
-        : { lang: "en-US", text: `Queue number, ${spokenLabel(item.label)}. Please proceed to ${item.destination}.` };
+        ? { lang: "en-US", text: `Card number ${card}. Please proceed to ${item.destination}.` }
+        : { lang: "en-US", text: `Queue number, ${spokenLabel(number)}. Please proceed to ${item.destination}.` };
     const tagalog = item.kind === "card"
-        ? { lang: "fil-PH", text: `Card number ${spokenLabelTagalog(card)}. Pakipunta po sa Front Desk.` }
-        : { lang: "fil-PH", text: `Numero ${spokenLabelTagalog(item.label)}. Pakipunta po sa ${item.kind === "registration" ? "Front Desk para magpa-rehistro" : item.destination}.` };
+        ? { lang: "fil-PH", text: `Card number ${spokenLabelTagalog(card)}. Pakipunta po sa ${place}.` }
+        : { lang: "fil-PH", text: `Numero ${spokenLabelTagalog(number)}. Pakipunta po sa ${place}.` };
     return language === "en" ? [english] : language === "fil" ? [tagalog] : [english, tagalog];
 }
 /** Time to leave for each call so two languages never talk over the next call. */
@@ -1990,7 +1996,7 @@ function downloadQueueReport(xlsx, state, now) {
     // A new call covers the video so patients who are watching it don't miss their number.
     const over = $("#vid-over");
     if (over) {
-      const html = fresh ? `<div><p class="k">Now calling</p><p class="num mono">${esc(latest.label)}</p><p class="go">Please proceed to <b>${esc(latest.destination)}</b></p></div>` : "";
+      const html = fresh ? `<div><p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p><p class="go">Please proceed to <b>${esc(latest.destination)}</b></p></div>` : "";
       if (over.dataset.label !== (fresh ? latest.id : "")) { over.innerHTML = html; over.dataset.label = fresh ? latest.id : ""; fitNumbers(); }
       over.classList.toggle("hidden", !fresh);
     }
@@ -2125,14 +2131,14 @@ function downloadQueueReport(xlsx, state, now) {
     const stations = state.settings.stations.filter((s) => s.active);
     const latest = openCall(state);
     $("#hero").innerHTML = latest
-      ? `<p class="k">Now calling</p><p class="num mono">${esc(latest.label)}</p><p class="go">Please proceed to <b>${esc(latest.destination)}</b></p>`
+      ? `<p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p><p class="go">Please proceed to <b>${esc(latest.destination)}</b></p>`
       : `<p class="k">Welcome</p><p class="go" style="max-width:80%">Please wait for your queue number to appear on this screen.</p>`;
     if (fresh.length) { const hero = $("#hero"); hero.classList.remove("fresh"); void hero.offsetWidth; }
     // With more stations than fit (two rows, or one beside the video), show only the stations serving someone now.
     const maxTiles = mountedVideo ? 5 : 6;
     const tileStations = stations.length <= maxTiles ? stations : stations.filter((s) => servingAt(state, s.code).length).slice(0, maxTiles);
     $("#tiles").style.gridTemplateColumns = `repeat(${Math.min(Math.max(tileStations.length, 1), mountedVideo ? 5 : 3)}, minmax(0, 1fr))`;
-    $("#tiles").innerHTML = tileStations.length ? tileStations.map((s) => { const v = servingAt(state, s.code)[0]; return `<div class="tile"><p class="s"><b class="mono">${esc(s.code)}</b> · ${esc(s.name)}</p><p class="num mono ${v ? "" : "none"}">${v ? esc(ticketLabel(v, s.code)) : "—"}</p></div>`; }).join("") : `<div class="tile"><p class="s">Now serving</p><p class="num mono none">—</p></div>`;
+    $("#tiles").innerHTML = tileStations.length ? tileStations.map((s) => { const v = servingAt(state, s.code)[0]; return `<div class="tile"><p class="s"><b class="mono">${esc(s.code)}</b> · ${esc(s.name)}</p><p class="num mono ${v ? "" : "none"}">${v ? esc(arrivalLabel(v)) : "—"}</p></div>`; }).join("") : `<div class="tile"><p class="s">Now serving</p><p class="num mono none">—</p></div>`;
     const toRegister = waitingToRegister(state);
     const registering = toRegister.filter((v) => v.regCalledAt).sort((a, b) => b.regCalledAt - a.regCalledAt)[0];
     const nextReg = toRegister.filter((v) => v !== registering);
@@ -2143,7 +2149,7 @@ function downloadQueueReport(xlsx, state, now) {
     const lineStations = stations.length <= 5 ? stations : stations.filter((s) => waitingFor(state, s.code).length);
     $("#next").innerHTML = !lineStations.length ? `<p style="color:#cbbd9d;font-size:1.3vw;margin:1vh 0 0">No one is waiting for a station.</p>` : lineStations.map((s) => {
       const waiting = waitingFor(state, s.code);
-      return `<div class="nl one"><p class="h">${esc(s.name)}<small>${waiting.length} waiting</small></p>${waiting.length ? `<b class="mono">${esc(ticketLabel(waiting[0], s.code))}</b>` : "<i>—</i>"}</div>`;
+      return `<div class="nl one"><p class="h">${esc(s.name)}<small>${waiting.length} waiting</small></p>${waiting.length ? `<b class="mono">${esc(arrivalLabel(waiting[0]))}</b>` : "<i>—</i>"}</div>`;
     }).join("");
     const ticker = $("#ticker");
     if (ticker.textContent !== state.settings.ticker) ticker.textContent = state.settings.ticker;
@@ -2209,7 +2215,7 @@ function downloadQueueReport(xlsx, state, now) {
         if (!("speechSynthesis" in window)) { toast("This browser cannot speak announcements.", true); break; }
         const sample = state.settings.stations.find((s) => s.active) ?? { code: "C1", location: "Clinic Room 1" };
         speechSynthesis.cancel();
-        speak(announcementSpeech({ kind: "ticket", label: `07-${sample.code}-W`, destination: sample.location || sample.name }, draft?.announceLanguage ?? state.settings.announceLanguage));
+        speak(announcementSpeech({ kind: "ticket", label: `07-${sample.code}-W`, destination: CALL_DESTINATION }, draft?.announceLanguage ?? state.settings.announceLanguage));
         break;
       }
       case "deskTab":

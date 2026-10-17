@@ -1,4 +1,4 @@
-import { clinicNameOf, currentLabel, currentStep, findStation, isRegistered, TIME_ZONE, waitingFor } from "./reducer";
+import { arrivalLabel, clinicNameOf, currentStep, findStation, isRegistered, TIME_ZONE, waitingFor } from "./reducer";
 import type { Announcement, AnnounceLanguage, QueueState, Station, Visit } from "./types";
 
 export type VisitStatus = "registration" | "waiting" | "called" | "missed" | "completed" | "cancelled" | "pending";
@@ -56,7 +56,7 @@ export function queueMessage(state: QueueState, visit: Visit, trackingUrl?: stri
   const firstName = visit.name.split(" ")[0] || "there";
   const service = step ? stationName(state, step.station) : "your visit";
   const lines = [
-    `${clinicNameOf(state.settings)}: Hi ${firstName}, your queue number today is ${currentLabel(visit)} for ${service}.`,
+    `${clinicNameOf(state.settings)}: Hi ${firstName}, your queue number today is ${arrivalLabel(visit)} for ${service}.`,
     "Please stay in the lobby and watch the TV screen for your number. Keep this same number for your consultation, procedures and laboratory tests.",
   ];
   if (trackingUrl) lines.push(`Live status: ${trackingUrl}`);
@@ -64,6 +64,9 @@ export function queueMessage(state: QueueState, visit: Visit, trackingUrl?: stri
 }
 
 /** Reads a queue number aloud in a way TTS voices pronounce clearly, e.g. "zero 1, C 1, W". */
+/** The number patients see and hear for a call: 07 for 07-C1-W, HMO-07 for HMO-07-C1 (station and W/S are for staff). */
+export const calledNumber = (label: string) => /^(HMO-)?\d+/.exec(label)?.[0] ?? label;
+
 export function spokenLabel(label: string) {
   return label
     .split("-")
@@ -86,12 +89,15 @@ export type SpokenLine = { text: string; lang: "en-US" | "fil-PH" };
 /** What the TV says for a call, in the clinic's announcement language(s). */
 export function announcementSpeech(item: Announcement, language: AnnounceLanguage = "en"): SpokenLine[] {
   const card = item.label.replace(/\D/g, "");
+  const number = calledNumber(item.label);
+  // "the Concierge" in English is "sa Concierge" in Tagalog.
+  const place = item.destination.replace(/^the /i, "");
   const english: SpokenLine = item.kind === "card"
-    ? { lang: "en-US", text: `Card number ${card}. Please proceed to the ${item.destination}.` }
-    : { lang: "en-US", text: `Queue number, ${spokenLabel(item.label)}. Please proceed to ${item.destination}.` };
+    ? { lang: "en-US", text: `Card number ${card}. Please proceed to ${item.destination}.` }
+    : { lang: "en-US", text: `Queue number, ${spokenLabel(number)}. Please proceed to ${item.destination}.` };
   const tagalog: SpokenLine = item.kind === "card"
-    ? { lang: "fil-PH", text: `Card number ${spokenLabelTagalog(card)}. Pakipunta po sa Front Desk.` }
-    : { lang: "fil-PH", text: `Numero ${spokenLabelTagalog(item.label)}. Pakipunta po sa ${item.kind === "registration" ? "Front Desk para magpa-rehistro" : item.destination}.` };
+    ? { lang: "fil-PH", text: `Card number ${spokenLabelTagalog(card)}. Pakipunta po sa ${place}.` }
+    : { lang: "fil-PH", text: `Numero ${spokenLabelTagalog(number)}. Pakipunta po sa ${place}.` };
   return language === "en" ? [english] : language === "fil" ? [tagalog] : [english, tagalog];
 }
 
