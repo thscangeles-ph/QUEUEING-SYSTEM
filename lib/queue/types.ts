@@ -121,7 +121,7 @@ export type QueueAction =
   | { type: "arrive"; kind: PatientKind; priority?: boolean; newPatient?: boolean }
   | { type: "callRegistration"; visitId?: string; hmo?: boolean }
   | { type: "register"; visitId?: string; visit: VisitInput }
-  | { type: "selfCheckIn"; visit: Omit<VisitInput, "kind" | "card"> }
+  | { type: "qrArrive" }
   | { type: "verify"; visitId: string }
   | { type: "updateVisit"; visitId: string; name?: string; mobile?: string; notes?: string; priority?: boolean; newPatient?: boolean }
   | { type: "markMessaged"; visitId: string }
@@ -140,4 +140,4 @@ export type QueueAction =
 
 export type ActionResult = { ok: true; visitId?: string; label?: string; card?: number } | { ok: false; error: string };
 
-export const PUBLIC_ACTIONS: QueueAction["type"][] = ["selfCheckIn", "tvStatus"];
+export const PUBLIC_ACTIONS: QueueAction["type"][] = ["qrArrive", "tvStatus"];

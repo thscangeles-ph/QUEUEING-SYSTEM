@@ -666,18 +666,14 @@ function run(state, action, now) {
                 return fail(problem);
             return { ok: true, visitId: visit.id, label: currentLabel(visit) };
         }
-        case "selfCheckIn": {
-            const codes = Array.isArray(action.visit.stations) ? action.visit.stations : [];
-            const first = findStation(state, String(codes[0]));
-            if (!first?.selfCheckIn)
-                return fail("Choose the doctor or service you are scheduled for.");
-            const visit = newVisit(state, "S", Boolean(action.visit.priority), Boolean(action.visit.newPatient), now, "self");
+        case "qrArrive": {
+            // The QR code at the Concierge only hands out an arrival number, like the desk's Queue number button.
+            // The Concierge calls it and registers the patient (walk-in or scheduled, services) as usual.
+            const visit = newVisit(state, "W", false, false, now, "self");
             if (typeof visit === "string")
                 return fail(visit);
-            const problem = registerVisit(state, visit, { ...action.visit, kind: "S" }, now);
-            if (problem)
-                return fail(problem);
-            return { ok: true, visitId: visit.id, label: currentLabel(visit) };
+            visit.verified = true;
+            return { ok: true, visitId: visit.id, label: arrivalLabel(visit) };
         }
         case "verify": {
             const visit = findVisit(action.visitId);
@@ -1610,7 +1606,7 @@ function downloadQueueReport(xlsx, state, now) {
     $("#arrivals").innerHTML = waitingReg.length ? waitingReg.map((v) => `
       <li class="${v.regCalledAt ? "called" : ""}">
         <span class="chip-num wide mono">${esc(arrivalLabel(v))}</span>
-        <div class="info"><b>${v.regCalledAt ? `Called${v.regCalls > 1 ? ` ×${v.regCalls}` : ""}` : "Waiting"}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</b><span>Arrived ${formatTime(v.createdAt)} · ${formatWait(minutesSince(v.createdAt, now))}</span></div>
+        <div class="info"><b>${v.regCalledAt ? `Called${v.regCalls > 1 ? ` ×${v.regCalls}` : ""}` : "Waiting"}${v.source === "self" ? ` <span class="tag" title="Took this number with the QR code">📱 QR</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</b><span>Arrived ${formatTime(v.createdAt)} · ${formatWait(minutesSince(v.createdAt, now))}</span></div>
         <button class="btn icon outline" title="Call to register" aria-label="Call ${esc(arrivalLabel(v))} to register" data-act="callReg" data-id="${v.id}">🔔</button>
         <button class="btn sm" data-act="registerArrival" data-id="${v.id}">Register</button>
         <button class="btn icon ghost" title="Remove number" aria-label="Remove ${esc(arrivalLabel(v))}" data-act="removeArrival" data-id="${v.id}">✕</button>
@@ -1709,13 +1705,12 @@ function downloadQueueReport(xlsx, state, now) {
       <div class="cfg-head"><div><h1>System configuration</h1><p>Every Queue Board setting in one place. Saved changes reach every computer, the stations and the lobby TV within a few seconds.</p></div></div>
       <section class="panel"><div class="panel-h"><div><h2>Stations</h2><p>Station codes become part of the queue number, e.g. C1 in 01-C1-W. Set a station inactive to hide it without losing it.</p></div></div>
         <div class="panel-b">
-          <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th>QR check-in</th><th>Active</th><th></th></tr></thead><tbody>
+          <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th>Active</th><th></th></tr></thead><tbody>
           ${draft.stations.map((s, i) => `<tr>
             <td><input type="text" class="mono" style="width:76px;font-weight:700" maxlength="4" value="${esc(s.code)}" data-set="code" data-index="${i}" aria-label="Station code"></td>
             <td><input type="text" value="${esc(s.name)}" data-set="name" data-index="${i}" aria-label="Station name"></td>
             <td><input type="text" value="${esc(s.location)}" placeholder="e.g. Clinic Room 1" data-set="location" data-index="${i}" aria-label="Location"></td>
             <td><select data-set="service" data-index="${i}" aria-label="Service type">${services.map(([v, l]) => `<option value="${v}" ${s.service === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
-            <td style="text-align:center"><input type="checkbox" ${s.selfCheckIn ? "checked" : ""} data-set="selfCheckIn" data-index="${i}" aria-label="Patients can choose this station at QR check-in" title="Patients can choose this station at QR check-in"></td>
             <td style="text-align:center"><input type="checkbox" ${s.active ? "checked" : ""} data-set="active" data-index="${i}" aria-label="Active"></td>
             <td style="text-align:right"><button class="btn icon ghost" ${inUse(s.code) ? "disabled title=\"Patients are still queued here — set it inactive instead\"" : "title=\"Remove station\""} data-act="removeStation" data-index="${i}" aria-label="Remove station">✕</button></td>
           </tr>`).join("")}
