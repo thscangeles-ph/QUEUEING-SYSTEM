@@ -30,7 +30,7 @@ The TV startup files in `tv-setup` open the local server on that computer (setup
 Notes:
 - Give the server computer a fixed address (a DHCP reservation in the router), so the address does not change.
 - If Windows treats the clinic network as **Public**, the other computers cannot connect: in Settings → Network & Internet, set it to **Private**. Setup warns about this.
-- Patients' phones must be on the clinic Wi-Fi to use the QR code. Print the QR poster from the local server so it shows the local address.
+- Patients' phones must be on the clinic Wi-Fi to use the QR code. A poster opened on the server computer itself (`http://localhost:3000`) puts the computer's network address in the QR code, not `localhost` (which on a phone means the phone), and prints *Connect to the clinic Wi-Fi first*; if the computer has several addresses, choose the clinic Wi-Fi one above the poster.
 - On plain `http://192…` addresses browsers turn off a few extras: copying the queue message uses a copy box, the screen can sleep (set the TV computer to never sleep) and the board cannot be installed as an app. The TV opened on the server computer (`localhost`) is not affected.
 - The Vercel website and the local server keep separate queues. Use one or the other.
 
