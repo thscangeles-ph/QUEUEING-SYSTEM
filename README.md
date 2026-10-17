@@ -75,7 +75,7 @@ The queue follows the clinic's arrival flow:
 | Check-in poster | `/queue/poster` | Printable QR poster for the entrance |
 | Patient ticket | `/queue/ticket?id=…` | Live status on the patient's phone (opened after taking a number with the QR code, or from the link in the queue message) |
 
-**QR code at the Concierge:** it is only for getting a queue number. The patient scans it and taps *Get my queue number*; their phone shows the next number (e.g. `07`) and a live page: patients ahead, then *It's your turn! Please proceed to the Concierge for registration* when called. The number joins *Waiting to register* on the front desk with a *📱 QR* tag, and the Concierge registers the patient as usual (walk-in or scheduled, services). A phone that already has today's number sees it again instead of taking another.
+**QR code at the Concierge:** it is only for getting a queue number. The patient scans it and taps *Get my queue number*; their phone shows the next number (e.g. `07`) and a live page: patients ahead, then *It's your turn! Please proceed to the Concierge* when called. The number joins *Waiting to register* on the front desk with a *📱 QR* tag, and the Concierge registers the patient as usual (walk-in or scheduled, services). A phone that already has today's number sees it again instead of taking another.
 
 **One-time message:** *Copy message* on the front desk copies an SMS/Viber text with the patient's queue number (and a live-status link in shared mode) and marks the patient as messaged, so the message is sent only once.
 
@@ -110,7 +110,7 @@ Screens refresh every 2 seconds. With Upstash, each open screen makes about one 
 
 **YouTube on the TV:** YouTube refuses to play videos on a page opened from disk (error 153, "video player configuration error"), because the page has no web address. So when the file is opened from disk, the TV loads the video through `youtube-frame.html` on the sync server (the Vercel site by default). The TV needs internet for this.
 
-**Calls on the TV:** every call shows and says only the patient's number, `07` (or `HMO-07` for HMO patients), and sends the patient straight to the station that called them: *Queue number, 0 7. Please proceed to Consultation 1.* Arrival numbers are called with *Please proceed to the Concierge for registration*. The patient's phone shows the same number. Staff screens keep the full ticket, e.g. `07-C1-W`, so staff still see the station and walk-in or scheduled.
+**Calls on the TV:** every call shows and says only the patient's number, `07` (or `HMO-07` for HMO patients), and sends the patient straight to the station that called them: *Queue number, 0 7. Please proceed to Consultation 1.* Arrival numbers are called with *Please proceed to the Concierge*. On the TV and the patient's phone the destination is shown in a highlighted box. The patient's phone shows the same number. Staff screens keep the full ticket, e.g. `07-C1-W`, so staff still see the station and walk-in or scheduled.
 
 **Tagalog announcements:** the TV reads each call in English only by default; in Settings it can read English, then Tagalog (e.g. "Numero zero seven. Pakipunta po sa Consultation 1."). Choose English only (the default), both, or Tagalog only in Settings, and use *Test announcement* to hear it. The Tagalog voice comes from the TV computer's browser: Microsoft Edge includes natural Filipino voices, while Chrome on Windows usually has none and reads the Tagalog with its default voice (the TV shows a note when that happens).
 

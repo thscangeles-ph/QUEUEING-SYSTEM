@@ -91,7 +91,7 @@ export function announcementSpeech(item: Announcement, language: AnnounceLanguag
   const card = item.label.replace(/\D/g, "");
   const number = calledNumber(item.label);
   // "the Concierge" in English is "sa Concierge" in Tagalog.
-  const place = item.kind === "registration" ? "Concierge para magpa-rehistro" : item.destination.replace(/^the /i, "");
+  const place = item.destination.replace(/^the /i, "");
   const english: SpokenLine = item.kind === "card"
     ? { lang: "en-US", text: `Card number ${card}. Please proceed to ${item.destination}.` }
     : { lang: "en-US", text: `Queue number, ${spokenLabel(number)}. Please proceed to ${item.destination}.` };

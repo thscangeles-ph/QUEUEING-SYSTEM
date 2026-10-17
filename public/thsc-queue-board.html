@@ -440,11 +440,11 @@ const fail = (error) => ({ ok: false, error });
 function makeStep(station, now, first) {
     return { id: newId(), station, status: first ? "waiting" : "pending", queuedAt: first ? now : null, calledAt: null, doneAt: null, calls: 0 };
 }
-/** Where a call sends the patient: arrival numbers to the Concierge to register, everyone else straight to the station that called them. */
+/** Where a call sends the patient: arrival numbers to the Concierge (to register), everyone else straight to the station that called them. */
 function callDestination(state, entry) {
     if (entry.kind === "ticket")
         return findStation(state, entry.station)?.name ?? entry.station;
-    return entry.kind === "registration" ? "the Concierge for registration" : "the Concierge";
+    return "the Concierge";
 }
 function announce(state, entry) {
     state.announcements = [...state.announcements, { id: newId(), ...entry, destination: callDestination(state, entry) }].slice(-MAX_ANNOUNCEMENTS);
@@ -984,7 +984,7 @@ function announcementSpeech(item, language = "en") {
     const card = item.label.replace(/\D/g, "");
     const number = calledNumber(item.label);
     // "the Concierge" in English is "sa Concierge" in Tagalog.
-    const place = item.kind === "registration" ? "Concierge para magpa-rehistro" : item.destination.replace(/^the /i, "");
+    const place = item.destination.replace(/^the /i, "");
     const english = item.kind === "card"
         ? { lang: "en-US", text: `Card number ${card}. Please proceed to ${item.destination}.` }
         : { lang: "en-US", text: `Queue number, ${spokenLabel(number)}. Please proceed to ${item.destination}.` };
@@ -1987,11 +1987,8 @@ function downloadQueueReport(xlsx, state, now) {
   }
   window.addEventListener("resize", () => { if (view === "display") fitNumbers(); });
 
-  /** "Please proceed to" with the destination in a highlighted box; registration boxes just the Concierge. */
-  const goLine = (item) => {
-    const [place, rest] = item.kind === "registration" && item.destination.endsWith(" for registration") ? [item.destination.slice(0, -" for registration".length), " for registration"] : [item.destination, ""];
-    return `<p class="go">Please proceed to <b>${esc(place)}</b>${esc(rest)}</p>`;
-  };
+  /** "Please proceed to" with the destination in a highlighted box (calls made before this change may still end in "for registration"). */
+  const goLine = (item) => `<p class="go">Please proceed to <b>${esc(item.destination.replace(/ for registration$/, ""))}</b></p>`;
   function tick() {
     const now = serverNow();
     $("#tv-time").textContent = clock.format(now);
