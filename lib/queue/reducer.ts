@@ -84,11 +84,14 @@ function makeStep(station: string, now: number, first: boolean): Step {
   return { id: newId(), station, status: first ? "waiting" : "pending", queuedAt: first ? now : null, calledAt: null, doneAt: null, calls: 0 };
 }
 
-/** Where every call sends the patient: the Concierge guides them on to the room or station. */
-export const CALL_DESTINATION = "the Concierge";
+/** Where a call sends the patient: arrival numbers to the Concierge to register, everyone else straight to the station that called them. */
+export function callDestination(state: QueueState, entry: Pick<Announcement, "kind" | "station">) {
+  if (entry.kind === "ticket") return findStation(state, entry.station)?.name ?? entry.station;
+  return entry.kind === "registration" ? "the Concierge for registration" : "the Concierge";
+}
 
 function announce(state: QueueState, entry: Omit<Announcement, "id" | "destination">) {
-  state.announcements = [...state.announcements, { id: newId(), ...entry, destination: CALL_DESTINATION }].slice(-MAX_ANNOUNCEMENTS);
+  state.announcements = [...state.announcements, { id: newId(), ...entry, destination: callDestination(state, entry) }].slice(-MAX_ANNOUNCEMENTS);
 }
 
 function validateStations(state: QueueState, codes: unknown): string[] | string {

@@ -438,10 +438,14 @@ const fail = (error) => ({ ok: false, error });
 function makeStep(station, now, first) {
     return { id: newId(), station, status: first ? "waiting" : "pending", queuedAt: first ? now : null, calledAt: null, doneAt: null, calls: 0 };
 }
-/** Where every call sends the patient: the Concierge guides them on to the room or station. */
-const CALL_DESTINATION = "the Concierge";
+/** Where a call sends the patient: arrival numbers to the Concierge to register, everyone else straight to the station that called them. */
+function callDestination(state, entry) {
+    if (entry.kind === "ticket")
+        return findStation(state, entry.station)?.name ?? entry.station;
+    return entry.kind === "registration" ? "the Concierge for registration" : "the Concierge";
+}
 function announce(state, entry) {
-    state.announcements = [...state.announcements, { id: newId(), ...entry, destination: CALL_DESTINATION }].slice(-MAX_ANNOUNCEMENTS);
+    state.announcements = [...state.announcements, { id: newId(), ...entry, destination: callDestination(state, entry) }].slice(-MAX_ANNOUNCEMENTS);
 }
 function validateStations(state, codes) {
     if (!Array.isArray(codes) || !codes.length)
@@ -982,7 +986,7 @@ function announcementSpeech(item, language = "en") {
     const card = item.label.replace(/\D/g, "");
     const number = calledNumber(item.label);
     // "the Concierge" in English is "sa Concierge" in Tagalog.
-    const place = item.destination.replace(/^the /i, "");
+    const place = item.kind === "registration" ? "Concierge para magpa-rehistro" : item.destination.replace(/^the /i, "");
     const english = item.kind === "card"
         ? { lang: "en-US", text: `Card number ${card}. Please proceed to ${item.destination}.` }
         : { lang: "en-US", text: `Queue number, ${spokenLabel(number)}. Please proceed to ${item.destination}.` };
@@ -2215,7 +2219,7 @@ function downloadQueueReport(xlsx, state, now) {
         if (!("speechSynthesis" in window)) { toast("This browser cannot speak announcements.", true); break; }
         const sample = state.settings.stations.find((s) => s.active) ?? { code: "C1", location: "Clinic Room 1" };
         speechSynthesis.cancel();
-        speak(announcementSpeech({ kind: "ticket", label: `07-${sample.code}-W`, destination: CALL_DESTINATION }, draft?.announceLanguage ?? state.settings.announceLanguage));
+        speak(announcementSpeech({ kind: "ticket", label: `07-${sample.code}-W`, destination: sample.name ?? sample.code }, draft?.announceLanguage ?? state.settings.announceLanguage));
         break;
       }
       case "deskTab":
