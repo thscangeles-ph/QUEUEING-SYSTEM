@@ -250,7 +250,9 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(240,200,100,.55); } 50% { box-shadow: 0 0 0 1.4vw rgba(240,200,100,0); } }
 .hero .k { color: var(--gold-2); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 1.6vw; margin: 0; }
 .hero .num { max-width: 100%; white-space: nowrap; overflow: hidden; font-size: 11.5vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; letter-spacing: .03em; }
-.hero .go { font-size: 2.2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; } .hero .go b { color: #fff; }
+.hero .go { font-size: 2.2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; }
+/* Where to go: a gold box beside "Please proceed to" so patients spot their station at a glance. */
+.hero .go b, .vid-over .go b { display: inline-block; vertical-align: middle; margin: .15em 0 .15em .3em; padding: .15em .65em; border-radius: .4em; background: var(--gold-2); color: var(--brown); font-weight: 800; box-shadow: 0 0 0 .14em rgba(240,200,100,.3); }
 .tiles { flex: 1; min-height: 0; display: grid; gap: 1vw; grid-auto-rows: 1fr; }
 .tile { border: 1px solid var(--brown-2); background: var(--brown-3); border-radius: 1vw; padding: 1vh 1vw; min-width: 0; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
 .tile p { margin: 0; } .tile .s { color: #cbbd9d; font-size: 1.15vw; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .tile .s b { color: var(--gold-2); }
@@ -276,7 +278,7 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .vid-over { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(31,26,18,.85); text-align: center; }
 .vid-over > div { border-radius: 1.5vw; border: .25vw solid var(--gold-2); background: #4a3612; padding: 4vh 4vw; animation: pulse 1.6s ease-out 6; }
 .vid-over .k { color: var(--gold-2); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 1.6vw; margin: 0; }
-.vid-over .num { white-space: nowrap; font-size: 10vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; } .vid-over .go { font-size: 2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; } .vid-over .go b { color: #fff; }
+.vid-over .num { white-space: nowrap; font-size: 10vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; } .vid-over .go { font-size: 2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; }
 .hero.compact { flex: none; padding: 2vh 1vw; } .hero.compact .k { font-size: 1.2vw; } .hero.compact .num { font-size: 6.4vw; } .hero.compact .go { font-size: 1.4vw; }
 .tiles.small { flex: none; } .tiles.small .tile { padding: 1.2vh .7vw; } .tiles.small .tile .s { font-size: .95vw; } .tiles.small .tile .num { font-size: 3vw; }
 .tv-right .tv-next { flex: 1; }
@@ -438,11 +440,11 @@ const fail = (error) => ({ ok: false, error });
 function makeStep(station, now, first) {
     return { id: newId(), station, status: first ? "waiting" : "pending", queuedAt: first ? now : null, calledAt: null, doneAt: null, calls: 0 };
 }
-/** Where a call sends the patient: arrival numbers to the Concierge to register, everyone else straight to the station that called them. */
+/** Where a call sends the patient: arrival numbers to the Concierge (to register), everyone else straight to the station that called them. */
 function callDestination(state, entry) {
     if (entry.kind === "ticket")
         return findStation(state, entry.station)?.name ?? entry.station;
-    return entry.kind === "registration" ? "the Concierge for registration" : "the Concierge";
+    return "the Concierge";
 }
 function announce(state, entry) {
     state.announcements = [...state.announcements, { id: newId(), ...entry, destination: callDestination(state, entry) }].slice(-MAX_ANNOUNCEMENTS);
@@ -666,18 +668,14 @@ function run(state, action, now) {
                 return fail(problem);
             return { ok: true, visitId: visit.id, label: currentLabel(visit) };
         }
-        case "selfCheckIn": {
-            const codes = Array.isArray(action.visit.stations) ? action.visit.stations : [];
-            const first = findStation(state, String(codes[0]));
-            if (!first?.selfCheckIn)
-                return fail("Choose the doctor or service you are scheduled for.");
-            const visit = newVisit(state, "S", Boolean(action.visit.priority), Boolean(action.visit.newPatient), now, "self");
+        case "qrArrive": {
+            // The QR code at the Concierge only hands out an arrival number, like the desk's Queue number button.
+            // The Concierge calls it and registers the patient (walk-in or scheduled, services) as usual.
+            const visit = newVisit(state, "W", false, false, now, "self");
             if (typeof visit === "string")
                 return fail(visit);
-            const problem = registerVisit(state, visit, { ...action.visit, kind: "S" }, now);
-            if (problem)
-                return fail(problem);
-            return { ok: true, visitId: visit.id, label: currentLabel(visit) };
+            visit.verified = true;
+            return { ok: true, visitId: visit.id, label: arrivalLabel(visit) };
         }
         case "verify": {
             const visit = findVisit(action.visitId);
@@ -986,7 +984,7 @@ function announcementSpeech(item, language = "en") {
     const card = item.label.replace(/\D/g, "");
     const number = calledNumber(item.label);
     // "the Concierge" in English is "sa Concierge" in Tagalog.
-    const place = item.kind === "registration" ? "Concierge para magpa-rehistro" : item.destination.replace(/^the /i, "");
+    const place = item.destination.replace(/^the /i, "");
     const english = item.kind === "card"
         ? { lang: "en-US", text: `Card number ${card}. Please proceed to ${item.destination}.` }
         : { lang: "en-US", text: `Queue number, ${spokenLabel(number)}. Please proceed to ${item.destination}.` };
@@ -1610,7 +1608,7 @@ function downloadQueueReport(xlsx, state, now) {
     $("#arrivals").innerHTML = waitingReg.length ? waitingReg.map((v) => `
       <li class="${v.regCalledAt ? "called" : ""}">
         <span class="chip-num wide mono">${esc(arrivalLabel(v))}</span>
-        <div class="info"><b>${v.regCalledAt ? `Called${v.regCalls > 1 ? ` ×${v.regCalls}` : ""}` : "Waiting"}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</b><span>Arrived ${formatTime(v.createdAt)} · ${formatWait(minutesSince(v.createdAt, now))}</span></div>
+        <div class="info"><b>${v.regCalledAt ? `Called${v.regCalls > 1 ? ` ×${v.regCalls}` : ""}` : "Waiting"}${v.source === "self" ? ` <span class="tag" title="Took this number with the QR code">📱 QR</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</b><span>Arrived ${formatTime(v.createdAt)} · ${formatWait(minutesSince(v.createdAt, now))}</span></div>
         <button class="btn icon outline" title="Call to register" aria-label="Call ${esc(arrivalLabel(v))} to register" data-act="callReg" data-id="${v.id}">🔔</button>
         <button class="btn sm" data-act="registerArrival" data-id="${v.id}">Register</button>
         <button class="btn icon ghost" title="Remove number" aria-label="Remove ${esc(arrivalLabel(v))}" data-act="removeArrival" data-id="${v.id}">✕</button>
@@ -1709,13 +1707,12 @@ function downloadQueueReport(xlsx, state, now) {
       <div class="cfg-head"><div><h1>System configuration</h1><p>Every Queue Board setting in one place. Saved changes reach every computer, the stations and the lobby TV within a few seconds.</p></div></div>
       <section class="panel"><div class="panel-h"><div><h2>Stations</h2><p>Station codes become part of the queue number, e.g. C1 in 01-C1-W. Set a station inactive to hide it without losing it.</p></div></div>
         <div class="panel-b">
-          <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th>QR check-in</th><th>Active</th><th></th></tr></thead><tbody>
+          <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th>Active</th><th></th></tr></thead><tbody>
           ${draft.stations.map((s, i) => `<tr>
             <td><input type="text" class="mono" style="width:76px;font-weight:700" maxlength="4" value="${esc(s.code)}" data-set="code" data-index="${i}" aria-label="Station code"></td>
             <td><input type="text" value="${esc(s.name)}" data-set="name" data-index="${i}" aria-label="Station name"></td>
             <td><input type="text" value="${esc(s.location)}" placeholder="e.g. Clinic Room 1" data-set="location" data-index="${i}" aria-label="Location"></td>
             <td><select data-set="service" data-index="${i}" aria-label="Service type">${services.map(([v, l]) => `<option value="${v}" ${s.service === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
-            <td style="text-align:center"><input type="checkbox" ${s.selfCheckIn ? "checked" : ""} data-set="selfCheckIn" data-index="${i}" aria-label="Patients can choose this station at QR check-in" title="Patients can choose this station at QR check-in"></td>
             <td style="text-align:center"><input type="checkbox" ${s.active ? "checked" : ""} data-set="active" data-index="${i}" aria-label="Active"></td>
             <td style="text-align:right"><button class="btn icon ghost" ${inUse(s.code) ? "disabled title=\"Patients are still queued here — set it inactive instead\"" : "title=\"Remove station\""} data-act="removeStation" data-index="${i}" aria-label="Remove station">✕</button></td>
           </tr>`).join("")}
@@ -1990,6 +1987,8 @@ function downloadQueueReport(xlsx, state, now) {
   }
   window.addEventListener("resize", () => { if (view === "display") fitNumbers(); });
 
+  /** "Please proceed to" with the destination in a highlighted box (calls made before this change may still end in "for registration"). */
+  const goLine = (item) => `<p class="go">Please proceed to <b>${esc(item.destination.replace(/ for registration$/, ""))}</b></p>`;
   function tick() {
     const now = serverNow();
     $("#tv-time").textContent = clock.format(now);
@@ -2000,7 +1999,7 @@ function downloadQueueReport(xlsx, state, now) {
     // A new call covers the video so patients who are watching it don't miss their number.
     const over = $("#vid-over");
     if (over) {
-      const html = fresh ? `<div><p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p><p class="go">Please proceed to <b>${esc(latest.destination)}</b></p></div>` : "";
+      const html = fresh ? `<div><p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p>${goLine(latest)}</div>` : "";
       if (over.dataset.label !== (fresh ? latest.id : "")) { over.innerHTML = html; over.dataset.label = fresh ? latest.id : ""; fitNumbers(); }
       over.classList.toggle("hidden", !fresh);
     }
@@ -2135,7 +2134,7 @@ function downloadQueueReport(xlsx, state, now) {
     const stations = state.settings.stations.filter((s) => s.active);
     const latest = openCall(state);
     $("#hero").innerHTML = latest
-      ? `<p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p><p class="go">Please proceed to <b>${esc(latest.destination)}</b></p>`
+      ? `<p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p>${goLine(latest)}`
       : `<p class="k">Welcome</p><p class="go" style="max-width:80%">Please wait for your queue number to appear on this screen.</p>`;
     if (fresh.length) { const hero = $("#hero"); hero.classList.remove("fresh"); void hero.offsetWidth; }
     // With more stations than fit (two rows, or one beside the video), show only the stations serving someone now.

@@ -6,8 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 import { BellRing, CheckCircle2, Clock, Printer, Ticket } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { arrivalLabel, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation } from "@/lib/queue/reducer";
+import { arrivalLabel, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation, waitingToRegister } from "@/lib/queue/reducer";
 import { estimatedWait, formatEstimate, patientsAhead, visitStatus } from "@/lib/queue/format";
 import type { QueueState } from "@/lib/queue/types";
 import { readStorage, useNow, useQueue, writeStorage } from "./use-queue";
@@ -32,34 +31,29 @@ function PatientFrame({ children, clinic = DEFAULT_CLINIC }: { children: React.R
 function storedTicket(state: QueueState) {
   try {
     const saved = JSON.parse(readStorage(TICKET_KEY) || "null") as { id: string; day: string } | null;
-    return saved && saved.day === state.day && state.visits.some((visit) => visit.id === saved.id && !visit.cancelled) ? saved.id : null;
+    const visit = saved && saved.day === state.day ? state.visits.find((item) => item.id === saved.id && !item.cancelled) : undefined;
+    // A finished visit no longer counts, so a patient who comes back later can take a new number.
+    return visit && visitStatus(visit) !== "completed" ? visit : null;
   } catch {
     return null;
   }
 }
 
+/** The QR code at the Concierge: it only hands out a queue number. The Concierge registers the patient when calling it. */
 export function CheckIn() {
   const queue = useQueue();
   const router = useRouter();
-  const [name, setName] = useState("");
-  const [mobile, setMobile] = useState("");
-  const [main, setMain] = useState("");
-  const [extras, setExtras] = useState<string[]>([]);
-  const [priority, setPriority] = useState(false);
-  const [newPatient, setNewPatient] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const state = queue.state;
 
   if (!state) return <PatientFrame><p className="py-16 text-center text-[#756b59]">{queue.error || "Loading…"}</p></PatientFrame>;
+  // One number per phone: a phone that already has today's number sees it again instead of taking another.
   const existing = storedTicket(state);
-  const consults = state.settings.stations.filter((station) => station.active && station.selfCheckIn);
-  // Tests a patient may already be scheduled for; desks such as the cashier or concierge are not offered.
-  const others = state.settings.stations.filter((station) => station.active && !station.selfCheckIn && ["procedure", "laboratory", "imaging"].includes(station.service));
 
-  const submit = async () => {
+  const take = async () => {
     setBusy(true);
-    const result = await queue.dispatch({ type: "selfCheckIn", visit: { name, mobile, priority, newPatient, stations: [main, ...extras] } });
+    const result = await queue.dispatch({ type: "qrArrive" });
     setBusy(false);
     if (!result.ok) { setError(result.error); return; }
     writeStorage(TICKET_KEY, JSON.stringify({ id: result.visitId, day: state.day }));
@@ -68,49 +62,22 @@ export function CheckIn() {
 
   return (
     <PatientFrame clinic={clinicNameOf(state.settings)}>
-      <h1 className="text-2xl font-bold tracking-tight">Scheduled patient check-in</h1>
-      <p className="mt-1 text-[#6a604f]">Get your queue number as soon as you arrive. Walk-in patients, please go to the front desk.</p>
-      {existing && (
-        <Link href={`/queue/ticket?id=${existing}`} className="mt-5 flex items-center gap-3 rounded-2xl bg-[#2f281c] p-4 text-white">
-          <Ticket className="text-[#f0c864]" /><span className="flex-1"><span className="block text-sm text-[#e8dec7]">You are already checked in</span><span className="font-semibold">View my queue number →</span></span>
+      <h1 className="text-2xl font-bold tracking-tight">Get your queue number</h1>
+      <p className="mt-1 text-[#6a604f]">Then please wait in the lobby. The Concierge will call your number to register you.</p>
+      {queue.mode === "local" && <p className="mt-5 rounded-xl bg-[#fff9e9] px-4 py-3 text-sm text-[#5f4307]">This page is running in single-device mode and only works on the front-desk computer.</p>}
+      {existing ? (
+        <Link href={`/queue/ticket?id=${existing.id}`} className="mt-6 flex items-center gap-4 rounded-2xl bg-[#2f281c] p-5 text-white">
+          <Ticket className="shrink-0 text-[#f0c864]" />
+          <span className="flex-1"><span className="block text-sm text-[#e8dec7]">Your queue number today</span><span className="font-mono text-3xl font-extrabold">{arrivalLabel(existing)}</span></span>
+          <span className="font-semibold">View →</span>
         </Link>
+      ) : (
+        <div className="mt-6 grid gap-3">
+          {error && <p role="alert" className="text-sm font-semibold text-[#b4233c]">{error}</p>}
+          <Button onClick={() => void take()} disabled={busy} className="h-14 bg-[#8b6512] text-lg text-white hover:bg-[#6f4e0a]">{busy ? "Getting your number…" : "Get my queue number"}</Button>
+          <p className="text-xs leading-5 text-[#857967]">One number per person. Watch the lobby TV for your number.</p>
+        </div>
       )}
-      {queue.mode === "local" && <p className="mt-5 rounded-xl bg-[#fff9e9] px-4 py-3 text-sm text-[#5f4307]">This check-in page is running in single-device mode and only works on the front-desk computer.</p>}
-      <form className="mt-6 grid gap-4" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-        <label className="grid gap-1.5 text-sm font-semibold text-[#514838]">Full name<Input required value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" className="text-base font-normal" /></label>
-        <label className="grid gap-1.5 text-sm font-semibold text-[#514838]">Mobile number (optional)<Input type="tel" value={mobile} onChange={(event) => setMobile(event.target.value)} autoComplete="tel" placeholder="09XX XXX XXXX" className="text-base font-normal" /></label>
-        <fieldset className="grid gap-2">
-          <legend className="mb-1 text-sm font-semibold text-[#514838]">Your appointment is with</legend>
-          {consults.map((station) => (
-            <label key={station.code} className={`flex items-center gap-3 rounded-xl border p-3 ${main === station.code ? "border-[#8b6512] bg-[#fff9e9]" : "border-[#e2d7c2] bg-white"}`}>
-              <input type="radio" name="main" value={station.code} checked={main === station.code} onChange={() => setMain(station.code)} className="h-4 w-4 accent-[#8b6512]" required />
-              <span className="font-semibold">{station.name}</span>
-            </label>
-          ))}
-        </fieldset>
-        {others.length > 0 && (
-          <fieldset className="grid gap-2">
-            <legend className="mb-1 text-sm font-semibold text-[#514838]">Also scheduled today <span className="font-normal text-[#857967]">— you keep the same number</span></legend>
-            {others.map((station) => (
-              <label key={station.code} className="flex items-center gap-3 rounded-xl border border-[#e2d7c2] bg-white p-3">
-                <input type="checkbox" checked={extras.includes(station.code)} onChange={(event) => setExtras((current) => (event.target.checked ? [...current, station.code] : current.filter((code) => code !== station.code)))} className="h-4 w-4 accent-[#8b6512]" />
-                <span>{station.name}</span>
-              </label>
-            ))}
-          </fieldset>
-        )}
-        <label className="flex items-start gap-3 rounded-xl border border-[#e2d7c2] bg-white p-3 text-sm">
-          <input type="checkbox" checked={newPatient} onChange={(event) => setNewPatient(event.target.checked)} className="mt-0.5 h-4 w-4 accent-[#8b6512]" />
-          <span><span className="font-semibold">This is my first visit to THSC</span><span className="block text-[#756b59]">The front desk will help you with your patient record.</span></span>
-        </label>
-        <label className="flex items-start gap-3 rounded-xl border border-[#e2d7c2] bg-white p-3 text-sm">
-          <input type="checkbox" checked={priority} onChange={(event) => setPriority(event.target.checked)} className="mt-0.5 h-4 w-4 accent-[#8b6512]" />
-          <span><span className="font-semibold">I am a senior citizen, PWD or pregnant</span><span className="block text-[#756b59]">Please show your ID at the front desk.</span></span>
-        </label>
-        {error && <p role="alert" className="text-sm font-semibold text-[#b4233c]">{error}</p>}
-        <Button type="submit" disabled={busy || !name.trim() || !main} className="h-12 bg-[#8b6512] text-base text-white hover:bg-[#6f4e0a]">Get my queue number</Button>
-        <p className="text-xs leading-5 text-[#857967]">Your name is shared only with clinic staff. The lobby screen shows queue numbers only.</p>
-      </form>
     </PatientFrame>
   );
 }
@@ -121,24 +88,32 @@ export function TicketView() {
   const state = queue.state;
   const visit = state?.visits.find((item) => item.id === id);
   const status = visit ? visitStatus(visit) : null;
-  const lastStatus = useRef(status);
+  // An arrival number the Concierge has called to register counts as called, so the phone buzzes for it too.
+  const calledNow = status === "called" || (status === "registration" && Boolean(visit?.regCalledAt));
+  const lastStatus = useRef(false);
   const now = useNow(30000);
 
   useEffect(() => {
-    if (status === "called" && lastStatus.current !== "called") navigator.vibrate?.([400, 150, 400]);
-    lastStatus.current = status;
-  }, [status]);
+    if (calledNow && !lastStatus.current) navigator.vibrate?.([400, 150, 400]);
+    lastStatus.current = calledNow;
+  }, [calledNow]);
 
   if (!state) return <PatientFrame><p className="py-16 text-center text-[#756b59]">{queue.error || "Loading…"}</p></PatientFrame>;
   if (!visit || visit.cancelled) return <PatientFrame><h1 className="text-xl font-bold">Queue number not found</h1><p className="mt-2 text-[#6a604f]">It may be from a previous day. Please ask the front desk for help.</p><Link href="/queue/checkin" className="mt-5 inline-block font-semibold text-[#8b6512] underline">Go to check-in</Link></PatientFrame>;
 
   const step = currentStep(visit);
   const station = step ? findStation(state, step.station) : undefined;
-  const ahead = patientsAhead(state, visit);
-  const messages: Record<string, { title: string; text: string; icon: React.ReactNode; tone: string }> = {
-    called: { title: "It's your turn!", text: `Please proceed to ${station?.name ?? "your station"}.`, icon: <BellRing />, tone: "bg-[#d8a321] text-[#2f281c]" },
+  const toRegister = waitingToRegister(state).filter((item) => !item.regCalledAt);
+  const ahead = status === "registration" ? Math.max(0, toRegister.findIndex((item) => item.id === visit.id)) : patientsAhead(state, visit);
+  // Where to go, in a dark box that stands out on the gold "It's your turn" card.
+  const place = (name: string) => <span className="ml-1 inline-block rounded-md bg-[#2f281c] px-2 py-0.5 font-bold text-[#f0c864]">{name}</span>;
+  const messages: Record<string, { title: string; text: React.ReactNode; icon: React.ReactNode; tone: string }> = {
+    called: { title: "It's your turn!", text: <>Please proceed to {place(station?.name ?? "your station")}</>, icon: <BellRing />, tone: "bg-[#d8a321] text-[#2f281c]" },
     waiting: { title: ahead === 0 ? "You're next" : `${ahead} patient${ahead > 1 ? "s" : ""} ahead of you`, text: `Waiting for ${station?.name ?? "your service"}. Watch the lobby TV for your number.`, icon: <Clock />, tone: "bg-[#fff2c8] text-[#5f4307]" },
     missed: { title: "We called your number", text: "Please approach the front desk so we can put you back in line.", icon: <BellRing />, tone: "bg-[#fde8eb] text-[#9b1f35]" },
+    registration: visit.regCalledAt
+      ? { title: "It's your turn!", text: <>Please proceed to {place("the Concierge")}</>, icon: <BellRing />, tone: "bg-[#d8a321] text-[#2f281c]" }
+      : { title: ahead === 0 ? "You're next" : `${ahead} patient${ahead > 1 ? "s" : ""} ahead of you`, text: "Please wait in the lobby. The Concierge will call your number to register you. Watch the lobby TV.", icon: <Clock />, tone: "bg-[#fff2c8] text-[#5f4307]" },
     completed: { title: "All done for today", text: `Thank you for visiting ${clinicNameOf(state.settings)}.`, icon: <CheckCircle2 />, tone: "bg-[#edf5e8] text-[#41612c]" },
   };
   const message = messages[status ?? "waiting"] ?? messages.waiting;
@@ -162,7 +137,7 @@ export function TicketView() {
           <p className="mt-1 text-xs leading-5 text-[#857967]">Based on today&apos;s pace at {station?.name ?? "this station"}. Priority lane patients may be called first.</p>
         </div>
       )}
-      <ol className="mt-5 grid gap-2">
+      {visit.steps.length > 0 && <ol className="mt-5 grid gap-2">
         {visit.steps.map((item, index) => (
           <li key={item.id} className="flex items-center gap-3 rounded-xl border border-[#e2d7c2] bg-white px-4 py-3">
             <span className={`grid h-7 w-7 place-items-center rounded-full text-sm font-bold ${item.status === "done" ? "bg-[#edf5e8] text-[#41612c]" : item === step ? "bg-[#2f281c] text-[#f0c864]" : "bg-[#f2ecdf] text-[#857967]"}`}>{item.status === "done" ? "✓" : index + 1}</span>
@@ -170,7 +145,7 @@ export function TicketView() {
             <span className="font-mono text-sm text-[#756b59]">{item.station}</span>
           </li>
         ))}
-      </ol>
+      </ol>}
       {!visit.verified && <p className="mt-5 text-sm text-[#6a604f]">Please drop by the front desk once so staff can confirm your check-in.</p>}
       <p className="mt-6 text-center text-xs text-[#857967]">This page updates automatically.</p>
     </PatientFrame>
@@ -203,16 +178,15 @@ export function CheckInPoster() {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/theheartspecialists.png" alt="The Heart Specialists Clinic logo" width="104" height="80" className="mx-auto h-20 w-auto object-contain" />
         <p className="mt-3 text-sm font-semibold tracking-[0.12em] text-[#8b6512]">THE HEART SPECIALISTS CLINIC</p>
-        <h1 className="mt-4 text-4xl font-extrabold tracking-tight">Scheduled today?</h1>
-        <p className="mt-2 text-xl text-[#5e5443]">Scan to check in and get your queue number.</p>
+        <h1 className="mt-4 text-4xl font-extrabold tracking-tight">Get your queue number</h1>
+        <p className="mt-2 text-xl text-[#5e5443]">Scan with your phone camera.</p>
         <div className="mx-auto mt-8 w-72 rounded-2xl border-4 border-[#2f281c] p-3">{url && <QrCode value={url} />}</div>
         <p className="mt-3 break-all font-mono text-sm text-[#756b59]">{url}</p>
         <ol className="mx-auto mt-8 grid max-w-md gap-3 text-left text-lg">
-          <li><strong>1.</strong> Scan the code and enter your name.</li>
-          <li><strong>2.</strong> Your queue number (e.g. 01-C1-S) appears on your phone.</li>
-          <li><strong>3.</strong> Watch the lobby TV — your number is called there.</li>
+          <li><strong>1.</strong> Scan the code and tap <em>Get my queue number</em>.</li>
+          <li><strong>2.</strong> Your queue number (e.g. 07) appears on your phone.</li>
+          <li><strong>3.</strong> Wait in the lobby. The Concierge calls your number on the TV to register you.</li>
         </ol>
-        <p className="mt-8 rounded-xl bg-[#fff2c8] px-4 py-3 font-semibold text-[#5f4307]">Walk-in patients: please proceed to the front desk for a number.</p>
       </article>
     </main>
   );

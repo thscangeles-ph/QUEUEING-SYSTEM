@@ -84,10 +84,10 @@ function makeStep(station: string, now: number, first: boolean): Step {
   return { id: newId(), station, status: first ? "waiting" : "pending", queuedAt: first ? now : null, calledAt: null, doneAt: null, calls: 0 };
 }
 
-/** Where a call sends the patient: arrival numbers to the Concierge to register, everyone else straight to the station that called them. */
+/** Where a call sends the patient: arrival numbers to the Concierge (to register), everyone else straight to the station that called them. */
 export function callDestination(state: QueueState, entry: Pick<Announcement, "kind" | "station">) {
   if (entry.kind === "ticket") return findStation(state, entry.station)?.name ?? entry.station;
-  return entry.kind === "registration" ? "the Concierge for registration" : "the Concierge";
+  return "the Concierge";
 }
 
 function announce(state: QueueState, entry: Omit<Announcement, "id" | "destination">) {
@@ -322,15 +322,13 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       if (visit.card !== null) state.cards = state.cards.filter((card) => card.number !== (visit as Visit).card);
       return { ok: true, visitId: visit.id, label: currentLabel(visit) };
     }
-    case "selfCheckIn": {
-      const codes = Array.isArray(action.visit.stations) ? action.visit.stations : [];
-      const first = findStation(state, String(codes[0]));
-      if (!first?.selfCheckIn) return fail("Choose the doctor or service you are scheduled for.");
-      const visit = newVisit(state, "S", Boolean(action.visit.priority), Boolean(action.visit.newPatient), now, "self");
+    case "qrArrive": {
+      // The QR code at the Concierge only hands out an arrival number, like the desk's Queue number button.
+      // The Concierge calls it and registers the patient (walk-in or scheduled, services) as usual.
+      const visit = newVisit(state, "W", false, false, now, "self");
       if (typeof visit === "string") return fail(visit);
-      const problem = registerVisit(state, visit, { ...action.visit, kind: "S", card: null }, now);
-      if (problem) return fail(problem);
-      return { ok: true, visitId: visit.id, label: currentLabel(visit) };
+      visit.verified = true;
+      return { ok: true, visitId: visit.id, label: arrivalLabel(visit) };
     }
     case "verify": {
       const visit = findVisit(action.visitId);

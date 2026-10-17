@@ -30,7 +30,7 @@ The TV startup files in `tv-setup` open the local server on that computer (setup
 Notes:
 - Give the server computer a fixed address (a DHCP reservation in the router), so the address does not change.
 - If Windows treats the clinic network as **Public**, the other computers cannot connect: in Settings → Network & Internet, set it to **Private**. Setup warns about this.
-- Patients' phones must be on the clinic Wi-Fi to use QR check-in. Print the QR poster from the local server so it shows the local address.
+- Patients' phones must be on the clinic Wi-Fi to use the QR code. Print the QR poster from the local server so it shows the local address.
 - On plain `http://192…` addresses browsers turn off a few extras: copying the queue message uses a copy box, the screen can sleep (set the TV computer to never sleep) and the board cannot be installed as an app. The TV opened on the server computer (`localhost`) is not affected.
 - The Vercel website and the local server keep separate queues. Use one or the other.
 
@@ -71,11 +71,11 @@ The queue follows the clinic's arrival flow:
 | System configuration | `/queue/config` | Every setting in one place (staff PIN): stations, clinic name, TV message, TV video and volume, announcement language, today's queue numbers and *Clear today's queue*, and how this computer is connected. Edits are a draft until *Save configuration*; saved changes reach every computer within a few seconds |
 | Stations | `/queue/station?s=C1` | Doctors, procedure and lab staff: *Call next*, call again, did not respond, complete, or complete and send to another station. *Served here today* keeps every number the station served, with *Call again* to call that patient back (their next service waits until they are done) |
 | TV display | `/queue/display` | Lobby TV: now calling (a number leaves it once the patient is registered or the station completes them), now serving at each station, next in line. Tap once to turn on the chime and voice announcement |
-| QR check-in | `/queue/checkin` | Scheduled patients scan the QR poster on arrival and get their `S` queue number on their phone |
+| QR queue number | `/queue/checkin` | Patients scan the QR code at the Concierge and tap *Get my queue number*; nothing else is asked |
 | Check-in poster | `/queue/poster` | Printable QR poster for the entrance |
-| Patient ticket | `/queue/ticket?id=…` | Live status on the patient's phone (opened after QR check-in, or from the link in the queue message) |
+| Patient ticket | `/queue/ticket?id=…` | Live status on the patient's phone (opened after taking a number with the QR code, or from the link in the queue message) |
 
-**Scheduled patients** get their queue number by scanning the QR poster at the entrance (advance registration). Their check-in shows as *QR check-in · verify* on the front desk until a concierge confirms it. The concierge can also register a scheduled patient manually by choosing *Scheduled (S)*.
+**QR code at the Concierge:** it is only for getting a queue number. The patient scans it and taps *Get my queue number*; their phone shows the next number (e.g. `07`) and a live page: patients ahead, then *It's your turn! Please proceed to the Concierge* when called. The number joins *Waiting to register* on the front desk with a *📱 QR* tag, and the Concierge registers the patient as usual (walk-in or scheduled, services). A phone that already has today's number sees it again instead of taking another.
 
 **One-time message:** *Copy message* on the front desk copies an SMS/Viber text with the patient's queue number (and a live-status link in shared mode) and marks the patient as messaged, so the message is sent only once.
 
@@ -102,7 +102,7 @@ Screens refresh every 2 seconds. With Upstash, each open screen makes about one 
 2. Keep **Sync with other computers** and the sync server address (the clinic's Vercel site by default, or a clinic PC running `QUEUE_STORE=file`). On staff computers, enter the staff PIN. Click *Test connection*, then *Save*.
 3. Open the screen that computer is for: `#desk`, `#station/C1` or `#display` after the file name.
 
-**QR check-in for scheduled patients:** in sync mode, *Check-in QR ↗* on the front desk opens the printable poster on the sync server. Patients scan it, check in on their phone and get their `S` queue number with a live status page. Their check-in shows as *QR check-in · verify* in Today's patients until the front desk presses **Verify**. Choose which stations patients may pick in Settings (the *QR check-in* column). When synced, *Copy message* also adds the patient's live-status link.
+**QR queue numbers:** in sync mode, *Check-in QR ↗* on the front desk opens the printable poster on the sync server. Patients scan it and get a queue number with a live status page (see *QR code at the Concierge* above). When synced, *Copy message* also adds the patient's live-status link.
 
 **TV sound status:** browsers only play sound on a page after a click on it, so after the TV is opened or refreshed it needs one click (or the startup file, which allows sound by itself). The TV reports every 30 seconds, and every staff screen shows a badge next to the sync status: *📺 TV sound on*, *🔇 TV sound off* (blinking), or *📺 TV not open*. Calling a number while the TV is silent or closed shows a warning to the person calling, and the TV shows a large red *click anywhere* notice. The TV uses the sync server's clock, so a TV computer whose clock is off still announces new calls and shows the right time.
 
@@ -110,7 +110,7 @@ Screens refresh every 2 seconds. With Upstash, each open screen makes about one 
 
 **YouTube on the TV:** YouTube refuses to play videos on a page opened from disk (error 153, "video player configuration error"), because the page has no web address. So when the file is opened from disk, the TV loads the video through `youtube-frame.html` on the sync server (the Vercel site by default). The TV needs internet for this.
 
-**Calls on the TV:** every call shows and says only the patient's number, `07` (or `HMO-07` for HMO patients), and sends the patient straight to the station that called them: *Queue number, 0 7. Please proceed to Consultation 1.* Arrival numbers are called with *Please proceed to the Concierge for registration*. The patient's phone shows the same number. Staff screens keep the full ticket, e.g. `07-C1-W`, so staff still see the station and walk-in or scheduled.
+**Calls on the TV:** every call shows and says only the patient's number, `07` (or `HMO-07` for HMO patients), and sends the patient straight to the station that called them: *Queue number, 0 7. Please proceed to Consultation 1.* Arrival numbers are called with *Please proceed to the Concierge*. On the TV and the patient's phone the destination is shown in a highlighted box. The patient's phone shows the same number. Staff screens keep the full ticket, e.g. `07-C1-W`, so staff still see the station and walk-in or scheduled.
 
 **Tagalog announcements:** the TV reads each call in English only by default; in Settings it can read English, then Tagalog (e.g. "Numero zero seven. Pakipunta po sa Consultation 1."). Choose English only (the default), both, or Tagalog only in Settings, and use *Test announcement* to hear it. The Tagalog voice comes from the TV computer's browser: Microsoft Edge includes natural Filipino voices, while Chrome on Windows usually has none and reads the Tagalog with its default voice (the TV shows a note when that happens).
 
