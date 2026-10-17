@@ -105,12 +105,14 @@ export function TicketView() {
   const station = step ? findStation(state, step.station) : undefined;
   const toRegister = waitingToRegister(state).filter((item) => !item.regCalledAt);
   const ahead = status === "registration" ? Math.max(0, toRegister.findIndex((item) => item.id === visit.id)) : patientsAhead(state, visit);
-  const messages: Record<string, { title: string; text: string; icon: React.ReactNode; tone: string }> = {
-    called: { title: "It's your turn!", text: `Please proceed to ${station?.name ?? "your station"}.`, icon: <BellRing />, tone: "bg-[#d8a321] text-[#2f281c]" },
+  // Where to go, in a dark box that stands out on the gold "It's your turn" card.
+  const place = (name: string) => <span className="ml-1 inline-block rounded-md bg-[#2f281c] px-2 py-0.5 font-bold text-[#f0c864]">{name}</span>;
+  const messages: Record<string, { title: string; text: React.ReactNode; icon: React.ReactNode; tone: string }> = {
+    called: { title: "It's your turn!", text: <>Please proceed to {place(station?.name ?? "your station")}</>, icon: <BellRing />, tone: "bg-[#d8a321] text-[#2f281c]" },
     waiting: { title: ahead === 0 ? "You're next" : `${ahead} patient${ahead > 1 ? "s" : ""} ahead of you`, text: `Waiting for ${station?.name ?? "your service"}. Watch the lobby TV for your number.`, icon: <Clock />, tone: "bg-[#fff2c8] text-[#5f4307]" },
     missed: { title: "We called your number", text: "Please approach the front desk so we can put you back in line.", icon: <BellRing />, tone: "bg-[#fde8eb] text-[#9b1f35]" },
     registration: visit.regCalledAt
-      ? { title: "It's your turn!", text: "Please proceed to the Concierge for registration.", icon: <BellRing />, tone: "bg-[#d8a321] text-[#2f281c]" }
+      ? { title: "It's your turn!", text: <>Please proceed to {place("the Concierge")} for registration.</>, icon: <BellRing />, tone: "bg-[#d8a321] text-[#2f281c]" }
       : { title: ahead === 0 ? "You're next" : `${ahead} patient${ahead > 1 ? "s" : ""} ahead of you`, text: "Please wait in the lobby. The Concierge will call your number to register you. Watch the lobby TV.", icon: <Clock />, tone: "bg-[#fff2c8] text-[#5f4307]" },
     completed: { title: "All done for today", text: `Thank you for visiting ${clinicNameOf(state.settings)}.`, icon: <CheckCircle2 />, tone: "bg-[#edf5e8] text-[#41612c]" },
   };

@@ -250,7 +250,9 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(240,200,100,.55); } 50% { box-shadow: 0 0 0 1.4vw rgba(240,200,100,0); } }
 .hero .k { color: var(--gold-2); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 1.6vw; margin: 0; }
 .hero .num { max-width: 100%; white-space: nowrap; overflow: hidden; font-size: 11.5vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; letter-spacing: .03em; }
-.hero .go { font-size: 2.2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; } .hero .go b { color: #fff; }
+.hero .go { font-size: 2.2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; }
+/* Where to go: a gold box beside "Please proceed to" so patients spot their station at a glance. */
+.hero .go b, .vid-over .go b { display: inline-block; vertical-align: middle; margin: .15em 0 .15em .3em; padding: .15em .65em; border-radius: .4em; background: var(--gold-2); color: var(--brown); font-weight: 800; box-shadow: 0 0 0 .14em rgba(240,200,100,.3); }
 .tiles { flex: 1; min-height: 0; display: grid; gap: 1vw; grid-auto-rows: 1fr; }
 .tile { border: 1px solid var(--brown-2); background: var(--brown-3); border-radius: 1vw; padding: 1vh 1vw; min-width: 0; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
 .tile p { margin: 0; } .tile .s { color: #cbbd9d; font-size: 1.15vw; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .tile .s b { color: var(--gold-2); }
@@ -276,7 +278,7 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .vid-over { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(31,26,18,.85); text-align: center; }
 .vid-over > div { border-radius: 1.5vw; border: .25vw solid var(--gold-2); background: #4a3612; padding: 4vh 4vw; animation: pulse 1.6s ease-out 6; }
 .vid-over .k { color: var(--gold-2); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 1.6vw; margin: 0; }
-.vid-over .num { white-space: nowrap; font-size: 10vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; } .vid-over .go { font-size: 2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; } .vid-over .go b { color: #fff; }
+.vid-over .num { white-space: nowrap; font-size: 10vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; } .vid-over .go { font-size: 2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; }
 .hero.compact { flex: none; padding: 2vh 1vw; } .hero.compact .k { font-size: 1.2vw; } .hero.compact .num { font-size: 6.4vw; } .hero.compact .go { font-size: 1.4vw; }
 .tiles.small { flex: none; } .tiles.small .tile { padding: 1.2vh .7vw; } .tiles.small .tile .s { font-size: .95vw; } .tiles.small .tile .num { font-size: 3vw; }
 .tv-right .tv-next { flex: 1; }
@@ -1985,6 +1987,11 @@ function downloadQueueReport(xlsx, state, now) {
   }
   window.addEventListener("resize", () => { if (view === "display") fitNumbers(); });
 
+  /** "Please proceed to" with the destination in a highlighted box; registration boxes just the Concierge. */
+  const goLine = (item) => {
+    const [place, rest] = item.kind === "registration" && item.destination.endsWith(" for registration") ? [item.destination.slice(0, -" for registration".length), " for registration"] : [item.destination, ""];
+    return `<p class="go">Please proceed to <b>${esc(place)}</b>${esc(rest)}</p>`;
+  };
   function tick() {
     const now = serverNow();
     $("#tv-time").textContent = clock.format(now);
@@ -1995,7 +2002,7 @@ function downloadQueueReport(xlsx, state, now) {
     // A new call covers the video so patients who are watching it don't miss their number.
     const over = $("#vid-over");
     if (over) {
-      const html = fresh ? `<div><p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p><p class="go">Please proceed to <b>${esc(latest.destination)}</b></p></div>` : "";
+      const html = fresh ? `<div><p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p>${goLine(latest)}</div>` : "";
       if (over.dataset.label !== (fresh ? latest.id : "")) { over.innerHTML = html; over.dataset.label = fresh ? latest.id : ""; fitNumbers(); }
       over.classList.toggle("hidden", !fresh);
     }
@@ -2130,7 +2137,7 @@ function downloadQueueReport(xlsx, state, now) {
     const stations = state.settings.stations.filter((s) => s.active);
     const latest = openCall(state);
     $("#hero").innerHTML = latest
-      ? `<p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p><p class="go">Please proceed to <b>${esc(latest.destination)}</b></p>`
+      ? `<p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p>${goLine(latest)}`
       : `<p class="k">Welcome</p><p class="go" style="max-width:80%">Please wait for your queue number to appear on this screen.</p>`;
     if (fresh.length) { const hero = $("#hero"); hero.classList.remove("fresh"); void hero.offsetWidth; }
     // With more stations than fit (two rows, or one beside the video), show only the stations serving someone now.
