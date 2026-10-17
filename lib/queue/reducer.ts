@@ -84,8 +84,11 @@ function makeStep(station: string, now: number, first: boolean): Step {
   return { id: newId(), station, status: first ? "waiting" : "pending", queuedAt: first ? now : null, calledAt: null, doneAt: null, calls: 0 };
 }
 
-function announce(state: QueueState, entry: Omit<Announcement, "id">) {
-  state.announcements = [...state.announcements, { id: newId(), ...entry }].slice(-MAX_ANNOUNCEMENTS);
+/** Where every call sends the patient: the Concierge guides them on to the room or station. */
+export const CALL_DESTINATION = "the Concierge";
+
+function announce(state: QueueState, entry: Omit<Announcement, "id" | "destination">) {
+  state.announcements = [...state.announcements, { id: newId(), ...entry, destination: CALL_DESTINATION }].slice(-MAX_ANNOUNCEMENTS);
 }
 
 function validateStations(state: QueueState, codes: unknown): string[] | string {
@@ -280,7 +283,7 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       if (!card) return fail(action.card !== undefined ? `Card ${action.card} is not in the registration line.` : "No cards are waiting to be called.");
       card.calledAt = now;
       card.calls += 1;
-      announce(state, { at: now, kind: "card", label: `Card ${card.number}`, station: "DESK", destination: "Front Desk" });
+      announce(state, { at: now, kind: "card", label: `Card ${card.number}`, station: "DESK" });
       return { ok: true, card: card.number };
     }
     case "removeCard": {
@@ -299,7 +302,7 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       visit.regCalledAt = now;
       visit.regCalls = (visit.regCalls ?? 0) + 1;
       const label = arrivalLabel(visit);
-      announce(state, { at: now, kind: "registration", label, station: "DESK", destination: "the Front Desk for registration" });
+      announce(state, { at: now, kind: "registration", label, station: "DESK" });
       return { ok: true, visitId: visit.id, label };
     }
     case "register": {
@@ -371,17 +374,16 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       step.calledAt = now;
       step.calls += 1;
       const label = ticketLabel(target, station.code);
-      announce(state, { at: now, kind: "ticket", label, station: station.code, destination: station.location || station.name });
+      announce(state, { at: now, kind: "ticket", label, station: station.code });
       return { ok: true, visitId: target.id, label };
     }
     case "recall": {
       const visit = findVisit(action.visitId);
       const step = visit && currentStep(visit);
       if (!visit || !step || step.status !== "called") return fail("That patient has not been called yet.");
-      const station = findStation(state, step.station);
       step.calls += 1;
       step.calledAt = now;
-      announce(state, { at: now, kind: "ticket", label: ticketLabel(visit, step.station), station: step.station, destination: station?.location || station?.name || step.station });
+      announce(state, { at: now, kind: "ticket", label: ticketLabel(visit, step.station), station: step.station });
       return { ok: true };
     }
     case "complete": {
@@ -422,7 +424,7 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       const index = visit.steps.findIndex((item) => item.status !== "done");
       visit.steps.splice(index < 0 ? visit.steps.length : index, 0, step);
       const label = ticketLabel(visit, station.code);
-      announce(state, { at: now, kind: "ticket", label, station: station.code, destination: station.location || station.name });
+      announce(state, { at: now, kind: "ticket", label, station: station.code });
       return { ok: true, visitId: visit.id, label };
     }
     case "miss": {
