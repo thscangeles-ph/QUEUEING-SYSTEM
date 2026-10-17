@@ -15,6 +15,25 @@ pnpm dev
 
 Open `http://localhost:3000`.
 
+## Run on a clinic computer (local server)
+
+One Windows computer in the clinic (for example the front desk PC) can be the queue server instead of the Vercel website. The front desk, stations, the TV and patients' phones on the clinic network (LAN or Wi-Fi) then use that computer, and the queue keeps working when the internet is down (only YouTube on the TV needs internet). Queue data stays on that computer.
+
+1. Download the app (GitHub: **Code → Download ZIP**) and unzip it to a folder such as `C:\THSC-Queue`.
+2. Double-click `local-server\install-local-server.cmd`. The first time it needs the internet. It installs Node.js if needed (run it again after that), asks for the **staff PIN**, builds the app, opens port 3000 in the Windows firewall (click **Yes**), and asks whether to start the server with Windows.
+3. It then starts the server and lists this computer's addresses, e.g. `http://192.168.1.20:3000`. Open that address on the other computers and tablets: add `/queue/station?s=C1` for a station and `/queue/display` for the TV. On the server computer itself, use `http://localhost:3000`.
+
+`local-server\start-local-server.cmd` starts the server by hand. Keep its window open; minimizing it is fine. It restarts the server if it stops, and does nothing if the server is already running. Settings are in `local-server\settings.cmd` (PIN, port, data file); the queue is saved in `%LOCALAPPDATA%\THSC-Queue\queue.json`, outside the app folder, so it is kept when you install a new version. To update, unzip the new version over the folder and run `install-local-server.cmd` again.
+
+The TV startup files in `tv-setup` open the local server on that computer (setup writes `tv-setup\queue-server.txt`). On a separate TV computer, put a `queue-server.txt` next to the startup file with the server's address, e.g. `http://192.168.1.20:3000`. They wait for the server to answer before opening the TV.
+
+Notes:
+- Give the server computer a fixed address (a DHCP reservation in the router), so the address does not change.
+- If Windows treats the clinic network as **Public**, the other computers cannot connect: in Settings → Network & Internet, set it to **Private**. Setup warns about this.
+- Patients' phones must be on the clinic Wi-Fi to use QR check-in. Print the QR poster from the local server so it shows the local address.
+- On plain `http://192…` addresses browsers turn off a few extras: copying the queue message uses a copy box, the screen can sleep (set the TV computer to never sleep) and the board cannot be installed as an app. The TV opened on the server computer (`localhost`) is not affected.
+- The Vercel website and the local server keep separate queues. Use one or the other.
+
 ## Deploy to Vercel
 
 Import the repository in Vercel (**Add New → Project**). `vercel.json` sets the framework to Next.js; keep the default build command (`next build`).
@@ -71,7 +90,7 @@ The queue follows the clinic's arrival flow:
 | Where it runs | Environment variables |
 | --- | --- |
 | Vercel | Add an Upstash Redis database from the Vercel Marketplace (it sets `KV_REST_API_URL` and `KV_REST_API_TOKEN`), or set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` yourself. Then add `QUEUE_STAFF_PIN` and redeploy. |
-| A clinic PC on the local network | `QUEUE_STORE=file` and `QUEUE_STAFF_PIN=…`. Data is saved to `.queue-data/queue.json` (change it with `QUEUE_DATA_FILE`). Run `pnpm build && pnpm start`, then open `http://<pc-address>:3000/queue` on the other devices. |
+| A clinic PC on the local network | See [Run on a clinic computer](#run-on-a-clinic-computer-local-server) (the setup file does this). By hand: `QUEUE_STORE=file` and `QUEUE_STAFF_PIN=…`. Data is saved to `.queue-data/queue.json` (change it with `QUEUE_DATA_FILE`). Run `pnpm build && pnpm start`, then open `http://<pc-address>:3000/queue` on the other devices. |
 
 Screens refresh every 2 seconds. With Upstash, each open screen makes about one request every 2 seconds, so a full clinic day goes over the free tier; expect a small pay-as-you-go charge.
 

@@ -17,3 +17,7 @@
 
 # queue data (QUEUE_STORE=file)
 /.queue-data
+
+# local queue server (local-server/install-local-server.cmd)
+/local-server/settings.cmd
+/tv-setup/queue-server.txt
