@@ -7,7 +7,7 @@ import QRCode from "qrcode";
 import { BellRing, CheckCircle2, Clock, Printer, Ticket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { arrivalLabel, CALL_DESTINATION, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation } from "@/lib/queue/reducer";
+import { arrivalLabel, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation } from "@/lib/queue/reducer";
 import { estimatedWait, formatEstimate, patientsAhead, visitStatus } from "@/lib/queue/format";
 import type { QueueState } from "@/lib/queue/types";
 import { readStorage, useNow, useQueue, writeStorage } from "./use-queue";
@@ -136,7 +136,7 @@ export function TicketView() {
   const station = step ? findStation(state, step.station) : undefined;
   const ahead = patientsAhead(state, visit);
   const messages: Record<string, { title: string; text: string; icon: React.ReactNode; tone: string }> = {
-    called: { title: "It's your turn!", text: `Please proceed to ${CALL_DESTINATION}.`, icon: <BellRing />, tone: "bg-[#d8a321] text-[#2f281c]" },
+    called: { title: "It's your turn!", text: `Please proceed to ${station?.name ?? "your station"}.`, icon: <BellRing />, tone: "bg-[#d8a321] text-[#2f281c]" },
     waiting: { title: ahead === 0 ? "You're next" : `${ahead} patient${ahead > 1 ? "s" : ""} ahead of you`, text: `Waiting for ${station?.name ?? "your service"}. Watch the lobby TV for your number.`, icon: <Clock />, tone: "bg-[#fff2c8] text-[#5f4307]" },
     missed: { title: "We called your number", text: "Please approach the front desk so we can put you back in line.", icon: <BellRing />, tone: "bg-[#fde8eb] text-[#9b1f35]" },
     completed: { title: "All done for today", text: `Thank you for visiting ${clinicNameOf(state.settings)}.`, icon: <CheckCircle2 />, tone: "bg-[#edf5e8] text-[#41612c]" },
