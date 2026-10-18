@@ -19,6 +19,10 @@ Open `http://localhost:3000`.
 
 One Windows computer in the clinic (for example the front desk PC) can be the queue server instead of the Vercel website. The front desk, stations, the TV and patients' phones on the clinic network (LAN or Wi-Fi) then use that computer, and the queue keeps working when the internet is down (only YouTube on the TV needs internet). Queue data stays on that computer.
 
+**Ready-to-run package (recommended):** `THSC-Queue-Server.zip` sets up any Windows 10 or 11 computer as the server with no internet, installation or build: it contains the app already built and a portable Node.js. Extract it to `C:\` (right-click → *Extract All…*, never run it from inside the ZIP) and double-click `C:\THSC-Queue-Server\SETUP.cmd`: it asks for the staff PIN, opens the firewall port, offers to start with Windows, starts the server and lists the addresses for the other computers. `START-SERVER.cmd` starts it by hand; `README.txt` inside has the steps for staff. Build the package with `scripts/build-server-package.sh` (Linux or macOS; it downloads Node.js for Windows and checks its checksum) and share `dist/THSC-Queue-Server.zip`. To update a clinic computer, close the server window, extract the new ZIP over the folder and run `START-SERVER.cmd`; the PIN and the queue are kept.
+
+**From the source code** (needs the internet and builds on the computer):
+
 1. Download the app (GitHub: **Code → Download ZIP**) and unzip it to a folder such as `C:\THSC-Queue`.
 2. Double-click `local-server\install-local-server.cmd`. The first time it needs the internet. It installs Node.js if needed (run it again after that), asks for the **staff PIN**, builds the app, opens port 3000 in the Windows firewall (click **Yes**), and asks whether to start the server with Windows.
 3. It then starts the server and lists this computer's addresses, e.g. `http://192.168.1.20:3000`. Open that address on the other computers and tablets: add `/queue/station?s=C1` for a station and `/queue/display` for the TV. On the server computer itself, use `http://localhost:3000`.
