@@ -11,6 +11,8 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    // The clinic server package built by scripts/build-server-package.sh.
+    "dist/**",
     "next-env.d.ts",
   ]),
   {
