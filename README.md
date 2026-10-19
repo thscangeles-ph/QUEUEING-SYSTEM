@@ -15,6 +15,8 @@ pnpm dev
 
 Open `http://localhost:3000`.
 
+**Credits:** [credits/CREDITS.md](credits/CREDITS.md) lists who the system is for and every open-source component it uses, with the full license texts in `credits/licenses/`. Refresh it after changing dependencies with `node scripts/build-credits.mjs`.
+
 ## Run on a clinic computer (local server)
 
 One Windows computer in the clinic (for example the front desk PC) can be the queue server instead of the Vercel website. The front desk, stations, the TV and patients' phones on the clinic network (LAN or Wi-Fi) then use that computer, and the queue keeps working when the internet is down (only YouTube on the TV needs internet). Queue data stays on that computer.

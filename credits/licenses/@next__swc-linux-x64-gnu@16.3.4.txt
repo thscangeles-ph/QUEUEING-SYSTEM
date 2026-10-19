@@ -1,0 +1,1 @@
+@next/swc-linux-x64-gnu 16.3.4 is licensed under MIT, as stated in its package.json. The package has no separate license file.

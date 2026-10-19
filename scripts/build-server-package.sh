@@ -49,6 +49,8 @@ unzip -q -j "$tmp/$NODE_NAME.zip" "$NODE_NAME/node.exe" "$NODE_NAME/LICENSE" -d 
 cp local-server/package/SETUP.cmd local-server/package/START-SERVER.cmd local-server/package/README.txt "$OUT/"
 mkdir -p "$OUT/tv-setup"
 cp tv-setup/*.cmd "$OUT/tv-setup/"
+# Credits and the license texts of the software inside (scripts/build-credits.mjs).
+cp -r credits "$OUT/credits"
 
 # Windows paths must stay under 260 characters; C:\THSC-Queue-Server\ adds 21.
 longest="$(cd dist && find THSC-Queue-Server | awk '{ print length }' | sort -n | tail -1)"

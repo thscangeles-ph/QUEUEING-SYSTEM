@@ -29,6 +29,7 @@ UPDATE TO A NEW VERSION
 3. Double-click START-SERVER.cmd (or restart the computer).
 
 GOOD TO KNOW
+- The credits folder lists the open-source software inside this package, with its licenses.
 - The queue and settings are saved in %LOCALAPPDATA%\THSC-Queue\queue.json on this computer.
 - Give this computer a fixed address in the router, so the address does not change.
 - If other computers cannot connect, set this computer's network to Private

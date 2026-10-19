@@ -1,0 +1,1 @@
+react-remove-scroll-bar 2.3.8 is licensed under MIT, as stated in its package.json. The package has no separate license file.
