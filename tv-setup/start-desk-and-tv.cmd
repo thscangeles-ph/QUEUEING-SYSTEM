@@ -31,5 +31,7 @@ if not defined TV_X (
   exit /b
 )
 
-rem TV display full screen on the extended screen, with its own Edge profile so the kiosk settings apply.
-start "" msedge --kiosk "%SITE%/queue/display" --edge-kiosk-type=fullscreen --no-first-run --autoplay-policy=no-user-gesture-required --user-data-dir="%LOCALAPPDATA%\THSC-TV" --window-position=%TV_X%,%TV_Y%
+rem TV display on the extended screen: a small window placed there first, then full screen on that screen.
+rem (Edge's kiosk mode can ignore the position and open on the main screen, so it is not used here.)
+rem Its own Edge profile keeps these settings apart from the front desk's normal Edge.
+start "" msedge --app="%SITE%/queue/display" --window-position=%TV_X%,%TV_Y% --window-size=800,600 --start-fullscreen --no-first-run --autoplay-policy=no-user-gesture-required --user-data-dir="%LOCALAPPDATA%\THSC-TV-Screen"

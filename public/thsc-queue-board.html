@@ -1296,12 +1296,12 @@ function downloadQueueReport(xlsx, state, now) {
   }
 
   let toastTimer;
-  function toast(text, error = false) {
+  function toast(text, error = false, ms = error ? 6000 : 3500) {
     const el = $("#toast");
     el.textContent = text;
     el.className = `toast${error ? " err" : ""}`;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.add("hidden"), error ? 6000 : 3500);
+    toastTimer = setTimeout(() => el.classList.add("hidden"), ms);
   }
 
   // ---------- Routing: #desk, #station/C1, #display ----------
@@ -2227,14 +2227,24 @@ function downloadQueueReport(xlsx, state, now) {
    * monitor), the window opens filling that screen, using the browser's window management permission (asked once).
    */
   async function openTv() {
+    // screen.isExtended is false with one screen, true with an extended screen, and missing when the browser cannot
+    // tell: it only shows other screens to https:// or localhost pages, not to http://192.168… network addresses.
+    const extended = window.screen.isExtended;
     // One screen: this window becomes the TV in full screen right away (the click allows it). Esc returns here.
-    if (window.screen.isExtended !== true) {
+    if (extended === false) {
       tvFromDesk = true;
       document.documentElement.requestFullscreen?.().catch(() => undefined);
       location.hash = "display";
       return;
     }
     const url = `${location.href.split("#")[0]}#display`;
+    if (extended === undefined) {
+      // The TV screen cannot be found from here, so open a window the staff move to the TV with one key.
+      const win = window.open(url, "thsc-queue-tv", "popup,width=1280,height=720");
+      if (!win) toast("The browser blocked the TV window. Allow pop-ups for this site, then click TV display again.", true);
+      else toast("TV display opened in a new window. Move it to the TV: click it and press Windows+Shift+→ (or drag it there), then click once on it for full screen and sound. tv-setup\\start-desk-and-tv.cmd puts it on the TV by itself.", false, 12000);
+      return;
+    }
     let features = "";
     try {
       if ("getScreenDetails" in window) {
