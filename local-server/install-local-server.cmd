@@ -79,7 +79,7 @@ start "THSC Queue Server" /min "%CD%\local-server\start-local-server.cmd"
 timeout /t 8 /nobreak >nul
 start "" "http://localhost:%PORT%/"
 echo  On the other computers, tablets and the TV, open one of these addresses:
-powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | ForEach-Object { '    http://' + $_.IPAddress + ':%PORT%' }"
+powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|VirtualBox|VMware|Loopback|Bluetooth' } | ForEach-Object { $t = if ($_.InterfaceAlias -match 'Wi-?Fi|Wireless|WLAN') { 'Wi-Fi:     ' } elseif ($_.InterfaceAlias -match 'Ethernet') { 'LAN cable: ' } else { $_.InterfaceAlias + ': ' }; '    ' + $t + 'http://' + $_.IPAddress + ':%PORT%' }"
 echo.
 echo  Front desk: the address above.  Stations: add /queue/station?s=C1.  TV: add /queue/display.
 echo  On another TV computer, put the address in tv-setup\queue-server.txt next to the TV startup file.

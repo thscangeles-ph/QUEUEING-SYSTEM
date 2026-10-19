@@ -619,7 +619,7 @@ function sanitizeSettings(input) {
     if (video && "error" in video)
         return `YouTube: ${video.error}`;
     const announceLanguage = input.announceLanguage === "en+fil" || input.announceLanguage === "fil" ? input.announceLanguage : "en";
-    return { clinicName: clinicNameOf(input), stations, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage };
+    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -1742,6 +1742,12 @@ function downloadQueueReport(xlsx, state, now) {
           <div class="panel-b" id="cfg-today"></div></section>
         <section class="panel"><div class="panel-h"><div><h2>This computer</h2><p>How this computer shares the queue. Each computer is set up on its own.</p></div><a class="btn sm outline" href="#setup">Sync setup</a></div>
           <div class="panel-b" id="cfg-computer"></div></section>
+        <section class="panel"><div class="panel-h"><div><h2>Display connection</h2><p>How the TV and other screens reach the queue server: over the clinic Wi-Fi or with a LAN cable. A server on both has a different address for each.</p></div></div>
+          <div class="panel-b" style="display:grid;gap:10px">
+            <label class="check"><input type="radio" name="display-conn" value="wifi" data-set="displayConnection" ${draft.displayConnection === "lan" ? "" : "checked"}><span><b>📶 Wi-Fi</b><small>The TV computer or screen is connected to the clinic Wi-Fi</small></span></label>
+            <label class="check"><input type="radio" name="display-conn" value="lan" data-set="displayConnection" ${draft.displayConnection === "lan" ? "checked" : ""}><span><b>🔌 LAN cable (Ethernet)</b><small>The TV computer is plugged into the clinic router or network switch with a cable</small></span></label>
+            <div id="cfg-display"></div>
+          </div></section>
       </div>
       <div class="cfg-foot"><span id="cfg-dirty"></span><button class="btn ghost" data-act="discardSettings">Discard changes</button><button class="btn" data-act="saveSettings">Save configuration</button></div>`;
     box.querySelectorAll("[data-set]").forEach((input) => input.addEventListener(input.type === "checkbox" || input.tagName === "SELECT" ? "change" : "input", () => {
@@ -1752,11 +1758,67 @@ function downloadQueueReport(xlsx, state, now) {
       if (field === "youtube") showYouTubeHint();
       if (field === "announceLanguage") showVoiceHint();
       if (field === "videoVolume") $("#cfg-volume").textContent = `${value}%`;
+      if (field === "displayConnection") renderDisplayConnection();
       refreshDirty();
     }));
     showYouTubeHint();
     showVoiceHint();
     renderConfigStatus();
+    renderDisplayConnection();
+  }
+
+  // ---- Display connection: the server's Wi-Fi or LAN cable address for the TV and other screens ----
+  let serverAddresses = null;
+  const queueServerBase = () => (sync.mode === "server" ? syncServer() : /^https?:$/.test(location.protocol) ? location.origin : "");
+  const PRIVATE_HOST = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
+  function renderDisplayConnection() {
+    const box = $("#cfg-display");
+    if (!box || !draft) return;
+    const base = queueServerBase();
+    let server = null;
+    try { server = new URL(base); } catch { /* no server: this computer only */ }
+    if (!server) { box.innerHTML = `<p class="note" style="margin:0">This computer keeps its own queue, so the TV must be on this computer (as a second screen). Turn on syncing in Sync setup to use a TV over Wi-Fi or a LAN cable.</p>`; return; }
+    if (!PRIVATE_HOST.test(server.hostname)) { box.innerHTML = `<p class="note" style="margin:0">Screens reach <b>${esc(server.host)}</b> over the internet, so Wi-Fi and LAN cable both work. On the TV open <span class="mono">${esc(base)}/queue/display</span>.</p>`; return; }
+    if (serverAddresses === null) {
+      box.innerHTML = `<p class="note" style="margin:0">Looking up the server's addresses…</p>`;
+      serverAddresses = [];
+      fetch(`${base}/api/server-info`, { cache: "no-store" }).then((r) => r.json()).then((body) => { serverAddresses = Array.isArray(body.servers) ? body.servers : []; }).catch(() => { serverAddresses = []; }).finally(() => renderDisplayConnection());
+      return;
+    }
+    const want = draft.displayConnection === "lan" ? "lan" : "wifi";
+    const label = { wifi: "Wi-Fi", lan: "LAN cable", other: "other" };
+    const match = serverAddresses.find((s) => s.connection === want);
+    const others = serverAddresses.filter((s) => s !== match).map((s) => `${label[s.connection]} (${esc(s.name)}): <span class="mono">${esc(s.address)}</span>`).join(" · ");
+    if (!match) {
+      box.innerHTML = `<p class="note" style="margin:0;border-color:#f3cdd4;background:#fff7f8">${want === "lan" ? "The server computer has no LAN cable connection right now. Plug a network cable into it and into the clinic router or switch, then reload this page, or choose Wi-Fi." : "The server computer is not on Wi-Fi right now. Connect it to the clinic Wi-Fi, then reload this page, or choose LAN cable."}${others ? `<br>Other addresses: ${others}` : ""}</p>`;
+      return;
+    }
+    const url = `${server.protocol}//${match.address}${server.port ? `:${server.port}` : ""}`;
+    const row = (k, path) => `<div class="cfg-row"><span>${k}</span><b class="mono">${esc(url + path)}</b></div>`;
+    box.innerHTML = `${row("TV display", "/queue/display")}${row("Front desk", "/")}${row("Station C1", "/queue/station?s=C1")}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button type="button" class="btn sm" data-act="downloadTvFile" data-url="${esc(url)}" data-conn="${want}">⬇ Download TV startup file</button><button type="button" class="btn sm outline" data-act="copyText" data-text="${esc(url)}/queue/display">Copy TV address</button></div>
+      <p class="note" style="margin:10px 0 0">${want === "lan" ? "Plug the TV computer into the clinic router or network switch with a LAN cable." : "Connect the TV computer to the clinic Wi-Fi."} On it, put the startup file in the Startup folder (Windows+R, type <b>shell:startup</b>): the TV then opens full screen with sound when it turns on.${others ? `<br>Other addresses of the server: ${others}` : ""}</p>`;
+  }
+  /** A start-tv-display.cmd for the TV computer, set to the chosen address (same as tv-setup\\start-tv-display.cmd). */
+  function downloadTvFile(url, conn) {
+    const lines = [
+      "@echo off",
+      `rem THSC Queue Board - lobby TV, connected by ${conn === "lan" ? "LAN cable" : "Wi-Fi"} to the queue server at ${url}.`,
+      "rem Opens the TV display full screen in Microsoft Edge with sound allowed, so no one has to click.",
+      "rem To start it whenever the TV computer turns on: press Windows+R, type shell:startup, press Enter,",
+      "rem and copy this file into the folder that opens. To close the TV display, press Alt+F4.",
+      `set "SITE=${url}"`,
+      "rem Wait up to 90 seconds for the queue server (it may still be starting when the computers turn on).",
+      `powershell -NoProfile -Command "for ($i = 0; $i -lt 45; $i++) { try { Invoke-WebRequest -UseBasicParsing '%SITE%/api/queue' -TimeoutSec 2 | Out-Null; exit 0 } catch { Start-Sleep 2 } }" >nul 2>nul`,
+      `start "" msedge --kiosk "%SITE%/queue/display" --edge-kiosk-type=fullscreen --no-first-run --autoplay-policy=no-user-gesture-required --user-data-dir="%LOCALAPPDATA%\\THSC-TV"`,
+      "",
+    ];
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([lines.join("\r\n")], { type: "application/octet-stream" }));
+    link.download = "start-tv-display.cmd";
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    toast("TV startup file downloaded. Copy it to the TV computer's Startup folder (Windows+R → shell:startup).");
   }
   function refreshDirty() {
     const dirty = settingsDirty();
@@ -2264,6 +2326,8 @@ function downloadQueueReport(xlsx, state, now) {
         break;
       }
       case "verify": dispatch({ type: "verify", visitId: id }, "Check-in verified."); break;
+      case "downloadTvFile": downloadTvFile(el.dataset.url, el.dataset.conn); break;
+      case "copyText": { const text = el.dataset.text; navigator.clipboard?.writeText(text).then(() => toast("Copied."), () => window.prompt("Copy this address:", text)) ?? window.prompt("Copy this address:", text); break; }
       case "discardSettings": if (confirm("Discard the changes you have not saved?")) { resetDraft(); renderSettings(); } break;
       case "addStandard": {
         const old = oldProcedureStation();

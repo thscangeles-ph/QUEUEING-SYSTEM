@@ -248,7 +248,8 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   const volume = Math.round(Number(input.videoVolume ?? previous.videoVolume ?? 60));
   const videoVolume = Number.isFinite(volume) ? Math.min(100, Math.max(0, volume)) : 60;
   const clinicName = clinicNameOf({ clinicName: input.clinicName ?? previous.clinicName });
-  return { clinicName, stations, cardCount, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage };
+  const displayConnection = (input.displayConnection ?? previous.displayConnection) === "lan" ? "lan" : "wifi";
+  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage };
 }
 
 /**
