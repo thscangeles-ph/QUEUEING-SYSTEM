@@ -27,6 +27,8 @@ echo  Other computers:
 powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|VirtualBox|VMware|Loopback|Bluetooth' } | ForEach-Object { $t = if ($_.InterfaceAlias -match 'Wi-?Fi|Wireless|WLAN') { 'Wi-Fi:     ' } elseif ($_.InterfaceAlias -match 'Ethernet') { 'LAN cable: ' } else { $_.InterfaceAlias + ': ' }; '                    ' + $t + 'http://' + $_.IPAddress + ':%PORT%' }"
 echo  Queue data:        %QUEUE_DATA_FILE%
 echo.
+rem Open the front desk and the TV display (extended screen) once the server answers, if chosen in setup.
+if "%OPEN_DESK_AND_TV%"=="1" if exist "tv-setup\start-desk-and-tv.cmd" start "THSC Desk and TV" /min cmd /c "tv-setup\start-desk-and-tv.cmd"
 :run
 "node\node.exe" "app\server.js"
 echo.

@@ -31,6 +31,8 @@ One Windows computer in the clinic (for example the front desk PC) can be the qu
 
 `local-server\start-local-server.cmd` starts the server by hand. Keep its window open; minimizing it is fine. It restarts the server if it stops, and does nothing if the server is already running. Settings are in `local-server\settings.cmd` (PIN, port, data file); the queue is saved in `%LOCALAPPDATA%\THSC-Queue\queue.json`, outside the app folder, so it is kept when you install a new version. To update, unzip the new version over the folder and run `install-local-server.cmd` again.
 
+Setup also asks whether to **open the front desk and the TV display when the server starts**: with *Y*, every start of the server (including at power-on) runs `tv-setup\start-desk-and-tv.cmd` once the server answers, so the front desk opens on the main screen and the TV full screen with sound on the extended screen. It is saved as `OPEN_DESK_AND_TV` in the settings file; remove a copy of `start-desk-and-tv.cmd` from the Startup folder if one was put there before, or the screens open twice.
+
 The TV startup files in `tv-setup` open the local server on that computer (setup writes `tv-setup\queue-server.txt`). On a separate TV computer, put a `queue-server.txt` next to the startup file with the server's address, e.g. `http://192.168.1.20:3000`. They wait for the server to answer before opening the TV.
 
 Notes:
