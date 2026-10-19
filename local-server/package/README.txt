@@ -12,6 +12,10 @@ SET UP (once per computer)
    - Choose the staff PIN (at least 4 characters).
    - Click Yes when Windows asks to open the network port, and "Allow" if the firewall asks about Node.js.
    - Answer Y to start the server whenever the computer turns on.
+   - Answer Y to open the front desk and the TV display (full screen, with sound, on the extended
+     screen) every time the server starts. To change it later, edit OPEN_DESK_AND_TV in settings.cmd.
+     If start-desk-and-tv.cmd was copied into the Startup folder before, delete it there (shell:startup),
+     otherwise the desk and TV open twice.
 3. SETUP shows this computer's address, e.g. http://192.168.1.20:3000. Open it on the other computers:
      Front desk:  http://192.168.1.20:3000
      Station C1:  http://192.168.1.20:3000/queue/station?s=C1

@@ -72,12 +72,23 @@ if errorlevel 2 goto no_autostart
 echo The queue server will start by itself when Windows starts.
 :no_autostart
 
+rem ---- Open the front desk and the TV when the server starts (tv-setup\start-desk-and-tv.cmd) ----
+if defined OPEN_DESK_AND_TV goto desk_tv_done
+echo.
+echo This computer can open the front desk, and the TV display full screen with sound on the
+echo extended (second) screen, every time the queue server starts.
+choice /c YN /m "Open the front desk and the TV display when the server starts"
+if errorlevel 2 (>> "local-server\settings.cmd" echo set "OPEN_DESK_AND_TV=0") else (>> "local-server\settings.cmd" echo set "OPEN_DESK_AND_TV=1")
+call "local-server\settings.cmd"
+:desk_tv_done
+
 echo.
 echo  Done. Starting the queue server now...
 echo.
 start "THSC Queue Server" /min "%CD%\local-server\start-local-server.cmd"
 timeout /t 8 /nobreak >nul
-start "" "http://localhost:%PORT%/"
+rem The server opens the front desk itself when it is set to open the desk and TV.
+if not "%OPEN_DESK_AND_TV%"=="1" start "" "http://localhost:%PORT%/"
 echo  On the other computers, tablets and the TV, open one of these addresses:
 powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|VirtualBox|VMware|Loopback|Bluetooth' } | ForEach-Object { $t = if ($_.InterfaceAlias -match 'Wi-?Fi|Wireless|WLAN') { 'Wi-Fi:     ' } elseif ($_.InterfaceAlias -match 'Ethernet') { 'LAN cable: ' } else { $_.InterfaceAlias + ': ' }; '    ' + $t + 'http://' + $_.IPAddress + ':%PORT%' }"
 echo.
