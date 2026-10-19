@@ -2226,7 +2226,21 @@ function downloadQueueReport(xlsx, state, now) {
    * Opens the TV display in its own window. When the computer has an extended screen (the lobby TV as a second
    * monitor), the window opens filling that screen, using the browser's window management permission (asked once).
    */
+  /** Asks a Windows clinic server to open the TV display on its extended screen (the lobby TV); true when it did. */
+  async function openTvOnServer() {
+    if (sync.mode !== "server") return false;
+    try {
+      const pin = readSetting(PIN_KEY);
+      const response = await fetch(`${syncServer()}/api/tv/open`, { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json", ...(pin ? { "x-queue-pin": pin } : {}) } });
+      const body = await response.json();
+      if (body.ok) { toast("TV display opened on the TV, full screen with sound."); return true; }
+      if (body.reason === "no-tv") { toast(body.error, true); return true; }
+    } catch { /* an older server or no connection: open it from this browser instead */ }
+    return false;
+  }
   async function openTv() {
+    // A clinic server on the computer the TV is plugged into opens it there itself, whichever computer asks.
+    if (await openTvOnServer()) return;
     // screen.isExtended is false with one screen, true with an extended screen, and missing when the browser cannot
     // tell: it only shows other screens to https:// or localhost pages, not to http://192.168… network addresses.
     const extended = window.screen.isExtended;
