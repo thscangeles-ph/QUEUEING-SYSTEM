@@ -1,0 +1,1 @@
+@img/sharp-libvips-linux-x64 1.3.3 is licensed under LGPL-3.0-or-later, as stated in its package.json. The package has no separate license file.

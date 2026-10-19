@@ -15,6 +15,8 @@ pnpm dev
 
 Open `http://localhost:3000`.
 
+**Credits:** [credits/CREDITS.md](credits/CREDITS.md) lists who the system is for and every open-source component it uses, with the full license texts in `credits/licenses/`. Refresh it after changing dependencies with `node scripts/build-credits.mjs`.
+
 ## Run on a clinic computer (local server)
 
 One Windows computer in the clinic (for example the front desk PC) can be the queue server instead of the Vercel website. The front desk, stations, the TV and patients' phones on the clinic network (LAN or Wi-Fi) then use that computer, and the queue keeps working when the internet is down (only YouTube on the TV needs internet). Queue data stays on that computer.
@@ -32,6 +34,7 @@ One Windows computer in the clinic (for example the front desk PC) can be the qu
 The TV startup files in `tv-setup` open the local server on that computer (setup writes `tv-setup\queue-server.txt`). On a separate TV computer, put a `queue-server.txt` next to the startup file with the server's address, e.g. `http://192.168.1.20:3000`. They wait for the server to answer before opening the TV.
 
 Notes:
+- **TV over Wi-Fi or a LAN cable:** in System configuration → *Display connection*, choose **Wi-Fi** or **LAN cable (Ethernet)** for the TV and screens. It shows the server's address on that connection (a server on both has one address for each), the TV, front desk and station links, and *Download TV startup file*, a `start-tv-display.cmd` set to that address for the TV computer's Startup folder. The setup windows label each address *Wi-Fi* or *LAN cable* too. The QR poster prefers the Wi-Fi address, since phones use Wi-Fi.
 - Give the server computer a fixed address (a DHCP reservation in the router), so the address does not change.
 - If Windows treats the clinic network as **Public**, the other computers cannot connect: in Settings → Network & Internet, set it to **Private**. Setup warns about this.
 - Patients' phones must be on the clinic Wi-Fi to use the QR code. A poster opened on the server computer itself (`http://localhost:3000`) puts the computer's network address in the QR code, not `localhost` (which on a phone means the phone), and prints *Connect to the clinic Wi-Fi first*; if the computer has several addresses, choose the clinic Wi-Fi one above the poster.
