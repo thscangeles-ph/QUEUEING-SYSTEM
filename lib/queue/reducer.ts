@@ -1,5 +1,5 @@
 import type { ActionResult, AnnounceLanguage, Announcement, Billing, PatientKind, QueueAction, QueueState, Settings, Station, Step, Visit, VisitInput } from "./types";
-import { parseYouTube } from "./youtube";
+import { cleanTvMedia } from "./youtube";
 
 export const TIME_ZONE = "Asia/Manila";
 const MAX_ANNOUNCEMENTS = 20;
@@ -240,16 +240,19 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   // The single-file HTML board has no laminated cards; keep the current count when it saves settings.
   const cardCount = Math.round(Number(input.cardCount ?? previous.cardCount ?? DEFAULT_SETTINGS.cardCount));
   if (!Number.isFinite(cardCount) || cardCount < 1 || cardCount > 300) return "Laminated cards must be between 1 and 300.";
-  const youtube = clean(input.youtube ?? previous.youtube, 300);
-  const video = parseYouTube(youtube);
-  if (video && "error" in video) return `YouTube: ${video.error}`;
+  // A form from before the TV playlist existed sends only a YouTube link.
+  const tvMedia = cleanTvMedia(input.tvMedia === undefined && input.youtube !== undefined ? { youtube: input.youtube } : { tvMedia: input.tvMedia ?? previous.tvMedia, youtube: previous.youtube });
+  if (typeof tvMedia === "string") return tvMedia;
+  const youtube = tvMedia.find((item) => item.type === "youtube")?.link ?? "";
+  const seconds = Math.round(Number(input.slideSeconds ?? previous.slideSeconds ?? 10));
+  const slideSeconds = Number.isFinite(seconds) ? Math.min(120, Math.max(3, seconds)) : 10;
   const language = input.announceLanguage ?? previous.announceLanguage;
   const announceLanguage: AnnounceLanguage = language === "en+fil" || language === "fil" ? language : "en";
   const volume = Math.round(Number(input.videoVolume ?? previous.videoVolume ?? 60));
   const videoVolume = Number.isFinite(volume) ? Math.min(100, Math.max(0, volume)) : 60;
   const clinicName = clinicNameOf({ clinicName: input.clinicName ?? previous.clinicName });
   const displayConnection = (input.displayConnection ?? previous.displayConnection) === "lan" ? "lan" : "wifi";
-  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage };
+  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage };
 }
 
 /**

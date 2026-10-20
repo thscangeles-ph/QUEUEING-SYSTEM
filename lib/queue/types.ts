@@ -1,3 +1,5 @@
+import type { TvMedia } from "./youtube";
+
 /** W walk-in, S scheduled, H HMO (its own numbering: HMO-01-C1). */
 export type PatientKind = "W" | "S" | "H";
 export type ServiceType = "consultation" | "procedure" | "laboratory" | "imaging" | "cashier" | "hmo" | "other";
@@ -77,7 +79,11 @@ export type Settings = {
   stations: Station[];
   cardCount: number;
   ticker: string;
-  /** YouTube channel, playlist or video shown on the TV while patients wait. */
+  /** The lobby TV's playlist while patients wait: YouTube videos, playlists and channels, and pictures, played in turn and repeated. */
+  tvMedia?: TvMedia[];
+  /** Seconds each picture stays on the TV; missing means 10. */
+  slideSeconds?: number;
+  /** The first YouTube link of tvMedia, kept for Queue Boards saved before the TV had a playlist. */
   youtube?: string;
   videoSound?: boolean;
   /** How the TV and other screens reach a clinic server: its Wi-Fi or its LAN cable (Ethernet) address. Missing means Wi-Fi. */

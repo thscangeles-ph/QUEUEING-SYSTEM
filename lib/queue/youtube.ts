@@ -34,3 +34,51 @@ export function parseYouTube(input: unknown): YouTubeEmbed | { error: string } |
   if (video && VIDEO_ID.test(video)) return embed("video", video, `&playlist=${video}`);
   return { error: "Paste a YouTube video, playlist or channel link." };
 }
+
+/** One entry of the lobby TV's playlist: a YouTube link, or a picture shown for a few seconds (a slideshow). */
+export type TvMedia = { type: "youtube"; link: string } | { type: "picture"; src: string; name?: string };
+
+export const MAX_TV_MEDIA = 30;
+/** A picture uploaded to the queue server (see app/api/media). */
+const UPLOADED_PICTURE = /^\/api\/media\/[a-f0-9]{24}$/;
+
+/** Null for a picture the TV can show (uploaded, or an https link), otherwise what is wrong with it. */
+export function pictureError(src: string): string | null {
+  if (UPLOADED_PICTURE.test(src)) return null;
+  try {
+    if (new URL(src).protocol === "https:") return null;
+  } catch {
+    /* not a link */
+  }
+  return "Upload the picture, or paste a picture link starting with https://.";
+}
+
+const fromYouTubeField = (youtube: unknown): TvMedia[] => String(youtube ?? "").split(/\s*\n\s*/).filter(Boolean).map((link) => ({ type: "youtube", link }));
+
+/** The TV's playlist, in order; settings saved before playlists existed have a single YouTube link instead. */
+export function tvMediaOf(settings: { tvMedia?: TvMedia[]; youtube?: string } | null | undefined): TvMedia[] {
+  return Array.isArray(settings?.tvMedia) ? settings.tvMedia : fromYouTubeField(settings?.youtube);
+}
+
+/** Checks the TV playlist from a settings form; returns the tidied list, or an error naming the bad entry. */
+export function cleanTvMedia(input: { tvMedia?: unknown; youtube?: unknown }): TvMedia[] | string {
+  const raw = (Array.isArray(input.tvMedia) ? input.tvMedia : fromYouTubeField(input.youtube)) as (Record<string, unknown> | null)[];
+  const list: TvMedia[] = [];
+  for (const [index, item] of raw.entries()) {
+    if (item?.type === "picture") {
+      const src = String(item.src ?? "").trim().slice(0, 500);
+      if (!src) continue;
+      const error = pictureError(src);
+      if (error) return `TV playlist item ${index + 1}: ${error}`;
+      list.push({ type: "picture", src, name: String(item.name ?? "").trim().slice(0, 80) || undefined });
+    } else {
+      const link = String(item?.link ?? "").trim().slice(0, 300);
+      if (!link) continue;
+      const video = parseYouTube(link);
+      if (video && "error" in video) return `TV playlist item ${index + 1}: ${video.error}`;
+      list.push({ type: "youtube", link });
+    }
+  }
+  if (list.length > MAX_TV_MEDIA) return `The TV playlist can have up to ${MAX_TV_MEDIA} videos and pictures.`;
+  return list;
+}

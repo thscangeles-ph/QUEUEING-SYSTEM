@@ -53,8 +53,8 @@ button { cursor: pointer; }
 .btn.danger { background: #fff; color: #b4233c; border-color: #efb5bf; }
 input[type=text], input[type=tel], input[type=number], input[type=search], input[type=password], select { min-height: 40px; border: 1px solid #d8c79f; border-radius: 8px; background: #fff; padding: 0 10px; width: 100%; }
 input:focus, select:focus, button:focus-visible { outline: 3px solid rgba(216,163,33,.45); outline-offset: 1px; }
-label.field { display: grid; gap: 6px; font-size: 13px; font-weight: 600; color: #514838; }
-label.field em { font-style: normal; font-weight: 400; color: var(--muted-2); font-size: 12px; margin-top: -4px; }
+label.field, div.field { display: grid; gap: 6px; font-size: 13px; font-weight: 600; color: #514838; }
+label.field em, div.field em { font-style: normal; font-weight: 400; color: var(--muted-2); font-size: 12px; margin-top: -4px; }
 
 /* Layout */
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
@@ -282,6 +282,16 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .hero.compact { flex: none; padding: 2vh 1vw; } .hero.compact .k { font-size: 1.2vw; } .hero.compact .num { font-size: 6.4vw; } .hero.compact .go { font-size: 1.4vw; }
 .tiles.small { flex: none; } .tiles.small .tile { padding: 1.2vh .7vw; } .tiles.small .tile .s { font-size: .95vw; } .tiles.small .tile .num { font-size: 3vw; }
 .tv-right .tv-next { flex: 1; }
+.media-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; counter-reset: media; }
+.media-row { display: flex; gap: 8px; align-items: center; border: 1px solid #e8dfce; border-radius: 10px; padding: 6px 8px; counter-increment: media; }
+.media-row::before { content: counter(media); font: 700 12px/1 ui-monospace, monospace; color: var(--muted); min-width: 16px; text-align: right; }
+.media-ico { flex: none; width: 44px; height: 30px; border-radius: 6px; display: grid; place-items: center; background: #b4233c; color: #fff; font-size: 13px; object-fit: cover; }
+img.media-ico { background: #000; }
+.media-main { flex: 1; min-width: 0; display: grid; gap: 2px; } .media-main input { width: 100%; } .media-main .name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-btns { flex: none; display: flex; gap: 2px; }
+.media-empty { font-size: 13px; color: var(--muted); border: 1px dashed #e0d4bb; border-radius: 10px; padding: 10px 12px; margin: 0; }
+.vid .slide { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; animation: slide-in .8s ease-out; }
+@keyframes slide-in { from { opacity: 0; } to { opacity: 1; } }
 .yt-hint { font-size: 12px; font-weight: 600; margin: 0; } .yt-hint.ok { color: var(--ok); } .yt-hint.err { color: #b4233c; }
 @media (prefers-reduced-motion: reduce) { .ticker span, .hero.fresh, .vid-over > div { animation: none; } .tabs a.queued:not(.on) { animation: none; background: #f6c6cd; } }
 
@@ -366,6 +376,55 @@ function parseYouTube(input) {
 function videoVolumeOf(settings) {
     const volume = Math.round(Number(settings?.videoVolume ?? 60));
     return Number.isFinite(volume) ? Math.min(100, Math.max(0, volume)) : 60;
+}
+const MAX_TV_MEDIA = 30;
+/** A picture uploaded to the queue server (see app/api/media). */
+const UPLOADED_PICTURE = /^\/api\/media\/[a-f0-9]{24}$/;
+/** Null for a picture the TV can show (uploaded, or an https link), otherwise what is wrong with it. */
+function pictureError(src) {
+    if (UPLOADED_PICTURE.test(src))
+        return null;
+    try {
+        if (new URL(src).protocol === "https:")
+            return null;
+    }
+    catch {
+        /* not a link */
+    }
+    return "Upload the picture, or paste a picture link starting with https://.";
+}
+const fromYouTubeField = (youtube) => String(youtube ?? "").split(/\s*\n\s*/).filter(Boolean).map((link) => ({ type: "youtube", link }));
+/** The TV's playlist, in order; settings saved before playlists existed have a single YouTube link instead. */
+function tvMediaOf(settings) {
+    return Array.isArray(settings?.tvMedia) ? settings.tvMedia : fromYouTubeField(settings?.youtube);
+}
+/** Checks the TV playlist from a settings form; returns the tidied list, or an error naming the bad entry. */
+function cleanTvMedia(input) {
+    const raw = (Array.isArray(input.tvMedia) ? input.tvMedia : fromYouTubeField(input.youtube));
+    const list = [];
+    for (const [index, item] of raw.entries()) {
+        if (item?.type === "picture") {
+            const src = String(item.src ?? "").trim().slice(0, 500);
+            if (!src)
+                continue;
+            const error = pictureError(src);
+            if (error)
+                return `TV playlist item ${index + 1}: ${error}`;
+            list.push({ type: "picture", src, name: String(item.name ?? "").trim().slice(0, 80) || undefined });
+        }
+        else {
+            const link = String(item?.link ?? "").trim().slice(0, 300);
+            if (!link)
+                continue;
+            const video = parseYouTube(link);
+            if (video && "error" in video)
+                return `TV playlist item ${index + 1}: ${video.error}`;
+            list.push({ type: "youtube", link });
+        }
+    }
+    if (list.length > MAX_TV_MEDIA)
+        return `The TV playlist can have up to ${MAX_TV_MEDIA} videos and pictures.`;
+    return list;
 }
 /** Sends a player command (mute, unMute, setVolume…) to an embedded YouTube iframe. */
 function youtubeCommand(frame, func, args = []) {
@@ -614,12 +673,14 @@ function sanitizeSettings(input) {
     }
     if (!stations.length)
         return "Add at least one station.";
-    const youtube = clean(input.youtube, 300);
-    const video = parseYouTube(youtube);
-    if (video && "error" in video)
-        return `YouTube: ${video.error}`;
+    const tvMedia = cleanTvMedia(input);
+    if (typeof tvMedia === "string")
+        return tvMedia;
+    const youtube = tvMedia.find((item) => item.type === "youtube")?.link ?? "";
+    const seconds = Math.round(Number(input.slideSeconds ?? 10));
+    const slideSeconds = Number.isFinite(seconds) ? Math.min(120, Math.max(3, seconds)) : 10;
     const announceLanguage = input.announceLanguage === "en+fil" || input.announceLanguage === "fil" ? input.announceLanguage : "en";
-    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage };
+    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -1564,11 +1625,11 @@ function downloadQueueReport(xlsx, state, now) {
   function renderTvSound() {
     const box = $("#tv-sound");
     if (!box) return;
-    const { videoSound, youtube } = state.settings;
+    const { videoSound } = state.settings;
     const volume = videoVolumeOf(state.settings);
-    const noVideo = !youtube;
+    const noVideo = !tvMediaOf(state.settings).some((item) => item.type === "youtube");
     box.classList.toggle("off", !videoSound || noVideo);
-    box.title = noVideo ? "No YouTube video is set. Add one in Settings." : "Volume of the YouTube video on the lobby TV. It is still muted while queue numbers are announced.";
+    box.title = noVideo ? "No YouTube video is in the TV playlist. Add one in Settings." : "Volume of the YouTube video on the lobby TV. It is still muted while queue numbers are announced.";
     $("#tv-mute").textContent = videoSound ? "🔊 On" : "🔇 Off";
     $("#tv-mute").setAttribute("aria-pressed", String(Boolean(videoSound)));
     $("#tv-mute").disabled = noVideo;
@@ -1683,9 +1744,17 @@ function downloadQueueReport(xlsx, state, now) {
   // ---------- System configuration ----------
   // Every setting in one place. Edits go into a draft and apply to every computer when saved.
   let draft = null;
+  // draftSource is the saved settings the draft started from; draftBase is that draft before any change.
   let draftBase = "";
+  let draftSource = "";
   const settingsDirty = () => Boolean(draft) && JSON.stringify(draft) !== draftBase;
-  function resetDraft() { draft = structuredClone(state.settings); draftBase = JSON.stringify(state.settings); }
+  function resetDraft() {
+    draftSource = JSON.stringify(state.settings);
+    draft = structuredClone(state.settings);
+    draft.tvMedia = structuredClone(tvMediaOf(draft));
+    draft.slideSeconds ??= 10;
+    draftBase = JSON.stringify(draft);
+  }
   function mountConfig() {
     // An unsaved draft is kept when moving between screens, until it is saved or discarded.
     if (!draft) resetDraft();
@@ -1694,7 +1763,7 @@ function downloadQueueReport(xlsx, state, now) {
   }
   function updateConfig() {
     // Saved elsewhere (another computer, or the desk's TV sound control) while nothing here was changed: show it.
-    if (!settingsDirty() && JSON.stringify(state.settings) !== draftBase) { resetDraft(); renderSettings(); return; }
+    if (!settingsDirty() && JSON.stringify(state.settings) !== draftSource) { resetDraft(); renderSettings(); return; }
     renderConfigStatus();
   }
   function renderSettings() {
@@ -1725,10 +1794,14 @@ function downloadQueueReport(xlsx, state, now) {
             <label class="field">Clinic name<input type="text" maxlength="80" value="${esc(draft.clinicName ?? DEFAULT_CLINIC)}" data-set="clinicName" placeholder="${esc(DEFAULT_CLINIC)}"></label>
             <label class="field">TV display message<em>Scrolls along the bottom of the lobby TV.</em><input type="text" maxlength="240" value="${esc(draft.ticker)}" data-set="ticker"></label>
           </div></section>
-        <section class="panel"><div class="panel-h"><div><h2>TV video</h2><p>YouTube shown on the lobby TV while patients wait. Needs internet.</p></div><button class="btn sm outline" data-act="openTv">TV display ↗</button></div>
+        <section class="panel"><div class="panel-h"><div><h2>TV video &amp; slideshow</h2><p>YouTube videos, YouTube playlists and pictures shown on the lobby TV while patients wait. YouTube needs internet.</p></div><button class="btn sm outline" data-act="openTv">TV display ↗</button></div>
           <div class="panel-b" style="display:grid;gap:10px">
-            <label class="field">YouTube channel, playlist or video<em>Paste the clinic's channel ID (starts with UC), a playlist link or a video link. Leave empty to show the queue only.</em><input type="text" maxlength="300" value="${esc(draft.youtube ?? "")}" placeholder="e.g. https://www.youtube.com/playlist?list=…" data-set="youtube" id="yt-input"></label>
+            <div class="field">TV playlist<em>Plays from top to bottom, then starts again. Add YouTube video links, playlist links or the clinic's channel ID (starts with UC), and pictures for a slideshow. Leave empty to show the queue only.</em></div>
+            <ol class="media-list" id="media-list"></ol>
+            <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn sm outline" data-act="addYouTube">＋ YouTube video or playlist</button><button type="button" class="btn sm outline" data-act="addPicture">＋ Pictures from this computer</button><button type="button" class="btn sm outline" data-act="addPictureLink">＋ Picture link</button></div>
+            <input type="file" accept="image/*" multiple id="picture-file" hidden>
             <p class="yt-hint" id="yt-hint"></p>
+            <label class="field">Each picture shows for<span class="cfg-range"><input type="range" min="3" max="60" step="1" value="${esc(draft.slideSeconds ?? 10)}" data-set="slideSeconds" aria-label="Seconds per picture"><b class="mono" id="cfg-slide">${esc(draft.slideSeconds ?? 10)} s</b></span></label>
             <label class="check" style="border:0;padding:0"><input type="checkbox" ${draft.videoSound ? "checked" : ""} data-set="videoSound"><span>Play the video's sound <small>Muted automatically while queue numbers are announced</small></span></label>
             <label class="field">Video volume<span class="cfg-range"><input type="range" min="0" max="100" step="5" value="${volume}" data-set="videoVolume" aria-label="Video volume"><b class="mono" id="cfg-volume">${volume}%</b></span></label>
           </div></section>
@@ -1755,13 +1828,14 @@ function downloadQueueReport(xlsx, state, now) {
       const value = input.type === "checkbox" ? input.checked : input.type === "range" ? Number(input.value) : field === "code" ? input.value.toUpperCase() : input.value;
       if (input.dataset.index !== undefined) draft.stations[Number(input.dataset.index)][field] = value; else draft[field] = value;
       if (field === "code") input.value = value;
-      if (field === "youtube") showYouTubeHint();
+      if (field === "slideSeconds") $("#cfg-slide").textContent = `${value} s`;
       if (field === "announceLanguage") showVoiceHint();
       if (field === "videoVolume") $("#cfg-volume").textContent = `${value}%`;
       if (field === "displayConnection") renderDisplayConnection();
       refreshDirty();
     }));
-    showYouTubeHint();
+    $("#picture-file").addEventListener("change", (event) => { void addPictures([...event.target.files]); event.target.value = ""; });
+    renderMediaList();
     showVoiceHint();
     renderConfigStatus();
     renderDisplayConnection();
@@ -1901,12 +1975,112 @@ function downloadQueueReport(xlsx, state, now) {
   }
   if ("speechSynthesis" in window) speechSynthesis.addEventListener?.("voiceschanged", () => showVoiceHint());
 
-  function showYouTubeHint() {
+  // ---------- TV playlist: YouTube links and pictures, edited on the configuration page ----------
+  /** Where the TV loads a picture from: uploaded pictures live on the queue server. */
+  const pictureUrl = (src) => (UPLOADED_PICTURE.test(src) ? `${syncServer()}${src}` : src);
+  function mediaError(item) {
+    if (item.type === "picture") return item.src ? pictureError(item.src) : "";
+    const video = parseYouTube(item.link);
+    return video && "error" in video ? video.error : "";
+  }
+  function mediaHint(item) {
+    const error = mediaError(item);
+    if (error) return { ok: false, text: error };
+    if (item.type === "picture") return { ok: true, text: "" };
+    const video = parseYouTube(item.link);
+    return { ok: true, text: !video ? "" : `✓ ${video.kind === "channel" ? "Channel uploads" : video.kind === "playlist" ? "YouTube playlist" : "YouTube video"}` };
+  }
+  function renderMediaList() {
+    const box = $("#media-list");
+    if (!box || !draft) return;
+    const list = draft.tvMedia;
+    const moveBtns = (i) => `<div class="media-btns"><button type="button" class="btn icon ghost" data-act="moveMedia" data-index="${i}" data-send="-1" ${i === 0 ? "disabled" : ""} title="Move up" aria-label="Move up">↑</button><button type="button" class="btn icon ghost" data-act="moveMedia" data-index="${i}" data-send="1" ${i === list.length - 1 ? "disabled" : ""} title="Move down" aria-label="Move down">↓</button><button type="button" class="btn icon ghost" data-act="removeMedia" data-index="${i}" title="Remove" aria-label="Remove">✕</button></div>`;
+    box.innerHTML = list.length ? list.map((item, i) => {
+      const hint = mediaHint(item);
+      const hintLine = `<small class="yt-hint ${hint.ok ? "ok" : "err"}" data-media-hint="${i}">${esc(hint.text)}</small>`;
+      if (item.type === "youtube") return `<li class="media-row"><span class="media-ico" aria-hidden="true">▶</span><div class="media-main"><input type="text" maxlength="300" value="${esc(item.link)}" placeholder="Paste a YouTube video or playlist link" data-media="link" data-index="${i}" aria-label="YouTube link">${hintLine}</div>${moveBtns(i)}</li>`;
+      const thumb = item.src && !pictureError(item.src) ? `<img class="media-ico" src="${esc(pictureUrl(item.src))}" alt="">` : `<span class="media-ico" style="background:#6b5a35" aria-hidden="true">🖼</span>`;
+      const main = UPLOADED_PICTURE.test(item.src) ? `<span class="name">🖼 ${esc(item.name || "Picture")}</span><small class="yt-hint ok">Picture · uploaded</small>` : `<input type="text" maxlength="500" value="${esc(item.src)}" placeholder="Paste a picture link (https://…jpg or .png)" data-media="src" data-index="${i}" aria-label="Picture link">${hintLine}`;
+      return `<li class="media-row">${thumb}<div class="media-main">${main}</div>${moveBtns(i)}</li>`;
+    }).join("") : `<li class="media-empty">Nothing added yet. The TV shows the queue only.</li>`;
+    box.querySelectorAll("[data-media]").forEach((input) => input.addEventListener("input", () => {
+      const i = Number(input.dataset.index);
+      draft.tvMedia[i][input.dataset.media] = input.value.trim();
+      const hint = mediaHint(draft.tvMedia[i]);
+      const line = box.querySelector(`[data-media-hint="${i}"]`);
+      line.className = `yt-hint ${hint.ok ? "ok" : "err"}`;
+      line.textContent = hint.text;
+      showPlaylistHint();
+      refreshDirty();
+    }));
+    showPlaylistHint();
+  }
+  function showPlaylistHint() {
     const hint = $("#yt-hint");
     if (!hint || !draft) return;
-    const video = parseYouTube(draft.youtube);
-    hint.className = `yt-hint ${video && "error" in video ? "err" : "ok"}`;
-    hint.textContent = !video ? "" : "error" in video ? video.error : `✓ ${video.kind === "channel" ? "Channel uploads" : video.kind === "playlist" ? "Playlist" : "Video"} will play on the TV, muted and on repeat.`;
+    const filled = draft.tvMedia.filter((item) => (item.type === "picture" ? item.src : item.link));
+    const bad = filled.findIndex((item) => mediaError(item));
+    const videos = filled.filter((item) => item.type === "youtube").length;
+    const pictures = filled.length - videos;
+    const count = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+    hint.className = `yt-hint ${bad >= 0 ? "err" : "ok"}`;
+    hint.textContent = bad >= 0 ? `Item ${draft.tvMedia.indexOf(filled[bad]) + 1} needs a different link.`
+      : !filled.length ? ""
+      : filled.length === 1 ? `✓ ${videos ? "This video or playlist" : "This picture"} stays on the TV${videos ? ", muted and on repeat" : ""}.`
+      : `✓ ${[videos && count(videos, "YouTube item"), pictures && count(pictures, "picture")].filter(Boolean).join(" and ")} play on the TV one after another, then repeat.`;
+  }
+  /** Shrinks a picture to TV size (at most 1920 × 1080) as a JPEG, so it uploads and loads quickly. */
+  async function shrinkPicture(file) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = () => reject(new Error("unreadable")); i.src = url; });
+      const scale = Math.min(1, 1920 / img.naturalWidth, 1080 / img.naturalHeight);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      let data = canvas.toDataURL("image/jpeg", 0.85);
+      if (data.length > 1400000) data = canvas.toDataURL("image/jpeg", 0.65);
+      return data;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+  let uploading = false;
+  async function addPictures(files) {
+    if (!files.length || uploading) return;
+    if (sync.mode !== "server") { toast("Pictures from this computer need the queue server: turn on syncing in Sync setup. You can add a picture link instead.", true); return; }
+    uploading = true;
+    let added = 0;
+    try {
+      for (const file of files) {
+        if (draft.tvMedia.length >= MAX_TV_MEDIA) { toast(`The TV playlist can have up to ${MAX_TV_MEDIA} videos and pictures.`, true); break; }
+        toast(`Uploading ${file.name}…`);
+        let data;
+        try { data = await shrinkPicture(file); } catch { toast(`${file.name} is not a picture this browser can open.`, true); continue; }
+        const pin = readSetting(PIN_KEY);
+        const response = await fetch(`${syncServer()}/api/media`, { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json", ...(pin ? { "x-queue-pin": pin } : {}) }, body: JSON.stringify({ data }) });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || !body.src) { toast(body.error || `${file.name} could not be uploaded (error ${response.status}).`, true); continue; }
+        draft.tvMedia.push({ type: "picture", src: body.src, name: file.name.replace(/\.[a-z0-9]+$/i, "").slice(0, 80) });
+        added += 1;
+      }
+    } catch {
+      toast("The queue server could not be reached, so the pictures were not uploaded.", true);
+    } finally {
+      uploading = false;
+    }
+    if (added) { renderMediaList(); refreshDirty(); toast(`${added} picture${added === 1 ? "" : "s"} added. Click Save configuration to show ${added === 1 ? "it" : "them"} on the TV.`); }
+  }
+  /** Removes uploaded pictures that the saved playlist no longer uses. */
+  function deleteUnusedPictures(before, after) {
+    const kept = new Set(tvMediaOf(after).map((item) => item.src));
+    const pin = readSetting(PIN_KEY);
+    tvMediaOf(before).filter((item) => item.type === "picture" && UPLOADED_PICTURE.test(item.src) && !kept.has(item.src))
+      .forEach((item) => fetch(`${syncServer()}${item.src}`, { method: "DELETE", headers: pin ? { "x-queue-pin": pin } : {} }).catch(() => undefined));
   }
 
   // ---------- Station ----------
@@ -2000,12 +2174,24 @@ function downloadQueueReport(xlsx, state, now) {
   let seen;
   let tvTimer;
 
+  // mountedVideo is the TV playlist on screen (as text, to notice changes); mediaIndex is the item playing now.
   let mountedVideo = null;
+  let mediaIndex = 0;
+  let mediaTimer;
+  let player = { talking: false, state: -1, playlist: null, index: 0 };
   let unmuteTimer;
   // The video is muted while numbers are read out; videoSoundKey notices volume changes made at the front desk.
   let ducked = false;
   let videoSoundKey = "";
-  const currentVideo = () => { const v = parseYouTube(state.settings.youtube); return v && !("error" in v) ? v.src : null; };
+  /** The TV playlist, ready to play: YouTube embeds and picture addresses (unusable entries are left out). */
+  function tvPlaylist() {
+    return tvMediaOf(state.settings).flatMap((item) => {
+      if (item.type === "picture") return item.src && !pictureError(item.src) ? [{ type: "picture", src: pictureUrl(item.src) }] : [];
+      const video = parseYouTube(item.link);
+      return video && !("error" in video) ? [{ type: "youtube", src: video.src }] : [];
+    });
+  }
+  const currentVideo = () => { const list = tvPlaylist(); return list.length ? JSON.stringify(list) : null; };
   const yt = (func, args) => youtubeCommand(document.getElementById("yt"), func, args);
   // YouTube refuses to play without a referring website (error 153), and this file opened from disk has none.
   // From disk, load the player through the sync server's relay page so YouTube sees that site instead.
@@ -2016,7 +2202,7 @@ function downloadQueueReport(xlsx, state, now) {
     mountedVideo = currentVideo();
     const body = mountedVideo
       ? `<div class="tv-body video">
-        <div class="tv-left"><div class="vid"><iframe id="yt" src="${esc(videoFrameSrc(mountedVideo))}" title="${esc(clinicNameOf(state.settings))} videos" allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe><div class="vid-over hidden" id="vid-over"></div></div><section class="tiles small" id="tiles"></section></div>
+        <div class="tv-left"><div class="vid"><div id="media-slot"></div><div class="vid-over hidden" id="vid-over"></div></div><section class="tiles small" id="tiles"></section></div>
         <div class="tv-right"><section class="hero compact" id="hero"></section><section class="tv-next"><h2>Next in line</h2><div id="reg-call"></div><div id="next" style="margin-top:1.2vh;min-height:0;overflow:hidden"></div></section></div>
       </div>`
       : `<div class="tv-body">
@@ -2033,11 +2219,67 @@ function downloadQueueReport(xlsx, state, now) {
     clearInterval(tvReportTimer);
     tvReportTimer = setInterval(() => { if (view === "display") reportTv(); else clearInterval(tvReportTimer); }, 30000);
     void reportTv();
-    const frame = document.getElementById("yt");
-    if (frame) frame.addEventListener("load", () => setTimeout(applyVideoSound, 1500));
+    mediaIndex = 0;
+    showMedia();
     if (sound) setSound(true); else autoStartSound();
     keepScreenOn();
   }
+
+  /** Shows the TV playlist's current item; videos and playlists play to the end, pictures stay for slideSeconds. */
+  function showMedia() {
+    clearTimeout(mediaTimer);
+    const slot = document.getElementById("media-slot");
+    const list = mountedVideo ? JSON.parse(mountedVideo) : [];
+    if (!slot || !list.length) return;
+    mediaIndex %= list.length;
+    const item = list[mediaIndex];
+    const single = list.length === 1;
+    player = { talking: false, state: -1, playlist: null, index: 0 };
+    if (item.type === "picture") {
+      slot.innerHTML = `<img class="slide" src="${esc(item.src)}" alt="">`;
+      // A picture that will not load is skipped; a single picture just stays.
+      slot.querySelector("img").addEventListener("error", () => { if (!single) mediaTimer = setTimeout(nextMedia, 3000); });
+      if (!single) mediaTimer = setTimeout(nextMedia, Math.min(120, Math.max(3, Number(state.settings.slideSeconds) || 10)) * 1000);
+      return;
+    }
+    // Alone in the playlist a video repeats by itself; with others it plays once, then the next item comes.
+    let src = single ? item.src : item.src.replace("&loop=1", "").replace(/&playlist=[^&]*$/, "");
+    if (/^https?:$/.test(location.protocol)) src += `&origin=${encodeURIComponent(location.origin)}`;
+    slot.innerHTML = `<iframe id="yt" src="${esc(videoFrameSrc(src))}" title="${esc(clinicNameOf(state.settings))} videos" allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
+    const frame = slot.querySelector("iframe");
+    frame.addEventListener("load", () => {
+      // Ask the player to report its state, so the TV knows when a video or playlist has ended.
+      [300, 1500, 4000].forEach((delay) => setTimeout(() => frame.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: "yt", channel: "widget" }), "*"), delay));
+      setTimeout(applyVideoSound, 1500);
+    });
+    // If the player never reports (e.g. YouTube is blocked), move on after 15 minutes.
+    if (!single) mediaTimer = setTimeout(() => { if (!player.talking) nextMedia(); }, 15 * 60000);
+  }
+  function nextMedia() {
+    if (view !== "display" || !mountedVideo) return;
+    mediaIndex += 1;
+    showMedia();
+  }
+  // Reports from the YouTube player: when the last video has ended (or will not play), the next item comes.
+  window.addEventListener("message", (event) => {
+    const frame = document.getElementById("yt");
+    if (view !== "display" || !frame || event.source !== frame.contentWindow) return;
+    let data;
+    try { data = typeof event.data === "string" ? JSON.parse(event.data) : event.data; } catch { return; }
+    if (!data || typeof data.event !== "string") return;
+    player.talking = true;
+    if ((JSON.parse(mountedVideo ?? "[]")).length < 2) return;
+    const info = data.info && typeof data.info === "object" ? data.info : {};
+    if (Array.isArray(info.playlist)) player.playlist = info.playlist;
+    if (typeof info.playlistIndex === "number") player.index = info.playlistIndex;
+    const playerState = data.event === "onStateChange" ? data.info : info.playerState;
+    if (data.event === "onError") { clearTimeout(mediaTimer); mediaTimer = setTimeout(nextMedia, 3000); return; }
+    if (typeof playerState !== "number" || playerState === player.state) return;
+    player.state = playerState;
+    clearTimeout(mediaTimer);
+    // A playlist goes on to its next video by itself; wait a moment to see whether it does.
+    if (playerState === 0) mediaTimer = setTimeout(() => { if (player.state === 0) nextMedia(); }, player.playlist && player.index < player.playlist.length - 1 ? 8000 : 1500);
+  });
 
   /** Queue numbers are as big as their box allows: a long one (e.g. 128-C1-W) shrinks just enough to fit. */
   function fitNumbers() {
@@ -2375,7 +2617,27 @@ function downloadQueueReport(xlsx, state, now) {
         void dispatch({ type: "updateSettings", settings: { ...state.settings, videoSound: on, videoVolume } }, on ? `TV video sound on (${videoVolume}%).` : "TV video sound off.");
         break;
       }
-      case "saveSettings": void dispatch({ type: "updateSettings", settings: draft }, sync.mode === "server" ? "Configuration saved. Every computer updates automatically." : "Configuration saved. Every open window updates automatically.").then((r) => { if (r.ok) { resetDraft(); renderSettings(); } }); break;
+      case "saveSettings": {
+        const before = state.settings;
+        void dispatch({ type: "updateSettings", settings: draft }, sync.mode === "server" ? "Configuration saved. Every computer updates automatically." : "Configuration saved. Every open window updates automatically.").then((r) => {
+          if (!r.ok) return;
+          if (sync.mode === "server") deleteUnusedPictures(before, state.settings);
+          resetDraft(); renderSettings();
+        });
+        break;
+      }
+      case "addYouTube": draft.tvMedia.push({ type: "youtube", link: "" }); renderMediaList(); refreshDirty(); $(`#media-list [data-index="${draft.tvMedia.length - 1}"][data-media]`)?.focus(); break;
+      case "addPictureLink": draft.tvMedia.push({ type: "picture", src: "" }); renderMediaList(); refreshDirty(); $(`#media-list [data-index="${draft.tvMedia.length - 1}"][data-media]`)?.focus(); break;
+      case "addPicture": $("#picture-file").click(); break;
+      case "moveMedia": {
+        const from = Number(index);
+        const to = from + Number(send);
+        if (to < 0 || to >= draft.tvMedia.length) break;
+        [draft.tvMedia[from], draft.tvMedia[to]] = [draft.tvMedia[to], draft.tvMedia[from]];
+        renderMediaList(); refreshDirty();
+        break;
+      }
+      case "removeMedia": draft.tvMedia.splice(Number(index), 1); renderMediaList(); refreshDirty(); break;
       case "resetDay": if (confirm(`Clear today's queue${sync.mode === "server" ? " on every computer" : ""}? All queue numbers and calls for today are removed and numbering restarts at 01. Settings are kept.`)) { void dispatch({ type: "resetDay" }, "Today's queue was cleared.").then(() => { issued = null; if (view === "desk") updateDesk(); }); } break;
       case "arrive": {
         if (arriving) break;
