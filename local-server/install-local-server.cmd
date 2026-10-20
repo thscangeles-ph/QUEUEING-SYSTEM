@@ -72,6 +72,14 @@ if errorlevel 2 goto no_autostart
 echo The queue server will start by itself when Windows starts.
 :no_autostart
 
+rem ---- Queue Board icons on the desktop ----
+echo.
+choice /c YN /m "Put Queue Board icons on the desktop (front desk, front desk + TV, queue server)"
+if errorlevel 2 goto no_icons
+call "local-server\make-desktop-icons.cmd" quiet
+cd /d "%~dp0.."
+:no_icons
+
 rem ---- Open the front desk and the TV when the server starts (tv-setup\start-desk-and-tv.cmd) ----
 if defined OPEN_DESK_AND_TV goto desk_tv_done
 echo.

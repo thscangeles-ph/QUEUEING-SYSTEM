@@ -46,7 +46,7 @@ curl -fsSL -o "$tmp/SHASUMS256.txt" "https://nodejs.org/dist/$NODE_VERSION/SHASU
 unzip -q -j "$tmp/$NODE_NAME.zip" "$NODE_NAME/node.exe" "$NODE_NAME/LICENSE" -d "$OUT/node"
 
 # ---- start files, guide and TV startup files ----
-cp local-server/package/SETUP.cmd local-server/package/START-SERVER.cmd local-server/package/README.txt local-server/fix-network.cmd local-server/reset-config-pin.cmd "$OUT/"
+cp local-server/package/SETUP.cmd local-server/package/START-SERVER.cmd local-server/package/README.txt local-server/fix-network.cmd local-server/reset-config-pin.cmd local-server/make-desktop-icons.cmd local-server/thsc-queue.ico "$OUT/"
 mkdir -p "$OUT/tv-setup"
 cp tv-setup/*.cmd "$OUT/tv-setup/"
 # Credits and the license texts of the software inside (scripts/build-credits.mjs).
