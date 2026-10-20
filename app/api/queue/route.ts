@@ -1,6 +1,6 @@
-import { applyAction, ensureDay, publicView } from "@/lib/queue/reducer";
+import { applyAction, ensureDay, publicView, withoutSecrets } from "@/lib/queue/reducer";
 import { getBackend, isStaff, staffPinConfigured } from "@/lib/queue/server-store";
-import { PUBLIC_ACTIONS, type QueueAction, type QueueState } from "@/lib/queue/types";
+import { PUBLIC_ACTIONS, READ_ONLY_ACTIONS, type QueueAction, type QueueState } from "@/lib/queue/types";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,7 @@ const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods
 const HEADERS = { ...CORS, "Cache-Control": "no-store" };
 // "now" lets screens use the server's clock, so a computer whose clock is off still treats new calls as new.
 const json = (body: Record<string, unknown>, status = 200) => Response.json({ ...body, now: Date.now() }, { status, headers: HEADERS });
-const view = (state: QueueState, staff: boolean) => (staff ? state : publicView(state));
+const view = (state: QueueState, staff: boolean) => (staff ? withoutSecrets(state) : publicView(state));
 const misconfigured = () => json({ mode: "server", error: "Shared queue storage is set up but QUEUE_STAFF_PIN is missing. Add it to the environment variables and redeploy." }, 500);
 
 export function OPTIONS() {
@@ -49,6 +49,7 @@ export async function POST(request: Request) {
     const now = Date.now();
     const { state, result } = applyAction(stored.state, action, now);
     if (!result.ok) return json({ mode: "server", staff, version: stored.version, result, state: view(state, staff) }, 422);
+    if (READ_ONLY_ACTIONS.includes(action.type)) return json({ mode: "server", staff, version: stored.version, result });
     if (await backend.save(state, stored.version)) return json({ mode: "server", staff, version: stored.version + 1, result, state: view(state, staff) });
     await new Promise((resolve) => setTimeout(resolve, 40 + Math.random() * 80));
   }

@@ -24,3 +24,6 @@
 
 # clinic server package (scripts/build-server-package.sh)
 /dist
+
+# TypeScript incremental build info
+*.tsbuildinfo

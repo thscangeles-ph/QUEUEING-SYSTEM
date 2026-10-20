@@ -106,6 +106,7 @@ label.field em, div.field em { font-style: normal; font-weight: 400; color: var(
 .nl.one .h { display: block; margin: 0; } .nl.one .h small { display: block; color: #8c7f66; font-size: 1vw; margin-top: .3vh; }
 .nl.one b.mono { background: #3a3022; border-radius: .5vw; padding: .4vh .8vw; font-size: 2.6vw; white-space: nowrap; } .nl.one i { color: #5c4b2d; font-style: normal; font-size: 2vw; }
 a.btn { text-decoration: none; }
+.cfg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .cfg-head h1 { margin: 4px 0 4px; font-size: 24px; } .cfg-head p { margin: 0 0 16px; color: var(--muted); }
 .cfg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-top: 16px; }
 .cfg-row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); font-size: 14px; }
@@ -328,6 +329,50 @@ break;case"<bookViews":;case"<bookViews>":;case"</bookViews>":break;case"<workbo
 </script>
 <script>
 "use strict";
+// ---- from lib/queue/pin.ts ----
+const K = [
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+];
+
+/** SHA-256 of a text, as hex. */
+function sha256(text) {
+  const bytes = Array.from(new TextEncoder().encode(text));
+  const bits = bytes.length * 8;
+  bytes.push(0x80);
+  while (bytes.length % 64 !== 56) bytes.push(0);
+  for (let shift = 56; shift >= 0; shift -= 8) bytes.push(shift >= 32 ? Math.floor(bits / 2 ** shift) & 0xff : (bits >>> shift) & 0xff);
+  const h = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+  const w = new Array(64);
+  const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+  for (let block = 0; block < bytes.length; block += 64) {
+    for (let i = 0; i < 16; i += 1) w[i] = (bytes[block + i * 4] << 24) | (bytes[block + i * 4 + 1] << 16) | (bytes[block + i * 4 + 2] << 8) | bytes[block + i * 4 + 3];
+    for (let i = 16; i < 64; i += 1) {
+      const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+      const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
+    }
+    let [a, b, c, d, e, f, g, hh] = h;
+    for (let i = 0; i < 64; i += 1) {
+      const t1 = (hh + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i]) | 0;
+      const t2 = ((rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+      [hh, g, f, e, d, c, b, a] = [g, f, e, (d + t1) | 0, c, b, a, (t1 + t2) | 0];
+    }
+    [a, b, c, d, e, f, g, hh].forEach((value, i) => { h[i] = (h[i] + value) | 0; });
+  }
+  return h.map((value) => (value >>> 0).toString(16).padStart(8, "0")).join("");
+}
+
+const hashConfigPin = (pin, salt) => ({ salt, hash: sha256(`${salt}:${pin.trim()}`) });
+
+/** True when no configuration PIN is set, or the given PIN is the right one. */
+function configPinOk(stored, pin) {
+  if (!stored) return true;
+  return typeof pin === "string" && hashConfigPin(pin, stored.salt).hash === stored.hash;
+}
+
 // ---- from lib/queue/youtube.ts ----
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 const LIST_ID = /^[A-Za-z0-9_-]{10,64}$/;
@@ -924,12 +969,34 @@ function run(state, action, now) {
             const settings = sanitizeSettings(action.settings);
             if (typeof settings === "string")
                 return fail(settings);
+            // The configuration PIN only changes with setConfigPin, never from the settings form.
+            if (state.settings.configPin)
+                settings.configPin = state.settings.configPin;
+            // Without the configuration PIN, only the video's sound and volume may change (the front desk's TV sound control).
+            if (!configPinOk(state.settings.configPin, action.configPin)) {
+                const before = sanitizeSettings(state.settings);
+                if (typeof before === "string" || withoutVideoSound({ ...before, configPin: settings.configPin }) !== withoutVideoSound(settings))
+                    return fail(CONFIG_PIN_NEEDED);
+            }
             state.settings = settings;
             return { ok: true };
         }
         case "resetDay":
+            if (!configPinOk(state.settings.configPin, action.configPin))
+                return fail(CONFIG_PIN_NEEDED);
             Object.assign(state, emptyState(now, state.settings));
             return { ok: true };
+        case "setConfigPin": {
+            if (!configPinOk(state.settings.configPin, action.current))
+                return fail("The current configuration PIN is not right.");
+            const pin = String(action.pin ?? "").trim();
+            if (!/^\d{4,8}$/.test(pin))
+                return fail("The configuration PIN must be 4 to 8 digits.");
+            state.settings.configPin = hashConfigPin(pin, newId());
+            return { ok: true };
+        }
+        case "checkConfigPin":
+            return configPinOk(state.settings.configPin, action.pin) ? { ok: true } : fail("That configuration PIN is not right.");
         default:
             return fail("Unknown action.");
     }
@@ -949,6 +1016,8 @@ function withoutBilling(step) {
     return copy;
 }
 /** Removes names, mobile numbers, notes and charges so the TV board and patient phones never receive them. */
+const CONFIG_PIN_NEEDED = "Enter the configuration PIN to change System configuration.";
+const withoutVideoSound = (settings) => JSON.stringify({ ...settings, videoSound: undefined, videoVolume: undefined });
 function publicView(state) {
     return { ...state, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", steps: visit.steps.map(withoutBilling) })) };
 }
@@ -1375,6 +1444,8 @@ function downloadQueueReport(xlsx, state, now) {
   }
   function mount() {
     const r = route();
+    // System configuration asks for its PIN again every time it is opened.
+    if (r.name !== "config") configUnlocked = null;
     if (r.name === "setup") { view = "setup"; document.body.className = ""; document.title = "Sync Setup · THSC Queue Board"; mountSetup(); refreshSync(); return; }
     if (!state) { view = "connecting"; document.body.className = ""; document.title = "THSC Queue Board"; mountConnecting(); refreshSync(); return; }
     if (r.name !== "display" && locked()) { view = "gate"; document.body.className = ""; document.title = "Staff PIN · THSC Queue Board"; mountGate(); refreshSync(); return; }
@@ -1402,7 +1473,7 @@ function downloadQueueReport(xlsx, state, now) {
       <header class="top"><div class="top-in">
         <div class="top-row">
           <div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state?.settings).toUpperCase())}</small><b>Queue Board · ${{ desk: "Front Desk", station: "Stations", config: "System Configuration" }[view]}</b></div></div>
-          <div class="top-actions"><span class="badge-device tv-badge"></span><span class="badge-device sync-badge"></span>${view === "desk" ? `<a class="btn sm on-dark" href="#config">Settings</a>` : ""}</div>
+          <div class="top-actions"><span class="badge-device tv-badge"></span><span class="badge-device sync-badge"></span></div>
         </div>
         <nav class="nav">${nav.map(([key, href, label]) => `<a href="${href}" class="${view === key ? "on" : ""}">${label}</a>`).join("")}<button data-act="openTv">TV display ↗</button><button data-act="openPoster">Check-in QR ↗</button><a href="#setup">Sync setup</a></nav>
       </div></header>
@@ -1755,13 +1826,54 @@ function downloadQueueReport(xlsx, state, now) {
     draft.slideSeconds ??= 10;
     draftBase = JSON.stringify(draft);
   }
+  // ---- Configuration PIN: needed to open System configuration (the staff PIN is not enough) ----
+  // The PIN typed on this computer, or null while System configuration is locked.
+  let configUnlocked = null;
+  let gateMode = "";
+  const configPinSet = () => Boolean(state.settings.configPin || state.settings.configPinSet);
+  function mountConfigGate() {
+    gateMode = configPinSet() ? "unlock" : "create";
+    const create = gateMode === "create";
+    const pinInput = (id, label, auto) => `<input type="password" id="${id}" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="${auto}" placeholder="${label}" aria-label="${label}" required>`;
+    $("#main").innerHTML = `<section class="panel" id="config-gate" style="max-width:460px;margin:24px auto 0"><div class="panel-h"><div>
+        <h2>🔒 ${create ? "Create a configuration PIN" : "Enter the configuration PIN"}</h2>
+        <p>${create ? "System configuration changes the stations, the TV and today's queue for every computer, so it gets its own PIN. Choose 4 to 8 digits and give it only to the staff who manage the Queue Board." : "System configuration is locked. The staff PIN is not enough to open it."}</p></div></div>
+      <div class="panel-b"><form id="config-gate-form" style="display:grid;gap:12px">
+        ${create ? `${pinInput("gate-pin", "New configuration PIN", "new-password")}${pinInput("gate-pin-again", "Type it again", "new-password")}` : pinInput("gate-pin", "Configuration PIN", "current-password")}
+        <p class="yt-hint err" id="gate-error" role="alert"></p>
+        <button class="btn" type="submit" style="min-height:44px">${create ? "Save PIN and open" : "Unlock"}</button>
+      </form>
+      ${create ? "" : `<p style="color:var(--muted);font-size:13px;margin:14px 0 0">Forgot it? On the queue server computer, double-click <b>reset-config-pin.cmd</b> in the Queue Board folder (local-server).</p>`}</div></section>`;
+    $("#gate-pin").focus();
+    $("#config-gate-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const pin = $("#gate-pin").value.trim();
+      const error = $("#gate-error");
+      if (create && pin !== $("#gate-pin-again").value.trim()) { error.textContent = "The two PINs are not the same."; return; }
+      if (create && !/^\d{4,8}$/.test(pin)) { error.textContent = "Use 4 to 8 digits."; return; }
+      const r = await dispatch(create ? { type: "setConfigPin", pin } : { type: "checkConfigPin", pin }, create ? "Configuration PIN saved." : "");
+      if (view !== "config") return;
+      if (!r.ok) { error.textContent = r.error; $("#gate-pin").select(); return; }
+      configUnlocked = pin;
+      mountConfig();
+    });
+  }
   function mountConfig() {
+    if (configUnlocked === null) { mountConfigGate(); return; }
     // An unsaved draft is kept when moving between screens, until it is saved or discarded.
     if (!draft) resetDraft();
     $("#main").innerHTML = `<div id="settings"></div>`;
     renderSettings();
   }
+  /** A save was refused because the PIN changed on another computer: ask for it again. */
+  function relockIfPinRefused(result) {
+    if (result.ok || result.error !== CONFIG_PIN_NEEDED || view !== "config") return;
+    configUnlocked = null;
+    mountConfig();
+  }
   function updateConfig() {
+    // Locked: only the PIN screen is shown; switch to "create" or "unlock" if a PIN was set or removed elsewhere.
+    if (configUnlocked === null) { if (gateMode !== (configPinSet() ? "unlock" : "create")) mountConfigGate(); return; }
     // Saved elsewhere (another computer, or the desk's TV sound control) while nothing here was changed: show it.
     if (!settingsDirty() && JSON.stringify(state.settings) !== draftSource) { resetDraft(); renderSettings(); return; }
     renderConfigStatus();
@@ -1773,7 +1885,7 @@ function downloadQueueReport(xlsx, state, now) {
     const services = [["consultation", "Consultation"], ["procedure", "Procedure"], ["laboratory", "Laboratory"], ["imaging", "Imaging"], ["cashier", "Cashier"], ["hmo", "HMO desk"], ["other", "Other"]];
     const volume = videoVolumeOf(draft);
     box.innerHTML = `
-      <div class="cfg-head"><div><h1>System configuration</h1><p>Every Queue Board setting in one place. Saved changes reach every computer, the stations and the lobby TV within a few seconds.</p></div></div>
+      <div class="cfg-head"><div><h1>System configuration</h1><p>Every Queue Board setting in one place. Saved changes reach every computer, the stations and the lobby TV within a few seconds.</p></div><button type="button" class="btn sm outline" data-act="lockConfig" title="Lock System configuration on this computer">🔒 Lock</button></div>
       <section class="panel"><div class="panel-h"><div><h2>Stations</h2><p>Station codes become part of the queue number, e.g. C1 in 01-C1-W. Set a station inactive to hide it without losing it.</p></div></div>
         <div class="panel-b">
           <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th>Active</th><th></th></tr></thead><tbody>
@@ -1815,6 +1927,13 @@ function downloadQueueReport(xlsx, state, now) {
           <div class="panel-b" id="cfg-today"></div></section>
         <section class="panel"><div class="panel-h"><div><h2>This computer</h2><p>How this computer shares the queue. Each computer is set up on its own.</p></div><a class="btn sm outline" href="#setup">Sync setup</a></div>
           <div class="panel-b" id="cfg-computer"></div></section>
+        <section class="panel"><div class="panel-h"><div><h2>Configuration PIN</h2><p>Needed every time System configuration is opened. Staff with only the staff PIN still use the front desk, stations and the TV sound control.</p></div></div>
+          <div class="panel-b" style="display:grid;gap:10px">
+            <label class="field">New configuration PIN<em>4 to 8 digits.</em><input type="password" id="cfg-pin-new" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="new-password"></label>
+            <label class="field">Type it again<input type="password" id="cfg-pin-again" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="new-password"></label>
+            <div><button type="button" class="btn sm outline" data-act="changeConfigPin">Change PIN</button></div>
+            <p style="margin:0;font-size:12px;color:var(--muted)">Forgot it? On the queue server computer, double-click <b>reset-config-pin.cmd</b> in the Queue Board folder (local-server).</p>
+          </div></section>
         <section class="panel"><div class="panel-h"><div><h2>Display connection</h2><p>How the TV and other screens reach the queue server: over the clinic Wi-Fi or with a LAN cable. A server on both has a different address for each.</p></div></div>
           <div class="panel-b" style="display:grid;gap:10px">
             <label class="check"><input type="radio" name="display-conn" value="wifi" data-set="displayConnection" ${draft.displayConnection === "lan" ? "" : "checked"}><span><b>📶 Wi-Fi</b><small>The TV computer or screen is connected to the clinic Wi-Fi</small></span></label>
@@ -2619,10 +2738,20 @@ function downloadQueueReport(xlsx, state, now) {
       }
       case "saveSettings": {
         const before = state.settings;
-        void dispatch({ type: "updateSettings", settings: draft }, sync.mode === "server" ? "Configuration saved. Every computer updates automatically." : "Configuration saved. Every open window updates automatically.").then((r) => {
-          if (!r.ok) return;
+        void dispatch({ type: "updateSettings", settings: draft, configPin: configUnlocked }, sync.mode === "server" ? "Configuration saved. Every computer updates automatically." : "Configuration saved. Every open window updates automatically.").then((r) => {
+          if (!r.ok) { relockIfPinRefused(r); return; }
           if (sync.mode === "server") deleteUnusedPictures(before, state.settings);
           resetDraft(); renderSettings();
+        });
+        break;
+      }
+      case "lockConfig": configUnlocked = null; mountConfig(); toast("System configuration is locked."); break;
+      case "changeConfigPin": {
+        const pin = $("#cfg-pin-new").value.trim();
+        if (!/^\d{4,8}$/.test(pin)) { toast("The configuration PIN must be 4 to 8 digits.", true); break; }
+        if (pin !== $("#cfg-pin-again").value.trim()) { toast("The two PINs are not the same.", true); break; }
+        void dispatch({ type: "setConfigPin", current: configUnlocked, pin }, "Configuration PIN changed. Use the new PIN next time.").then((r) => {
+          if (r.ok) { configUnlocked = pin; $("#cfg-pin-new").value = ""; $("#cfg-pin-again").value = ""; } else relockIfPinRefused(r);
         });
         break;
       }
@@ -2638,7 +2767,7 @@ function downloadQueueReport(xlsx, state, now) {
         break;
       }
       case "removeMedia": draft.tvMedia.splice(Number(index), 1); renderMediaList(); refreshDirty(); break;
-      case "resetDay": if (confirm(`Clear today's queue${sync.mode === "server" ? " on every computer" : ""}? All queue numbers and calls for today are removed and numbering restarts at 01. Settings are kept.`)) { void dispatch({ type: "resetDay" }, "Today's queue was cleared.").then(() => { issued = null; if (view === "desk") updateDesk(); }); } break;
+      case "resetDay": if (confirm(`Clear today's queue${sync.mode === "server" ? " on every computer" : ""}? All queue numbers and calls for today are removed and numbering restarts at 01. Settings are kept.`)) { void dispatch({ type: "resetDay", configPin: configUnlocked }, "Today's queue was cleared.").then((r) => { relockIfPinRefused(r); issued = null; if (view === "desk") updateDesk(); }); } break;
       case "arrive": {
         if (arriving) break;
         arriving = true;
