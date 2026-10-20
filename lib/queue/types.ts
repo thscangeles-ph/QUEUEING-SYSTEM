@@ -1,3 +1,4 @@
+import type { ConfigPin } from "./pin";
 import type { TvMedia } from "./youtube";
 
 /** W walk-in, S scheduled, H HMO (its own numbering: HMO-01-C1). */
@@ -90,6 +91,10 @@ export type Settings = {
   displayConnection?: "wifi" | "lan";
   /** Volume of the TV video's sound, 0–100; set from the front desk. Missing means 60. */
   videoVolume?: number;
+  /** Salted hash of the configuration PIN that protects System configuration. Never sent to any screen. */
+  configPin?: ConfigPin;
+  /** Sent to the screens instead of configPin: whether System configuration has a PIN. */
+  configPinSet?: boolean;
   /** Language of the TV's spoken announcements; missing means English only. */
   announceLanguage?: AnnounceLanguage;
 };
@@ -143,9 +148,16 @@ export type QueueAction =
   /** Replaces the services still to come; finished services and the one being served now stay as they are. */
   | { type: "setRoute"; visitId: string; stations: string[] }
   | { type: "cancel"; visitId: string }
-  | { type: "updateSettings"; settings: Settings }
-  | { type: "resetDay" };
+  /** configPin is the configuration PIN; the front desk's TV sound control may change only the video's sound without it. */
+  | { type: "updateSettings"; settings: Settings; configPin?: string }
+  | { type: "resetDay"; configPin?: string }
+  /** Sets or changes the configuration PIN; current is needed when one is already set. */
+  | { type: "setConfigPin"; current?: string; pin: string }
+  /** Only checks the configuration PIN (to open System configuration); nothing is saved. */
+  | { type: "checkConfigPin"; pin: string };
 
 export type ActionResult = { ok: true; visitId?: string; label?: string; card?: number } | { ok: false; error: string };
 
 export const PUBLIC_ACTIONS: QueueAction["type"][] = ["qrArrive", "tvStatus"];
+/** Actions that only check something: the server answers them without saving. */
+export const READ_ONLY_ACTIONS: QueueAction["type"][] = ["checkConfigPin"];

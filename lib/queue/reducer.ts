@@ -1,4 +1,5 @@
 import type { ActionResult, AnnounceLanguage, Announcement, Billing, PatientKind, QueueAction, QueueState, Settings, Station, Step, Visit, VisitInput } from "./types";
+import { configPinOk, hashConfigPin } from "./pin";
 import { cleanTvMedia } from "./youtube";
 
 export const TIME_ZONE = "Asia/Manila";
@@ -252,8 +253,13 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   const videoVolume = Number.isFinite(volume) ? Math.min(100, Math.max(0, volume)) : 60;
   const clinicName = clinicNameOf({ clinicName: input.clinicName ?? previous.clinicName });
   const displayConnection = (input.displayConnection ?? previous.displayConnection) === "lan" ? "lan" : "wifi";
-  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage };
+  // The configuration PIN only changes with setConfigPin, never from the settings form.
+  const configPin = previous.configPin ? { configPin: previous.configPin } : {};
+  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, ...configPin };
 }
+
+export const CONFIG_PIN_NEEDED = "Enter the configuration PIN to change System configuration.";
+const withoutVideoSound = (settings: Settings) => JSON.stringify({ ...settings, videoSound: undefined, videoVolume: undefined });
 
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -488,12 +494,27 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
     case "updateSettings": {
       const settings = sanitizeSettings(action.settings, state.settings);
       if (typeof settings === "string") return fail(settings);
+      // Without the configuration PIN, only the video's sound and volume may change (the front desk's TV sound control).
+      if (!configPinOk(state.settings.configPin, action.configPin)) {
+        const before = sanitizeSettings(state.settings, state.settings);
+        if (typeof before === "string" || withoutVideoSound(before) !== withoutVideoSound(settings)) return fail(CONFIG_PIN_NEEDED);
+      }
       state.settings = settings;
       return { ok: true };
     }
     case "resetDay":
+      if (!configPinOk(state.settings.configPin, action.configPin)) return fail(CONFIG_PIN_NEEDED);
       Object.assign(state, emptyState(now, state.settings));
       return { ok: true };
+    case "setConfigPin": {
+      if (!configPinOk(state.settings.configPin, action.current)) return fail("The current configuration PIN is not right.");
+      const pin = String(action.pin ?? "").trim();
+      if (!/^\d{4,8}$/.test(pin)) return fail("The configuration PIN must be 4 to 8 digits.");
+      state.settings.configPin = hashConfigPin(pin, newId());
+      return { ok: true };
+    }
+    case "checkConfigPin":
+      return configPinOk(state.settings.configPin, action.pin) ? { ok: true } : fail("That configuration PIN is not right.");
     default:
       return fail("Unknown action.");
   }
@@ -515,6 +536,12 @@ function withoutBilling(step: Step): Step {
 }
 
 /** Removes names, mobile numbers, notes and charges so the TV board and patient phones never receive them. */
+/** The state as screens get it: the configuration PIN's hash is replaced by whether one is set. */
+export function withoutSecrets(state: QueueState): QueueState {
+  const { configPin, ...settings } = state.settings;
+  return { ...state, settings: { ...settings, configPinSet: Boolean(configPin) } };
+}
+
 export function publicView(state: QueueState): QueueState {
-  return { ...state, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", steps: visit.steps.map(withoutBilling) })) };
+  return { ...withoutSecrets(state), visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", steps: visit.steps.map(withoutBilling) })) };
 }
