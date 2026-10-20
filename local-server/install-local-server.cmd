@@ -1,7 +1,7 @@
 @echo off
 setlocal
 rem THSC Queue Board - make this computer the clinic's local queue server.
-rem Double-click it once. Run it again after copying a new version of the app into this folder.
+rem Double-click it once. To update later, double-click local-server\update-server.cmd.
 rem The front desk, stations, TV and patient phones on the clinic network then use this computer
 rem instead of the Vercel website. Queue data stays on this computer.
 cd /d "%~dp0.."
@@ -94,6 +94,7 @@ powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Obj
 echo.
 echo  Front desk: the address above.  Stations: add /queue/station?s=C1.  TV: add /queue/display.
 echo  On another TV computer, put the address in tv-setup\queue-server.txt next to the TV startup file.
+echo  To update the queue server later, double-click local-server\update-server.cmd.
 pause
 exit /b
 
