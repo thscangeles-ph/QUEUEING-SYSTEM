@@ -1,13 +1,23 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { QueueState } from "./types";
 
 type Stored = { state: QueueState | null; version: number };
-type Backend = { name: "redis" | "file"; load(): Promise<Stored>; save(state: QueueState, expectedVersion: number): Promise<boolean> };
+/** A picture for the TV slideshow: its media type and base64 data. */
+export type Media = { type: string; data: string };
+type Backend = {
+  name: "redis" | "file";
+  load(): Promise<Stored>;
+  save(state: QueueState, expectedVersion: number): Promise<boolean>;
+  saveMedia(id: string, media: Media): Promise<void>;
+  loadMedia(id: string): Promise<Media | null>;
+  deleteMedia(id: string): Promise<void>;
+};
 
 const STATE_KEY = "thsc:queue:state";
 const VERSION_KEY = "thsc:queue:version";
+const MEDIA_KEY = (id: string) => `thsc:queue:media:${id}`;
 // Compare-and-set so two staff screens acting at the same moment never overwrite each other.
 const CAS_SCRIPT = `local v = tonumber(redis.call('GET', KEYS[2]) or '0')
 if v ~= tonumber(ARGV[1]) then return 0 end
@@ -31,10 +41,21 @@ function redisBackend(url: string, token: string): Backend {
     async save(state, expectedVersion) {
       return Number(await command(["EVAL", CAS_SCRIPT, 2, STATE_KEY, VERSION_KEY, expectedVersion, JSON.stringify(state)])) === 1;
     },
+    async saveMedia(id, media) {
+      await command(["SET", MEDIA_KEY(id), JSON.stringify(media)]);
+    },
+    async loadMedia(id) {
+      const media = (await command(["GET", MEDIA_KEY(id)])) as string | null;
+      return media ? (JSON.parse(media) as Media) : null;
+    },
+    async deleteMedia(id) {
+      await command(["DEL", MEDIA_KEY(id)]);
+    },
   };
 }
 
 function fileBackend(file: string): Backend {
+  const mediaDir = path.join(path.dirname(file), "media");
   let lock: Promise<unknown> = Promise.resolve();
   const read = async (): Promise<Stored> => {
     try {
@@ -59,6 +80,22 @@ function fileBackend(file: string): Backend {
       });
       lock = task.catch(() => undefined);
       return task;
+    },
+    // Pictures are kept beside the queue file, in a "media" folder.
+    async saveMedia(id, media) {
+      await mkdir(mediaDir, { recursive: true });
+      await writeFile(path.join(mediaDir, `${id}.json`), JSON.stringify(media));
+    },
+    async loadMedia(id) {
+      try {
+        return JSON.parse(await readFile(path.join(mediaDir, `${id}.json`), "utf8")) as Media;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+      }
+    },
+    async deleteMedia(id) {
+      await unlink(path.join(mediaDir, `${id}.json`)).catch(() => undefined);
     },
   };
 }
