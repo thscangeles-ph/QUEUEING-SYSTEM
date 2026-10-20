@@ -16,6 +16,9 @@ SET UP (once per computer)
      screen) every time the server starts. To change it later, edit OPEN_DESK_AND_TV in settings.cmd.
      If start-desk-and-tv.cmd was copied into the Startup folder before, delete it there (shell:startup),
      otherwise the desk and TV open twice.
+   - Answer Y to put Queue Board icons on the desktop: "THSC Queue Board" (front desk),
+     "THSC Front Desk + TV" and "THSC Queue Server". To put them back later, double-click
+     make-desktop-icons.cmd.
 3. SETUP shows this computer's address, e.g. http://192.168.1.20:3000. Open it on the other computers:
      Front desk:  http://192.168.1.20:3000
      Station C1:  http://192.168.1.20:3000/queue/station?s=C1
