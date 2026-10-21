@@ -314,6 +314,9 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 .kiosk-result .warn { color: #ffd7dd; }
 .kiosk-result .btn { font-size: clamp(18px, 2.4vw, 28px); padding: 1.6vh 5vw; margin-top: 1vh; }
 .kiosk-foot { font-size: 12px; color: #a99a7c; }
+.kiosk-fs { position: fixed; right: 14px; bottom: 14px; z-index: 50; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; padding: 0; cursor: pointer; border: 1px solid rgba(240,200,100,.45); background: rgba(31,26,18,.72); color: var(--gold-2); opacity: .8; touch-action: manipulation; }
+.kiosk-fs:hover, .kiosk-fs:focus-visible { opacity: 1; } .kiosk-fs:active { transform: scale(.94); }
+.kiosk-fs svg { width: 22px; height: 22px; }
 .yt-hint { font-size: 12px; font-weight: 600; margin: 0; } .yt-hint.ok { color: var(--ok); } .yt-hint.err { color: #b4233c; }
 @media (prefers-reduced-motion: reduce) { .ticker span, .hero.fresh, .vid-over > div { animation: none; } .tabs a.queued:not(.on) { animation: none; background: #f6c6cd; } }
 
@@ -2408,7 +2411,15 @@ function downloadQueueReport(xlsx, state, now) {
       <header class="kiosk-head"><img src="${LOGO}" alt="" id="kiosk-logo" draggable="false"><small class="clinic-name">${esc(clinic.toUpperCase())}</small><h1>Welcome!</h1><p id="kiosk-sub">Tap a button to get your queue number.</p></header>
       <main id="kiosk-main"></main>
       <footer class="kiosk-foot">Staff: press and hold the logo for 3 seconds to leave the kiosk.</footer>
-    </div>`;
+    </div><button type="button" class="kiosk-fs hidden" id="kiosk-fs"></button>`;
+    $("#kiosk-fs").addEventListener("click", () => {
+      // Turned off with the button, full screen stays off until the button turns it on again.
+      kioskFullscreenOff = Boolean(fullscreenElement());
+      if (kioskFullscreenOff) exitFullscreen(); else enterFullscreen();
+    });
+    refreshFullscreenButton();
+    // Tablets and phones: try at once (allowed when the browser or home-screen app permits it), else on the first touch.
+    if (touchDevice() && !kioskFullscreenOff) enterFullscreen();
     kioskHome();
     // Staff leave the kiosk by holding the logo; patients do not find it by tapping.
     const logo = $("#kiosk-logo");
@@ -2436,7 +2447,6 @@ function downloadQueueReport(xlsx, state, now) {
   async function kioskTake(hmo) {
     if (kioskBusy) return;
     kioskBusy = true;
-    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => undefined);
     const main = $("#kiosk-main");
     main.querySelectorAll("button").forEach((btn) => { btn.disabled = true; });
     $("#kiosk-sub").textContent = "Getting your number…";
@@ -2478,12 +2488,49 @@ function downloadQueueReport(xlsx, state, now) {
       return { ok: false, reason: "offline" };
     }
   }
+  // ---- Kiosk full screen: automatic on tablets and phones, with a small floating button to switch it ----
+  // Browsers allow full screen only right after a touch or click, so the kiosk asks on the first one.
+  let kioskFullscreenOff = false;
+  const fullscreenElement = () => document.fullscreenElement ?? document.webkitFullscreenElement ?? null;
+  const fullscreenSupported = () => Boolean(document.fullscreenEnabled ?? document.webkitFullscreenEnabled);
+  const touchDevice = () => matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0 || /Android|iPhone|iPad|Mobile|Tablet/i.test(navigator.userAgent);
+  function enterFullscreen() {
+    const root = document.documentElement;
+    const request = root.requestFullscreen ?? root.webkitRequestFullscreen;
+    if (!request || fullscreenElement()) return;
+    try { request.call(root, { navigationUI: "hide" })?.catch?.(() => undefined); } catch { /* not allowed yet: the next touch tries again */ }
+  }
+  function exitFullscreen() {
+    const exit = document.exitFullscreen ?? document.webkitExitFullscreen;
+    if (!exit || !fullscreenElement()) return;
+    try { exit.call(document)?.catch?.(() => undefined); } catch { /* already left */ }
+  }
+  const FS_ENTER = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>`;
+  const FS_EXIT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>`;
+  function refreshFullscreenButton() {
+    const btn = $("#kiosk-fs");
+    if (!btn) return;
+    const on = Boolean(fullscreenElement());
+    btn.innerHTML = on ? FS_EXIT : FS_ENTER;
+    btn.setAttribute("aria-label", on ? "Exit full screen" : "Full screen");
+    btn.title = on ? "Exit full screen" : "Full screen";
+    btn.setAttribute("aria-pressed", String(on));
+    // iPhones cannot show a web page full screen; there, add the kiosk to the home screen instead.
+    btn.classList.toggle("hidden", !fullscreenSupported());
+  }
+  ["fullscreenchange", "webkitfullscreenchange"].forEach((type) => document.addEventListener(type, () => { if (view === "kiosk") refreshFullscreenButton(); }));
+  // The first touch anywhere on a tablet or phone (and every touch after the full screen was left another way) goes full screen.
+  document.addEventListener("click", (event) => {
+    if (view !== "kiosk" || kioskFullscreenOff || !touchDevice() || event.target.closest("#kiosk-fs")) return;
+    enterFullscreen();
+  }, true);
+
   /** Staff leave the kiosk with the staff PIN (or by confirming, when this computer keeps its own queue). */
   function leaveKiosk() {
     const pin = readSetting(PIN_KEY);
     if (pin ? window.prompt("Staff PIN to leave the kiosk:") !== pin : !window.confirm("Leave the kiosk?")) return;
     setKioskLock(false);
-    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => undefined);
+    exitFullscreen();
     if (location.hash === "#desk") mount(); else location.hash = "#desk";
   }
 
