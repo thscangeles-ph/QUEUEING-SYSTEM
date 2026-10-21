@@ -86,10 +86,10 @@ function makeStep(station: string, now: number, first: boolean): Step {
   return { id: newId(), station, status: first ? "waiting" : "pending", queuedAt: first ? now : null, calledAt: null, doneAt: null, calls: 0 };
 }
 
-/** Where a call sends the patient: arrival numbers to the Concierge (to register), everyone else straight to the station that called them. */
-export function callDestination(state: QueueState, entry: Pick<Announcement, "kind" | "station">) {
+/** Where a call sends the patient: HMO arrival numbers to the HMO Desk and other arrival numbers to the Concierge (to register), everyone else straight to the station that called them. */
+export function callDestination(state: QueueState, entry: Pick<Announcement, "kind" | "station" | "label">) {
   if (entry.kind === "ticket") return findStation(state, entry.station)?.name ?? entry.station;
-  return "the Concierge";
+  return entry.label.startsWith("HMO-") ? "HMO Desk" : "Concierge";
 }
 
 function announce(state: QueueState, entry: Omit<Announcement, "id" | "destination">) {
