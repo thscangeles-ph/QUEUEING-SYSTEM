@@ -1,3 +1,4 @@
+import type { SlipWidth } from "./escpos";
 import type { ConfigPin } from "./pin";
 import type { TvMedia } from "./youtube";
 
@@ -93,8 +94,8 @@ export type Settings = {
   videoVolume?: number;
   /** The clinic server's receipt printer for kiosk slips: a Windows printer name, a COM port (e.g. a Bluetooth printer's COM5) or a /dev device. Empty means no printer. */
   slipPrinter?: string;
-  /** Paper width of that printer in mm; missing means 58. */
-  slipWidth?: 58 | 80;
+  /** Paper width of that printer in mm (58, 76, 80 or 112); missing means 58. */
+  slipWidth?: SlipWidth;
   /** Salted hash of the configuration PIN that protects System configuration. Never sent to any screen. */
   configPin?: ConfigPin;
   /** Sent to the screens instead of configPin: whether System configuration has a PIN. */

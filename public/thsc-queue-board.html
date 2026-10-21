@@ -746,7 +746,7 @@ function sanitizeSettings(input) {
     const seconds = Math.round(Number(input.slideSeconds ?? 10));
     const slideSeconds = Number.isFinite(seconds) ? Math.min(120, Math.max(3, seconds)) : 10;
     const announceLanguage = input.announceLanguage === "en+fil" || input.announceLanguage === "fil" ? input.announceLanguage : "en";
-    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: Number(input.slipWidth) === 80 ? 80 : 58 };
+    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: SLIP_PAPER.some(([mm]) => mm === Number(input.slipWidth)) ? Number(input.slipWidth) : 58 };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -1037,6 +1037,8 @@ function withoutBilling(step) {
     return copy;
 }
 /** Removes names, mobile numbers, notes and charges so the TV board and patient phones never receive them. */
+/** Receipt paper widths in mm (as in lib/queue/escpos.ts), with characters per line and where each is used. */
+const SLIP_PAPER = [[58, 32, "small Bluetooth / mobile printer"], [76, 40, "kitchen / impact printer"], [80, 48, "standard receipt printer"], [112, 64, "wide 4-inch printer"]];
 const CONFIG_PIN_NEEDED = "Enter the configuration PIN to change System configuration.";
 const withoutVideoSound = (settings) => JSON.stringify({ ...settings, videoSound: undefined, videoVolume: undefined });
 function publicView(state) {
@@ -1960,7 +1962,7 @@ function downloadQueueReport(xlsx, state, now) {
         <section class="panel"><div class="panel-h"><div><h2>Kiosk &amp; slip printer</h2><p>A tablet or phone where patients tap <b>Regular patient</b> or <b>HMO patient</b>. Each tap gives the next queue number (it joins Waiting to register on the front desk) and the server computer prints the slip.</p></div><button type="button" class="btn sm outline" data-act="openKiosk">Kiosk ↗</button></div>
           <div class="panel-b" style="display:grid;gap:10px">
             <label class="field">Slip printer on the server computer<em>Pair the Bluetooth printer with the server computer first (Windows Settings → Bluetooth &amp; devices). It shows here as a printer, or as a COM port called "Standard Serial over Bluetooth link".</em><select data-set="slipPrinter" id="cfg-printer"></select></label>
-            <label class="field">Paper width<select data-set="slipWidth">${[[58, "58 mm (small receipt printer)"], [80, "80 mm"]].map(([v, l]) => `<option value="${v}" ${Number(draft.slipWidth ?? 58) === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+            <label class="field">Paper size<em>The width of the printer's paper roll. The queue number is printed as large as the paper allows.</em><select data-set="slipWidth">${SLIP_PAPER.map(([mm, chars, use]) => `<option value="${mm}" ${Number(draft.slipWidth ?? 58) === mm ? "selected" : ""}>${mm} mm · ${chars} characters per line (${use})</option>`).join("")}</select></label>
             <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn sm outline" data-act="testPrint">🖨 Test print</button><button type="button" class="btn sm outline" data-act="refreshPrinters">↻ Refresh list</button></div>
             <p class="yt-hint" id="printer-hint"></p>
             <div id="cfg-kiosk"></div>

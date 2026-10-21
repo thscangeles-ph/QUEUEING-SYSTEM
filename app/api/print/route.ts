@@ -1,4 +1,4 @@
-import { slipBytes } from "@/lib/queue/escpos";
+import { slipBytes, slipWidthOf } from "@/lib/queue/escpos";
 import { listPrinters, printingAvailable, printRaw } from "@/lib/queue/printer";
 import { arrivalLabel, clinicNameOf, ensureDay } from "@/lib/queue/reducer";
 import { getBackend, isStaff } from "@/lib/queue/server-store";
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   const state = ensureDay((await backend.load()).state, Date.now());
   // A test slip may try a printer chosen in System configuration before it is saved.
   const printer = String((body.test ? body.printer : undefined) ?? state.settings.slipPrinter ?? "").trim().slice(0, 200);
-  const width = Number((body.test ? body.width : undefined) ?? state.settings.slipWidth) === 80 ? 80 : 58;
+  const width = slipWidthOf((body.test ? body.width : undefined) ?? state.settings.slipWidth);
   if (!printer) return json({ ok: false, reason: "no-printer", error: "No slip printer is set. Choose one in System configuration → Kiosk & slip printer." });
   const visit = body.test ? null : state.visits.find((item) => item.id === body.visitId && !item.cancelled);
   if (!body.test && !visit) return json({ ok: false, error: "That queue number was not found." }, 404);

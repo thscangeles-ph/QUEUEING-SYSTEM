@@ -21,11 +21,18 @@ function wrap(text: string, width: number): string[] {
   return lines;
 }
 
-export type SlipInput = { label: string; clinic: string; issuedAt: number; width?: 58 | 80; hmo?: boolean };
+/** Receipt paper widths in mm, with the characters per line in the printer's normal font. */
+export const SLIP_PAPER = { 58: 32, 76: 40, 80: 48, 112: 64 } as const;
+export type SlipWidth = keyof typeof SLIP_PAPER;
+
+/** A paper width from settings or a form; anything else means 58 mm, the common small Bluetooth printer. */
+export const slipWidthOf = (value: unknown): SlipWidth => (Number(value) in SLIP_PAPER ? (Number(value) as SlipWidth) : 58);
+
+export type SlipInput = { label: string; clinic: string; issuedAt: number; width?: SlipWidth; hmo?: boolean };
 
 /** The slip: clinic name, "Your queue number", the number as large as the paper allows, the time and what to do next. */
 export function slipBytes({ label, clinic, issuedAt, width = 58, hmo = false }: SlipInput): Uint8Array {
-  const cols = width === 80 ? 48 : 32;
+  const cols = SLIP_PAPER[slipWidthOf(width)];
   const bytes: number[] = [];
   const cmd = (...values: number[]) => bytes.push(...values);
   const text = (value: string) => bytes.push(...Array.from(ascii(value), (c) => c.charCodeAt(0)));
