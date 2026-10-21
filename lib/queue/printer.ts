@@ -90,11 +90,79 @@ public static class ThscRawPrint {
 [ThscRawPrint]::Send($target, $data)
 `;
 
-const LINUX_PRINTER = /^\/dev\/(rfcomm\d+|ttyUSB\d+|ttyACM\d+|ttyS\d+|lp\d+|usb\/lp\d+)$/;
-
+// Slips are printed one at a time.
 let queue: Promise<unknown> = Promise.resolve();
 
-/** Prints the bytes on a Windows printer or COM port, or a Linux printer device. One slip at a time. */
+// A4 or Letter page for an office printer, drawn through its Windows driver: the logo, the clinic name,
+// "Your queue number", the number as large as the page allows, the time and what to do next.
+const PAGE_PRINT_SCRIPT = `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Drawing
+$doc = New-Object System.Drawing.Printing.PrintDocument
+$doc.PrinterSettings.PrinterName = $env:THSC_PRINTER
+if (-not $doc.PrinterSettings.IsValid) { throw "The printer $($env:THSC_PRINTER) was not found." }
+$doc.DocumentName = 'THSC queue number'
+$kind = if ($env:THSC_PAPER -eq 'letter') { [System.Drawing.Printing.PaperKind]::Letter } else { [System.Drawing.Printing.PaperKind]::A4 }
+$size = $doc.PrinterSettings.PaperSizes | Where-Object { $_.Kind -eq $kind } | Select-Object -First 1
+if ($size) { $doc.DefaultPageSettings.PaperSize = $size }
+$doc.add_PrintPage({
+  param($sender, $page)
+  $g = $page.Graphics
+  $area = $page.MarginBounds
+  $center = New-Object System.Drawing.StringFormat
+  $center.Alignment = [System.Drawing.StringAlignment]::Center
+  $ink = [System.Drawing.Brushes]::Black
+  $y = [single]$area.Top
+  if ($env:THSC_LOGO -and (Test-Path -LiteralPath $env:THSC_LOGO)) {
+    $logo = [System.Drawing.Image]::FromFile($env:THSC_LOGO)
+    $g.DrawImage($logo, [single]($area.Left + ($area.Width - 90) / 2), $y, [single]90, [single]120)
+    $logo.Dispose()
+    $y += 135
+  }
+  $write = {
+    param($text, $font)
+    $box = New-Object System.Drawing.RectangleF ([single]$area.Left), $script:y, ([single]$area.Width), ([single]1000)
+    $height = $g.MeasureString($text, $font, [int]$area.Width, $center).Height
+    $g.DrawString($text, $font, $ink, $box, $center)
+    $script:y += $height + 12
+  }
+  $script:y = $y
+  & $write $env:THSC_CLINIC (New-Object System.Drawing.Font 'Arial', 20, ([System.Drawing.FontStyle]::Bold))
+  $script:y += 20
+  & $write $env:THSC_HEADING (New-Object System.Drawing.Font 'Arial', 22)
+  # The number as large as the page width allows.
+  $points = 190
+  do {
+    $big = New-Object System.Drawing.Font 'Arial', $points, ([System.Drawing.FontStyle]::Bold)
+    $points -= 10
+  } while ($g.MeasureString($env:THSC_LABEL, $big).Width -gt $area.Width * 0.95 -and $points -gt 40)
+  & $write $env:THSC_LABEL $big
+  & $write $env:THSC_TIME (New-Object System.Drawing.Font 'Arial', 16)
+  $script:y += 10
+  $g.DrawLine([System.Drawing.Pens]::Gray, [single]$area.Left, [single]$script:y, [single]$area.Right, [single]$script:y)
+  $script:y += 24
+  & $write $env:THSC_MESSAGE (New-Object System.Drawing.Font 'Arial', 18)
+  $page.HasMorePages = $false
+})
+$doc.Print()
+`;
+
+export type PageSlip = { label: string; clinic: string; heading: string; time: string; message: string; paper: "a4" | "letter"; logo?: string };
+
+/** Prints the queue number on an A4 or Letter page through a Windows printer (an office printer). */
+export function printPage(printer: string, slip: PageSlip): Promise<void> {
+  const job = queue.then(async () => {
+    if (process.platform !== "win32") throw new Error("A4 and Letter pages print through Windows printers only");
+    if (/^COM\d+$/i.test(printer)) throw new Error("A4 and Letter need an office printer, not a COM port. Choose the printer by name, or a roll paper size");
+    await powershell(PAGE_PRINT_SCRIPT, { THSC_PRINTER: printer, THSC_PAPER: slip.paper, THSC_LABEL: slip.label, THSC_CLINIC: slip.clinic.toUpperCase(), THSC_HEADING: slip.heading, THSC_TIME: slip.time, THSC_MESSAGE: slip.message, THSC_LOGO: slip.logo ?? "" }, 60000);
+  });
+  queue = job.catch(() => undefined);
+  return job;
+}
+
+const LINUX_PRINTER = /^\/dev\/(rfcomm\d+|ttyUSB\d+|ttyACM\d+|ttyS\d+|lp\d+|usb\/lp\d+)$/;
+
+/** Prints the bytes on a Windows printer or COM port, or a Linux printer device. */
 export function printRaw(printer: string, data: Uint8Array): Promise<void> {
   const job = queue.then(async () => {
     if (process.platform === "win32") {

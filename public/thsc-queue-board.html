@@ -746,7 +746,7 @@ function sanitizeSettings(input) {
     const seconds = Math.round(Number(input.slideSeconds ?? 10));
     const slideSeconds = Number.isFinite(seconds) ? Math.min(120, Math.max(3, seconds)) : 10;
     const announceLanguage = input.announceLanguage === "en+fil" || input.announceLanguage === "fil" ? input.announceLanguage : "en";
-    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: SLIP_PAPER.some(([mm]) => mm === Number(input.slipWidth)) ? Number(input.slipWidth) : 58 };
+    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth) };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -1037,8 +1037,14 @@ function withoutBilling(step) {
     return copy;
 }
 /** Removes names, mobile numbers, notes and charges so the TV board and patient phones never receive them. */
-/** Receipt paper widths in mm (as in lib/queue/escpos.ts), with characters per line and where each is used. */
-const SLIP_PAPER = [[58, 32, "small Bluetooth / mobile printer"], [76, 40, "kitchen / impact printer"], [80, 48, "standard receipt printer"], [112, 64, "wide 4-inch printer"]];
+/** Paper sizes for kiosk slips (as in lib/queue/escpos.ts): receipt rolls in mm, then A4 and Letter for office printers. */
+const SLIP_PAPER = [[58, "58 mm · 32 characters per line (small Bluetooth / mobile printer)"], [76, "76 mm · 40 characters per line (kitchen / impact printer)"], [80, "80 mm · 48 characters per line (standard receipt printer)"], [112, "112 mm · 64 characters per line (wide 4-inch printer)"], ["a4", "A4 · 210 × 297 mm (office printer)"], ["letter", "Letter · 8.5 × 11 in (office printer)"]];
+/** A paper size from settings or a form; anything else means 58 mm. */
+function slipWidthOf(value) {
+    const text = String(value ?? "").toLowerCase();
+    const found = SLIP_PAPER.find(([size]) => String(size) === text);
+    return found ? found[0] : 58;
+}
 const CONFIG_PIN_NEEDED = "Enter the configuration PIN to change System configuration.";
 const withoutVideoSound = (settings) => JSON.stringify({ ...settings, videoSound: undefined, videoVolume: undefined });
 function publicView(state) {
@@ -1962,7 +1968,8 @@ function downloadQueueReport(xlsx, state, now) {
         <section class="panel"><div class="panel-h"><div><h2>Kiosk &amp; slip printer</h2><p>A tablet or phone where patients tap <b>Regular patient</b> or <b>HMO patient</b>. Each tap gives the next queue number (it joins Waiting to register on the front desk) and the server computer prints the slip.</p></div><button type="button" class="btn sm outline" data-act="openKiosk">Kiosk ↗</button></div>
           <div class="panel-b" style="display:grid;gap:10px">
             <label class="field">Slip printer on the server computer<em>Pair the Bluetooth printer with the server computer first (Windows Settings → Bluetooth &amp; devices). It shows here as a printer, or as a COM port called "Standard Serial over Bluetooth link".</em><select data-set="slipPrinter" id="cfg-printer"></select></label>
-            <label class="field">Paper size<em>The width of the printer's paper roll. The queue number is printed as large as the paper allows.</em><select data-set="slipWidth">${SLIP_PAPER.map(([mm, chars, use]) => `<option value="${mm}" ${Number(draft.slipWidth ?? 58) === mm ? "selected" : ""}>${mm} mm · ${chars} characters per line (${use})</option>`).join("")}</select></label>
+            <label class="field">Paper size<em>The paper roll's width for a receipt printer, or A4 / Letter for an office printer. The queue number is printed as large as the paper allows.</em><select data-set="slipWidth">${SLIP_PAPER.map(([size, label]) => `<option value="${size}" ${slipWidthOf(draft.slipWidth) === size ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+            <p class="yt-hint" id="paper-hint"></p>
             <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn sm outline" data-act="testPrint">🖨 Test print</button><button type="button" class="btn sm outline" data-act="refreshPrinters">↻ Refresh list</button></div>
             <p class="yt-hint" id="printer-hint"></p>
             <div id="cfg-kiosk"></div>
@@ -1984,18 +1991,20 @@ function downloadQueueReport(xlsx, state, now) {
       <div class="cfg-foot"><span id="cfg-dirty"></span><button class="btn ghost" data-act="discardSettings">Discard changes</button><button class="btn" data-act="saveSettings">Save configuration</button></div>`;
     box.querySelectorAll("[data-set]").forEach((input) => input.addEventListener(input.type === "checkbox" || input.tagName === "SELECT" ? "change" : "input", () => {
       const field = input.dataset.set;
-      const value = input.type === "checkbox" ? input.checked : input.type === "range" || field === "slipWidth" ? Number(input.value) : field === "code" ? input.value.toUpperCase() : input.value;
+      const value = input.type === "checkbox" ? input.checked : input.type === "range" ? Number(input.value) : field === "slipWidth" ? slipWidthOf(input.value) : field === "code" ? input.value.toUpperCase() : input.value;
       if (input.dataset.index !== undefined) draft.stations[Number(input.dataset.index)][field] = value; else draft[field] = value;
       if (field === "code") input.value = value;
       if (field === "slideSeconds") $("#cfg-slide").textContent = `${value} s`;
       if (field === "announceLanguage") showVoiceHint();
       if (field === "videoVolume") $("#cfg-volume").textContent = `${value}%`;
       if (field === "displayConnection") renderDisplayConnection();
+      if (field === "slipWidth" || field === "slipPrinter") showPaperHint();
       refreshDirty();
     }));
     $("#picture-file").addEventListener("change", (event) => { void addPictures([...event.target.files]); event.target.value = ""; });
     renderMediaList();
     renderPrinterList();
+    showPaperHint();
     renderKioskLink();
     showVoiceHint();
     renderConfigStatus();
@@ -2067,6 +2076,16 @@ function downloadQueueReport(xlsx, state, now) {
       : !list.length ? "No printers or COM ports were found on the server computer. Pair the printer, then click Refresh list."
       : current ? "✓ Kiosk slips print on this printer. Use Test print to check it." : "Choose the printer, click Test print, then Save configuration.";
   }
+  /** A4 and Letter need an office printer chosen by name, not a receipt printer's COM port. */
+  function showPaperHint() {
+    const hint = $("#paper-hint");
+    if (!hint || !draft) return;
+    const page = typeof slipWidthOf(draft.slipWidth) === "string";
+    const port = /^(COM\d+|\/dev\/)/i.test(draft.slipPrinter || "");
+    hint.className = `yt-hint ${page && port ? "err" : "ok"}`;
+    hint.textContent = !page ? "" : port ? "A4 and Letter need an office printer. Choose the printer by its name (🖨), not a COM port, or choose a roll size." : "✓ One page per queue number: the logo, the clinic name and the number in large print.";
+  }
+
   /** The kiosk's address for the tablet: the server's Wi-Fi address, since tablets and phones use Wi-Fi. */
   function renderKioskLink() {
     const box = $("#cfg-kiosk");
