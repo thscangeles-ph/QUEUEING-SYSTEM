@@ -104,6 +104,11 @@ label.field em, div.field em { font-style: normal; font-weight: 400; color: var(
 .route-edit:hover { border-color: var(--gold); background: #fff9e9; }
 .nl.one { display: flex; align-items: center; justify-content: space-between; gap: 1vw; }
 .nl.one .h { display: block; margin: 0; } .nl.one .h small { display: block; color: #8c7f66; font-size: 1vw; margin-top: .3vh; }
+.nl-group { margin-top: 1.4vh; } .nl-group + .nl-group { margin-top: 2vh; }
+.nl-group > h3 { margin: 0 0 .4vh; display: flex; align-items: center; gap: .6vw; font-size: 1.15vw; letter-spacing: .14em; text-transform: uppercase; color: var(--gold-2); }
+.nl-group > h3::before { content: ""; width: .9vw; height: .9vw; border-radius: 50%; background: currentColor; }
+.nl-group.hmo > h3 { color: #c3a6f5; } .nl-group.hmo .reg-call { background: #3b2a5c; } .nl-group.hmo .nl.one b.mono { background: #3b2a5c; }
+.nl-group .none { color: #8c7f66; font-size: 1.1vw; margin: .6vh 0 0; }
 .nl.one b.mono { background: #3a3022; border-radius: .5vw; padding: .4vh .8vw; font-size: 2.6vw; white-space: nowrap; } .nl.one i { color: #5c4b2d; font-style: normal; font-size: 2vw; }
 a.btn { text-decoration: none; }
 .cfg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
@@ -2816,18 +2821,24 @@ function downloadQueueReport(xlsx, state, now) {
     const tileStations = stations.length <= maxTiles ? stations : stations.filter((s) => servingAt(state, s.code).length).slice(0, maxTiles);
     $("#tiles").style.gridTemplateColumns = `repeat(${Math.min(Math.max(tileStations.length, 1), mountedVideo ? 5 : 3)}, minmax(0, 1fr))`;
     $("#tiles").innerHTML = tileStations.length ? tileStations.map((s) => { const v = servingAt(state, s.code)[0]; return `<div class="tile"><p class="s"><b class="mono">${esc(s.code)}</b> · ${esc(s.name)}</p><p class="num mono ${v ? "" : "none"}">${v ? esc(arrivalLabel(v)) : "—"}</p></div>`; }).join("") : `<div class="tile"><p class="s">Now serving</p><p class="num mono none">—</p></div>`;
+    // Next in line, in two groups: regular patients (01, 02 …) and HMO patients (HMO-01 …), each with its own line to register.
     const toRegister = waitingToRegister(state);
     const registering = toRegister.filter((v) => v.regCalledAt).sort((a, b) => b.regCalledAt - a.regCalledAt)[0];
-    const nextReg = toRegister.filter((v) => v !== registering);
-    // The next number the desk will call (priority lane first, then in arrival order).
-    const nextToRegister = nextReg.find((v) => !v.regCalledAt);
-    $("#reg-call").innerHTML = toRegister.length ? `<div class="reg-call nl one" style="padding:1vh 1.2vw"><p class="h" style="color:#f4e8c7;font-size:1.3vw">Registration · Front Desk<small style="color:#e8dec7">${toRegister.length} waiting</small></p>${nextToRegister ? `<b class="mono">${esc(arrivalLabel(nextToRegister))}</b>` : "<i>—</i>"}</div>` : "";
-    // Many stations: list only those with someone waiting, so busy lines are never pushed off the screen.
-    const lineStations = stations.length <= 5 ? stations : stations.filter((s) => waitingFor(state, s.code).length);
-    $("#next").innerHTML = !lineStations.length ? `<p style="color:#cbbd9d;font-size:1.3vw;margin:1vh 0 0">No one is waiting for a station.</p>` : lineStations.map((s) => {
-      const waiting = waitingFor(state, s.code);
-      return `<div class="nl one"><p class="h">${esc(s.name)}<small>${waiting.length} waiting</small></p>${waiting.length ? `<b class="mono">${esc(arrivalLabel(waiting[0]))}</b>` : "<i>—</i>"}</div>`;
-    }).join("");
+    const group = (hmo) => {
+      const mine = (v) => (v.kind === "H") === hmo;
+      const waitingReg = toRegister.filter(mine);
+      // The next number the desk will call (priority lane first, then in arrival order).
+      const nextToRegister = waitingReg.find((v) => v !== registering && !v.regCalledAt);
+      const rows = [];
+      if (waitingReg.length) rows.push(`<div class="reg-call nl one" style="padding:1vh 1.2vw"><p class="h" style="color:#f4e8c7;font-size:1.3vw">Registration · ${hmo ? "HMO Desk" : "Concierge"}<small style="color:#e8dec7">${waitingReg.length} waiting</small></p>${nextToRegister ? `<b class="mono">${esc(arrivalLabel(nextToRegister))}</b>` : "<i>—</i>"}</div>`);
+      stations.forEach((st) => {
+        const waiting = waitingFor(state, st.code).filter(mine);
+        if (waiting.length) rows.push(`<div class="nl one"><p class="h">${esc(st.name)}<small>${waiting.length} waiting</small></p><b class="mono">${esc(arrivalLabel(waiting[0]))}</b></div>`);
+      });
+      return `<div class="nl-group ${hmo ? "hmo" : "regular"}"><h3>${hmo ? "HMO patients" : "Regular patients"}</h3>${rows.join("") || `<p class="none">No one is waiting.</p>`}</div>`;
+    };
+    $("#reg-call").innerHTML = "";
+    $("#next").innerHTML = group(false) + group(true);
     const ticker = $("#ticker");
     if (ticker.textContent !== state.settings.ticker) ticker.textContent = state.settings.ticker;
     fitNumbers();
