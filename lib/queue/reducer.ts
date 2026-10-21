@@ -1,4 +1,5 @@
 import type { ActionResult, AnnounceLanguage, Announcement, Billing, PatientKind, QueueAction, QueueState, Settings, Station, Step, Visit, VisitInput } from "./types";
+import { slipWidthOf } from "./escpos";
 import { configPinOk, hashConfigPin } from "./pin";
 import { cleanTvMedia } from "./youtube";
 
@@ -254,7 +255,7 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   const clinicName = clinicNameOf({ clinicName: input.clinicName ?? previous.clinicName });
   const displayConnection = (input.displayConnection ?? previous.displayConnection) === "lan" ? "lan" : "wifi";
   const slipPrinter = clean(input.slipPrinter ?? previous.slipPrinter, 200);
-  const slipWidth = Number(input.slipWidth ?? previous.slipWidth) === 80 ? 80 : 58;
+  const slipWidth = slipWidthOf(input.slipWidth ?? previous.slipWidth);
   // The configuration PIN only changes with setConfigPin, never from the settings form.
   const configPin = previous.configPin ? { configPin: previous.configPin } : {};
   return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, ...configPin };

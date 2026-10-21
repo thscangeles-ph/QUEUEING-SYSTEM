@@ -1,10 +1,11 @@
-// The queue number slip for thermal receipt printers (58 mm or 80 mm), as ESC/POS commands.
+// The queue number slip for thermal receipt printers (58 to 112 mm rolls), as ESC/POS commands.
 // Printed by the clinic server (app/api/print) for the kiosk tablet's Regular and HMO buttons.
+// A4 and Letter pages go to an office printer instead (printPage in lib/queue/printer.ts).
 
 const ESC = 0x1b;
 const GS = 0x1d;
 
-const slipTime = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+const slipFormat = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 
 /** Receipt printers only print plain ASCII reliably: accents are dropped (ñ → n), anything else becomes "?". */
 const ascii = (text: string) => text.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[‐-―]/g, "-").replace(/[^\x20-\x7e]/g, "?");
@@ -21,11 +22,31 @@ function wrap(text: string, width: number): string[] {
   return lines;
 }
 
-export type SlipInput = { label: string; clinic: string; issuedAt: number; width?: 58 | 80; hmo?: boolean };
+/** Receipt paper widths in mm, with the characters per line in the printer's normal font. */
+export const SLIP_PAPER = { 58: 32, 76: 40, 80: 48, 112: 64 } as const;
+/** Office paper, printed through the printer's Windows driver. */
+export const PAGE_PAPER = ["a4", "letter"] as const;
+export type PagePaper = (typeof PAGE_PAPER)[number];
+export type SlipWidth = keyof typeof SLIP_PAPER | PagePaper;
+
+export const isPagePaper = (paper: SlipWidth): paper is PagePaper => typeof paper === "string";
+
+/** A paper size from settings or a form; anything else means 58 mm, the common small Bluetooth printer. */
+export function slipWidthOf(value: unknown): SlipWidth {
+  const text = String(value ?? "").toLowerCase();
+  if ((PAGE_PAPER as readonly string[]).includes(text)) return text as PagePaper;
+  return Number(value) in SLIP_PAPER ? (Number(value) as keyof typeof SLIP_PAPER) : 58;
+}
+
+export const SLIP_MESSAGE = "Please take a seat. Watch the TV screen - your number will be called for registration. Keep this number for every service today.";
+export const slipTime = (at: number) => slipFormat.format(new Date(at));
+
+export type SlipInput = { label: string; clinic: string; issuedAt: number; width?: SlipWidth; hmo?: boolean };
 
 /** The slip: clinic name, "Your queue number", the number as large as the paper allows, the time and what to do next. */
 export function slipBytes({ label, clinic, issuedAt, width = 58, hmo = false }: SlipInput): Uint8Array {
-  const cols = width === 80 ? 48 : 32;
+  const paper = slipWidthOf(width);
+  const cols = SLIP_PAPER[isPagePaper(paper) ? 58 : paper];
   const bytes: number[] = [];
   const cmd = (...values: number[]) => bytes.push(...values);
   const text = (value: string) => bytes.push(...Array.from(ascii(value), (c) => c.charCodeAt(0)));
@@ -43,9 +64,9 @@ export function slipBytes({ label, clinic, issuedAt, width = 58, hmo = false }: 
   cmd(ESC, 0x45, 1, GS, 0x21, ((size - 1) << 4) | (size - 1));
   line(label);
   cmd(GS, 0x21, 0x00, ESC, 0x45, 0);
-  line(slipTime.format(new Date(issuedAt)));
+  line(slipTime(issuedAt));
   line("-".repeat(cols));
-  wrap("Please take a seat. Watch the TV screen - your number will be called for registration. Keep this number for every service today.", cols).forEach((part) => line(part));
+  wrap(SLIP_MESSAGE, cols).forEach((part) => line(part));
   line();
   line();
   line();

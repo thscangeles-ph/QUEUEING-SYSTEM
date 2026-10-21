@@ -1,5 +1,7 @@
-import { slipBytes } from "@/lib/queue/escpos";
-import { listPrinters, printingAvailable, printRaw } from "@/lib/queue/printer";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { isPagePaper, SLIP_MESSAGE, slipBytes, slipTime, slipWidthOf } from "@/lib/queue/escpos";
+import { listPrinters, printingAvailable, printPage, printRaw } from "@/lib/queue/printer";
 import { arrivalLabel, clinicNameOf, ensureDay } from "@/lib/queue/reducer";
 import { getBackend, isStaff } from "@/lib/queue/server-store";
 
@@ -10,6 +12,9 @@ export const dynamic = "force-dynamic";
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, x-queue-pin", "Access-Control-Max-Age": "86400" };
 const json = (body: Record<string, unknown>, status = 200) => Response.json(body, { status, headers: { ...CORS, "Cache-Control": "no-store" } });
 const UNAVAILABLE = "Printing on the server works only on the clinic's own queue server.";
+
+/** The clinic logo for A4 and Letter pages (the app folder, or the ready-to-run package's app folder). */
+const clinicLogo = () => [path.join(process.cwd(), "public", "theheartspecialists.png"), path.join(process.cwd(), "app", "public", "theheartspecialists.png")].find((file) => existsSync(file));
 
 export function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS });
@@ -36,13 +41,18 @@ export async function POST(request: Request) {
   const state = ensureDay((await backend.load()).state, Date.now());
   // A test slip may try a printer chosen in System configuration before it is saved.
   const printer = String((body.test ? body.printer : undefined) ?? state.settings.slipPrinter ?? "").trim().slice(0, 200);
-  const width = Number((body.test ? body.width : undefined) ?? state.settings.slipWidth) === 80 ? 80 : 58;
+  const width = slipWidthOf((body.test ? body.width : undefined) ?? state.settings.slipWidth);
   if (!printer) return json({ ok: false, reason: "no-printer", error: "No slip printer is set. Choose one in System configuration → Kiosk & slip printer." });
   const visit = body.test ? null : state.visits.find((item) => item.id === body.visitId && !item.cancelled);
   if (!body.test && !visit) return json({ ok: false, error: "That queue number was not found." }, 404);
-  const slip = slipBytes({ label: visit ? arrivalLabel(visit) : "TEST", clinic: clinicNameOf(state.settings), issuedAt: visit?.createdAt ?? Date.now(), width, hmo: visit?.kind === "H" });
+  const label = visit ? arrivalLabel(visit) : "TEST";
+  const clinic = clinicNameOf(state.settings);
+  const issuedAt = visit?.createdAt ?? Date.now();
+  const hmo = visit?.kind === "H";
   try {
-    await printRaw(printer, slip);
+    // A4 and Letter go through the office printer's driver; receipt rolls get ESC/POS commands.
+    if (isPagePaper(width)) await printPage(printer, { label, clinic, heading: hmo ? "Your HMO queue number" : "Your queue number", time: slipTime(issuedAt), message: SLIP_MESSAGE, paper: width, logo: clinicLogo() });
+    else await printRaw(printer, slipBytes({ label, clinic, issuedAt, width, hmo }));
     return json({ ok: true });
   } catch (error) {
     return json({ ok: false, reason: "print-failed", error: `The slip could not be printed on ${printer}: ${(error as Error).message.replace(/\.$/, "")}. Check that the printer is on, paired and has paper.` });
