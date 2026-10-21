@@ -90,11 +90,13 @@ export type SpokenLine = { text: string; lang: "en-US" | "fil-PH" };
 export function announcementSpeech(item: Announcement, language: AnnounceLanguage = "en"): SpokenLine[] {
   const card = item.label.replace(/\D/g, "");
   const number = calledNumber(item.label);
-  // "the Concierge" in English is "sa Concierge" in Tagalog.
-  const place = item.destination.replace(/^the /i, "");
+  // Calls made before "the" was dropped say "the Concierge"; in Tagalog that is "sa Concierge".
+  // "HMO" is spelled out (H M O), as in the HMO queue numbers.
+  const destination = item.destination.replace(/\bHMO\b/g, "H M O");
+  const place = destination.replace(/^the /i, "");
   const english: SpokenLine = item.kind === "card"
-    ? { lang: "en-US", text: `Card number ${card}. Please proceed to ${item.destination}.` }
-    : { lang: "en-US", text: `Queue number, ${spokenLabel(number)}. Please proceed to ${item.destination}.` };
+    ? { lang: "en-US", text: `Card number ${card}. Please proceed to ${destination}.` }
+    : { lang: "en-US", text: `Queue number, ${spokenLabel(number)}. Please proceed to ${destination}.` };
   const tagalog: SpokenLine = item.kind === "card"
     ? { lang: "fil-PH", text: `Card number ${spokenLabelTagalog(card)}. Pakipunta po sa ${place}.` }
     : { lang: "fil-PH", text: `Numero ${spokenLabelTagalog(number)}. Pakipunta po sa ${place}.` };
