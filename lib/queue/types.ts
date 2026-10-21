@@ -91,6 +91,10 @@ export type Settings = {
   displayConnection?: "wifi" | "lan";
   /** Volume of the TV video's sound, 0–100; set from the front desk. Missing means 60. */
   videoVolume?: number;
+  /** The clinic server's receipt printer for kiosk slips: a Windows printer name, a COM port (e.g. a Bluetooth printer's COM5) or a /dev device. Empty means no printer. */
+  slipPrinter?: string;
+  /** Paper width of that printer in mm; missing means 58. */
+  slipWidth?: 58 | 80;
   /** Salted hash of the configuration PIN that protects System configuration. Never sent to any screen. */
   configPin?: ConfigPin;
   /** Sent to the screens instead of configPin: whether System configuration has a PIN. */
