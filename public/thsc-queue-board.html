@@ -293,6 +293,27 @@ img.media-ico { background: #000; }
 .media-empty { font-size: 13px; color: var(--muted); border: 1px dashed #e0d4bb; border-radius: 10px; padding: 10px 12px; margin: 0; }
 .vid .slide { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; animation: slide-in .8s ease-out; }
 @keyframes slide-in { from { opacity: 0; } to { opacity: 1; } }
+body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
+.kiosk-app { min-height: 100vh; min-height: 100dvh; display: grid; grid-template-rows: auto 1fr auto; gap: 3vh; padding: 4vh 5vw 2vh; text-align: center; user-select: none; -webkit-user-select: none; }
+.kiosk-head img { height: clamp(70px, 13vh, 150px); -webkit-touch-callout: none; }
+.kiosk-head small { display: block; color: var(--gold-2); font-weight: 700; letter-spacing: .2em; font-size: clamp(13px, 1.8vw, 20px); margin-top: 1.5vh; }
+.kiosk-head h1 { margin: 1vh 0 0; font-size: clamp(26px, 4.6vw, 54px); line-height: 1.15; }
+.kiosk-head p { margin: 1vh 0 0; color: #e9dcbc; font-size: clamp(16px, 2.4vw, 28px); }
+.kiosk-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 4vw; align-content: center; }
+@media (orientation: portrait) { .kiosk-btns { grid-template-columns: 1fr; gap: 4vh; } }
+.kiosk-btn { border: 0; border-radius: 28px; padding: 7vh 3vw; display: grid; gap: 1.2vh; justify-items: center; cursor: pointer; font: inherit; font-size: clamp(28px, 4.8vw, 58px); font-weight: 800; line-height: 1.1; background: var(--gold); color: var(--brown); box-shadow: 0 1.2vh 0 #8f6a10; transition: transform .08s; touch-action: manipulation; }
+.kiosk-btn.hmo { background: #7a56bb; color: #fff; box-shadow: 0 1.2vh 0 #4b2f80; }
+.kiosk-btn:active { transform: translateY(.8vh); box-shadow: 0 .4vh 0 #8f6a10; } .kiosk-btn.hmo:active { box-shadow: 0 .4vh 0 #4b2f80; }
+.kiosk-btn:disabled { opacity: .55; }
+.kiosk-btn .ico { font-size: 1.5em; line-height: 1; } .kiosk-btn small { font-size: clamp(15px, 2vw, 24px); font-weight: 600; opacity: .85; }
+.kiosk-result { align-self: center; display: grid; gap: 1.6vh; justify-items: center; animation: slide-in .4s ease-out; }
+.kiosk-result .k { margin: 0; color: var(--gold-2); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: clamp(18px, 2.6vw, 30px); }
+.kiosk-num { margin: 0; font: 800 clamp(72px, min(22vw, 26vh), 300px)/1 ui-monospace, Consolas, monospace; color: #fff; }
+.kiosk-result .msg { margin: 0; font-size: clamp(20px, 3.2vw, 38px); font-weight: 700; max-width: 22em; }
+.kiosk-result .sub { margin: 0; text-transform: none; letter-spacing: 0; font-size: clamp(16px, 2.2vw, 26px); color: #e9dcbc; max-width: 26em; }
+.kiosk-result .warn { color: #ffd7dd; }
+.kiosk-result .btn { font-size: clamp(18px, 2.4vw, 28px); padding: 1.6vh 5vw; margin-top: 1vh; }
+.kiosk-foot { font-size: 12px; color: #a99a7c; }
 .yt-hint { font-size: 12px; font-weight: 600; margin: 0; } .yt-hint.ok { color: var(--ok); } .yt-hint.err { color: #b4233c; }
 @media (prefers-reduced-motion: reduce) { .ticker span, .hero.fresh, .vid-over > div { animation: none; } .tabs a.queued:not(.on) { animation: none; background: #f6c6cd; } }
 
@@ -725,7 +746,7 @@ function sanitizeSettings(input) {
     const seconds = Math.round(Number(input.slideSeconds ?? 10));
     const slideSeconds = Number.isFinite(seconds) ? Math.min(120, Math.max(3, seconds)) : 10;
     const announceLanguage = input.announceLanguage === "en+fil" || input.announceLanguage === "fil" ? input.announceLanguage : "en";
-    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage };
+    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: Number(input.slipWidth) === 80 ? 80 : 58 };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -1436,11 +1457,17 @@ function downloadQueueReport(xlsx, state, now) {
 
   // ---------- Routing: #desk, #station/C1, #display ----------
   let view = null;
+  // The kiosk lock is kept for this browser tab only, so opening the kiosk on the front desk computer never locks its other tabs.
+  const KIOSK_KEY = "thsc-queue-kiosk";
+  const kioskLocked = () => { try { return sessionStorage.getItem(KIOSK_KEY) === "1"; } catch { return false; } };
+  const setKioskLock = (on) => { try { if (on) sessionStorage.setItem(KIOSK_KEY, "1"); else sessionStorage.removeItem(KIOSK_KEY); } catch { /* private mode: not locked */ } };
   function route() {
     // Served by the website at /queue/station?s=C1 or /queue/display, the path picks the screen until a #screen link is used.
-    const fromPath = location.pathname.startsWith("/queue/station") ? `station/${new URLSearchParams(location.search).get("s") ?? ""}` : location.pathname.startsWith("/queue/display") ? "display" : location.pathname.startsWith("/queue/config") ? "config" : "";
+    // A kiosk tablet stays on the kiosk: patients must not reach the staff screens (see leaveKiosk).
+    if (kioskLocked()) return { name: "kiosk", arg: "" };
+    const fromPath = location.pathname.startsWith("/queue/station") ? `station/${new URLSearchParams(location.search).get("s") ?? ""}` : location.pathname.startsWith("/queue/display") ? "display" : location.pathname.startsWith("/queue/config") ? "config" : location.pathname.startsWith("/queue/kiosk") ? "kiosk" : "";
     const [name, arg] = (location.hash.replace(/^#/, "") || fromPath).split("/");
-    return { name: ["station", "display", "setup", "config"].includes(name) ? name : "desk", arg: arg ? decodeURIComponent(arg) : "" };
+    return { name: ["station", "display", "setup", "config", "kiosk"].includes(name) ? name : "desk", arg: arg ? decodeURIComponent(arg) : "" };
   }
   function mount() {
     const r = route();
@@ -1450,9 +1477,9 @@ function downloadQueueReport(xlsx, state, now) {
     if (!state) { view = "connecting"; document.body.className = ""; document.title = "THSC Queue Board"; mountConnecting(); refreshSync(); return; }
     if (r.name !== "display" && locked()) { view = "gate"; document.body.className = ""; document.title = "Staff PIN · THSC Queue Board"; mountGate(); refreshSync(); return; }
     view = r.name;
-    document.body.className = view === "display" ? "tv" : "";
-    document.title = { desk: "Front Desk · THSC Queue Board", station: "Stations · THSC Queue Board", display: "TV Display · THSC Queue Board", config: "System Configuration · THSC Queue Board" }[view];
-    if (view === "display") mountDisplay(); else mountStaff();
+    document.body.className = view === "display" ? "tv" : view === "kiosk" ? "kiosk" : "";
+    document.title = { desk: "Front Desk · THSC Queue Board", station: "Stations · THSC Queue Board", display: "TV Display · THSC Queue Board", config: "System Configuration · THSC Queue Board", kiosk: "Get a Queue Number · THSC" }[view];
+    if (view === "display") mountDisplay(); else if (view === "kiosk") mountKiosk(); else mountStaff();
     update();
   }
   window.addEventListener("hashchange", mount);
@@ -1464,6 +1491,7 @@ function downloadQueueReport(xlsx, state, now) {
     else if (view === "config") updateConfig();
     else if (view === "station") updateStation();
     else if (view === "display") updateDisplay();
+    else if (view === "kiosk") updateKiosk();
   }
 
   // ---------- Staff shell ----------
@@ -1824,6 +1852,8 @@ function downloadQueueReport(xlsx, state, now) {
     draft = structuredClone(state.settings);
     draft.tvMedia = structuredClone(tvMediaOf(draft));
     draft.slideSeconds ??= 10;
+    draft.slipPrinter ??= "";
+    draft.slipWidth ??= 58;
     draftBase = JSON.stringify(draft);
   }
   // ---- Configuration PIN: needed to open System configuration (the staff PIN is not enough) ----
@@ -1927,6 +1957,14 @@ function downloadQueueReport(xlsx, state, now) {
           <div class="panel-b" id="cfg-today"></div></section>
         <section class="panel"><div class="panel-h"><div><h2>This computer</h2><p>How this computer shares the queue. Each computer is set up on its own.</p></div><a class="btn sm outline" href="#setup">Sync setup</a></div>
           <div class="panel-b" id="cfg-computer"></div></section>
+        <section class="panel"><div class="panel-h"><div><h2>Kiosk &amp; slip printer</h2><p>A tablet or phone where patients tap <b>Regular patient</b> or <b>HMO patient</b>. Each tap gives the next queue number (it joins Waiting to register on the front desk) and the server computer prints the slip.</p></div><button type="button" class="btn sm outline" data-act="openKiosk">Kiosk ↗</button></div>
+          <div class="panel-b" style="display:grid;gap:10px">
+            <label class="field">Slip printer on the server computer<em>Pair the Bluetooth printer with the server computer first (Windows Settings → Bluetooth &amp; devices). It shows here as a printer, or as a COM port called "Standard Serial over Bluetooth link".</em><select data-set="slipPrinter" id="cfg-printer"></select></label>
+            <label class="field">Paper width<select data-set="slipWidth">${[[58, "58 mm (small receipt printer)"], [80, "80 mm"]].map(([v, l]) => `<option value="${v}" ${Number(draft.slipWidth ?? 58) === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn sm outline" data-act="testPrint">🖨 Test print</button><button type="button" class="btn sm outline" data-act="refreshPrinters">↻ Refresh list</button></div>
+            <p class="yt-hint" id="printer-hint"></p>
+            <div id="cfg-kiosk"></div>
+          </div></section>
         <section class="panel"><div class="panel-h"><div><h2>Configuration PIN</h2><p>Needed every time System configuration is opened. Staff with only the staff PIN still use the front desk, stations and the TV sound control.</p></div></div>
           <div class="panel-b" style="display:grid;gap:10px">
             <label class="field">New configuration PIN<em>4 to 8 digits.</em><input type="password" id="cfg-pin-new" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="new-password"></label>
@@ -1944,7 +1982,7 @@ function downloadQueueReport(xlsx, state, now) {
       <div class="cfg-foot"><span id="cfg-dirty"></span><button class="btn ghost" data-act="discardSettings">Discard changes</button><button class="btn" data-act="saveSettings">Save configuration</button></div>`;
     box.querySelectorAll("[data-set]").forEach((input) => input.addEventListener(input.type === "checkbox" || input.tagName === "SELECT" ? "change" : "input", () => {
       const field = input.dataset.set;
-      const value = input.type === "checkbox" ? input.checked : input.type === "range" ? Number(input.value) : field === "code" ? input.value.toUpperCase() : input.value;
+      const value = input.type === "checkbox" ? input.checked : input.type === "range" || field === "slipWidth" ? Number(input.value) : field === "code" ? input.value.toUpperCase() : input.value;
       if (input.dataset.index !== undefined) draft.stations[Number(input.dataset.index)][field] = value; else draft[field] = value;
       if (field === "code") input.value = value;
       if (field === "slideSeconds") $("#cfg-slide").textContent = `${value} s`;
@@ -1955,6 +1993,8 @@ function downloadQueueReport(xlsx, state, now) {
     }));
     $("#picture-file").addEventListener("change", (event) => { void addPictures([...event.target.files]); event.target.value = ""; });
     renderMediaList();
+    renderPrinterList();
+    renderKioskLink();
     showVoiceHint();
     renderConfigStatus();
     renderDisplayConnection();
@@ -1975,7 +2015,7 @@ function downloadQueueReport(xlsx, state, now) {
     if (serverAddresses === null) {
       box.innerHTML = `<p class="note" style="margin:0">Looking up the server's addresses…</p>`;
       serverAddresses = [];
-      fetch(`${base}/api/server-info`, { cache: "no-store" }).then((r) => r.json()).then((body) => { serverAddresses = Array.isArray(body.servers) ? body.servers : []; }).catch(() => { serverAddresses = []; }).finally(() => renderDisplayConnection());
+      fetch(`${base}/api/server-info`, { cache: "no-store" }).then((r) => r.json()).then((body) => { serverAddresses = Array.isArray(body.servers) ? body.servers : []; }).catch(() => { serverAddresses = []; }).finally(() => { renderDisplayConnection(); renderKioskLink(); });
       return;
     }
     const want = draft.displayConnection === "lan" ? "lan" : "wifi";
@@ -1992,6 +2032,56 @@ function downloadQueueReport(xlsx, state, now) {
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button type="button" class="btn sm" data-act="downloadTvFile" data-url="${esc(url)}" data-conn="${want}">⬇ Download TV startup file</button><button type="button" class="btn sm outline" data-act="copyText" data-text="${esc(url)}/queue/display">Copy TV address</button></div>
       <p class="note" style="margin:10px 0 0">${want === "lan" ? "Plug the TV computer into the clinic router or network switch with a LAN cable." : "Connect the TV computer to the clinic Wi-Fi."} On it, put the startup file in the Startup folder (Windows+R, type <b>shell:startup</b>): the TV then opens full screen with sound when it turns on.${others ? `<br>Other addresses of the server: ${others}` : ""}</p>`;
   }
+  // ---- Kiosk & slip printer ----
+  // The server computer's printers and COM ports: null until asked, then { available, printers } or { error }.
+  let serverPrinters = null;
+  function renderPrinterList() {
+    const select = $("#cfg-printer");
+    if (!select || !draft) return;
+    const hint = $("#printer-hint");
+    if (sync.mode !== "server") {
+      select.innerHTML = `<option value="">No printer</option>`; select.disabled = true;
+      hint.className = "yt-hint err"; hint.textContent = "The kiosk and its printer need the clinic's queue server. Turn on syncing in Sync setup.";
+      return;
+    }
+    if (serverPrinters === null) {
+      select.innerHTML = `<option value="${esc(draft.slipPrinter)}">Looking for printers…</option>`; select.disabled = true;
+      serverPrinters = { loading: true };
+      const pin = readSetting(PIN_KEY);
+      fetch(`${syncServer()}/api/print`, { cache: "no-store", headers: pin ? { "x-queue-pin": pin } : {} }).then((r) => r.json())
+        .then((body) => { serverPrinters = body; }).catch(() => { serverPrinters = { error: "The printer list could not be loaded." }; }).finally(() => renderPrinterList());
+      return;
+    }
+    if (serverPrinters.loading) return;
+    const list = Array.isArray(serverPrinters.printers) ? serverPrinters.printers : [];
+    const current = draft.slipPrinter || "";
+    const options = [["", "No printer (the kiosk shows the number only)"], ...list.map((p) => [p.id, p.kind === "port" ? `🔵 ${p.name}${p.name.includes(p.id) ? "" : ` (${p.id})`}` : `🖨 ${p.name}`])];
+    if (current && !list.some((p) => p.id === current)) options.push([current, `${current} (not found now; is it on?)`]);
+    select.innerHTML = options.map(([v, l]) => `<option value="${esc(v)}" ${v === current ? "selected" : ""}>${esc(l)}</option>`).join("");
+    select.disabled = serverPrinters.available === false;
+    hint.className = `yt-hint ${serverPrinters.available === false || serverPrinters.error || !list.length ? "err" : "ok"}`;
+    hint.textContent = serverPrinters.error ? serverPrinters.error
+      : serverPrinters.available === false ? "Printing works on the clinic's own queue server (local-server), not on the website."
+      : !list.length ? "No printers or COM ports were found on the server computer. Pair the printer, then click Refresh list."
+      : current ? "✓ Kiosk slips print on this printer. Use Test print to check it." : "Choose the printer, click Test print, then Save configuration.";
+  }
+  /** The kiosk's address for the tablet: the server's Wi-Fi address, since tablets and phones use Wi-Fi. */
+  function renderKioskLink() {
+    const box = $("#cfg-kiosk");
+    if (!box) return;
+    const base = queueServerBase();
+    if (!base) { box.innerHTML = ""; return; }
+    let url = base;
+    try {
+      const server = new URL(base);
+      const wifi = PRIVATE_HOST.test(server.hostname) && Array.isArray(serverAddresses) ? serverAddresses.find((a) => a.connection === "wifi") ?? serverAddresses[0] : null;
+      if (wifi) url = `${server.protocol}//${wifi.address}${server.port ? `:${server.port}` : ""}`;
+    } catch { /* keep the base address */ }
+    box.innerHTML = `<div class="cfg-row"><span>Kiosk address</span><b class="mono">${esc(url)}/queue/kiosk</b></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button type="button" class="btn sm outline" data-act="copyText" data-text="${esc(url)}/queue/kiosk">Copy kiosk address</button></div>
+      <p class="note" style="margin:10px 0 0">On the tablet or phone: connect to the clinic Wi-Fi, open this address in Chrome, enter the staff PIN once, then choose <b>Add to Home screen</b>. Keep the tablet charging and set its screen to stay on. To leave the kiosk, press and hold the logo for 3 seconds and enter the staff PIN.</p>`;
+  }
+
   /** A start-tv-display.cmd for the TV computer, set to the chosen address (same as tv-setup\\start-tv-display.cmd). */
   function downloadTvFile(url, conn) {
     const lines = [
@@ -2285,6 +2375,97 @@ function downloadQueueReport(xlsx, state, now) {
       </div>`;
   }
 
+  // ---------- Kiosk: a tablet or phone where patients take a queue number; the server prints the slip ----------
+  let kioskBusy = false;
+  let kioskTimer;
+  function mountKiosk() {
+    setKioskLock(true);
+    clearTimeout(kioskTimer);
+    kioskBusy = false;
+    const clinic = clinicNameOf(state.settings);
+    app.innerHTML = `<div class="kiosk-app">
+      <header class="kiosk-head"><img src="${LOGO}" alt="" id="kiosk-logo" draggable="false"><small class="clinic-name">${esc(clinic.toUpperCase())}</small><h1>Welcome!</h1><p id="kiosk-sub">Tap a button to get your queue number.</p></header>
+      <main id="kiosk-main"></main>
+      <footer class="kiosk-foot">Staff: press and hold the logo for 3 seconds to leave the kiosk.</footer>
+    </div>`;
+    kioskHome();
+    // Staff leave the kiosk by holding the logo; patients do not find it by tapping.
+    const logo = $("#kiosk-logo");
+    let hold;
+    const cancel = () => clearTimeout(hold);
+    logo.addEventListener("pointerdown", () => { cancel(); hold = setTimeout(leaveKiosk, 3000); });
+    ["pointerup", "pointerleave", "pointercancel"].forEach((type) => logo.addEventListener(type, cancel));
+    logo.addEventListener("contextmenu", (event) => event.preventDefault());
+    void keepScreenOn();
+  }
+  function updateKiosk() { /* the kiosk shows no queue data; the clinic name is updated with the other screens */ }
+  function kioskHome() {
+    clearTimeout(kioskTimer);
+    kioskBusy = false;
+    const main = $("#kiosk-main");
+    if (!main) return;
+    $("#kiosk-sub").textContent = "Tap a button to get your queue number.";
+    main.innerHTML = `<div class="kiosk-btns" style="height:100%">
+      <button type="button" class="kiosk-btn" data-kiosk="regular"><span class="ico" aria-hidden="true">🎫</span>Regular patient<small>Walk-in or with appointment</small></button>
+      <button type="button" class="kiosk-btn hmo" data-kiosk="hmo"><span class="ico" aria-hidden="true">🏥</span>HMO patient<small>With HMO card or LOA</small></button>
+    </div>`;
+    main.querySelectorAll("[data-kiosk]").forEach((btn) => btn.addEventListener("click", () => void kioskTake(btn.dataset.kiosk === "hmo")));
+  }
+  /** Gives the next queue number (it joins Waiting to register on the front desk) and has the server print it. */
+  async function kioskTake(hmo) {
+    if (kioskBusy) return;
+    kioskBusy = true;
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => undefined);
+    const main = $("#kiosk-main");
+    main.querySelectorAll("button").forEach((btn) => { btn.disabled = true; });
+    $("#kiosk-sub").textContent = "Getting your number…";
+    const result = await dispatch({ type: "arrive", kind: hmo ? "H" : "W" });
+    if (view !== "kiosk") return;
+    if (!result.ok) {
+      kioskHome();
+      $("#kiosk-sub").textContent = "Sorry, no number could be given just now. Please ask the Concierge.";
+      return;
+    }
+    $("#kiosk-sub").textContent = "Printing your number…";
+    const printed = await printOnServer(result.visitId);
+    if (view !== "kiosk") return;
+    const label = calledNumber(result.label);
+    const message = printed.ok
+      ? `<p class="msg">Please take your printed number.</p>`
+      : printed.reason === "print-failed" || printed.reason === "offline"
+        ? `<p class="msg warn">Your number could not be printed. Please remember it and tell the Concierge.</p>`
+        : `<p class="msg">Please remember your number.</p>`;
+    $("#kiosk-sub").textContent = hmo ? "HMO patient" : "Regular patient";
+    main.innerHTML = `<div class="kiosk-result">
+      <p class="k">Your queue number</p>
+      <p class="kiosk-num">${esc(label)}</p>
+      ${message}
+      <p class="sub">Please take a seat and watch the TV. Your number will be called to the Concierge for registration.</p>
+      <button type="button" class="btn" id="kiosk-done">Done</button>
+    </div>`;
+    $("#kiosk-done").addEventListener("click", kioskHome);
+    kioskTimer = setTimeout(kioskHome, printed.ok ? 8000 : 15000);
+  }
+  /** Asks the queue server to print the slip on its receipt printer (System configuration → Kiosk & slip printer). */
+  async function printOnServer(visitId) {
+    if (sync.mode !== "server") return { ok: false, reason: "unavailable" };
+    try {
+      const pin = readSetting(PIN_KEY);
+      const response = await fetch(`${syncServer()}/api/print`, { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json", ...(pin ? { "x-queue-pin": pin } : {}) }, body: JSON.stringify({ visitId }) });
+      return await response.json().catch(() => ({ ok: false, reason: "unavailable" }));
+    } catch {
+      return { ok: false, reason: "offline" };
+    }
+  }
+  /** Staff leave the kiosk with the staff PIN (or by confirming, when this computer keeps its own queue). */
+  function leaveKiosk() {
+    const pin = readSetting(PIN_KEY);
+    if (pin ? window.prompt("Staff PIN to leave the kiosk:") !== pin : !window.confirm("Leave the kiosk?")) return;
+    setKioskLock(false);
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => undefined);
+    if (location.hash === "#desk") mount(); else location.hash = "#desk";
+  }
+
   // ---------- TV display ----------
   const clock = new Intl.DateTimeFormat("en-PH", { timeZone: TIME_ZONE, hour: "numeric", minute: "2-digit" });
   const longDate = new Intl.DateTimeFormat("en-PH", { timeZone: TIME_ZONE, weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -2478,7 +2659,7 @@ function downloadQueueReport(xlsx, state, now) {
   // Keep the TV screen from going to sleep while the display is open.
   let wakeLock = null;
   async function keepScreenOn() {
-    if (view !== "display" || wakeLock || !("wakeLock" in navigator)) return;
+    if ((view !== "display" && view !== "kiosk") || wakeLock || !("wakeLock" in navigator)) return;
     try {
       wakeLock = await navigator.wakeLock.request("screen");
       wakeLock.addEventListener("release", () => { wakeLock = null; });
@@ -2753,6 +2934,18 @@ function downloadQueueReport(xlsx, state, now) {
         void dispatch({ type: "setConfigPin", current: configUnlocked, pin }, "Configuration PIN changed. Use the new PIN next time.").then((r) => {
           if (r.ok) { configUnlocked = pin; $("#cfg-pin-new").value = ""; $("#cfg-pin-again").value = ""; } else relockIfPinRefused(r);
         });
+        break;
+      }
+      case "openKiosk": window.open(`${queueServerBase() || ""}/queue/kiosk`, "_blank"); break;
+      case "refreshPrinters": serverPrinters = null; renderPrinterList(); break;
+      case "testPrint": {
+        if (sync.mode !== "server") { toast("The kiosk printer needs the clinic's queue server.", true); break; }
+        if (!draft.slipPrinter) { toast("Choose the slip printer first.", true); break; }
+        const pin = readSetting(PIN_KEY);
+        toast("Printing a test slip…");
+        fetch(`${syncServer()}/api/print`, { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json", ...(pin ? { "x-queue-pin": pin } : {}) }, body: JSON.stringify({ test: true, printer: draft.slipPrinter, width: draft.slipWidth }) })
+          .then((r) => r.json()).then((body) => toast(body.ok ? "Test slip sent to the printer." : body.error || "The test slip could not be printed.", !body.ok))
+          .catch(() => toast("The queue server could not be reached.", true));
         break;
       }
       case "addYouTube": draft.tvMedia.push({ type: "youtube", link: "" }); renderMediaList(); refreshDirty(); $(`#media-list [data-index="${draft.tvMedia.length - 1}"][data-media]`)?.focus(); break;

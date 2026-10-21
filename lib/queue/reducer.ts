@@ -253,9 +253,11 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   const videoVolume = Number.isFinite(volume) ? Math.min(100, Math.max(0, volume)) : 60;
   const clinicName = clinicNameOf({ clinicName: input.clinicName ?? previous.clinicName });
   const displayConnection = (input.displayConnection ?? previous.displayConnection) === "lan" ? "lan" : "wifi";
+  const slipPrinter = clean(input.slipPrinter ?? previous.slipPrinter, 200);
+  const slipWidth = Number(input.slipWidth ?? previous.slipWidth) === 80 ? 80 : 58;
   // The configuration PIN only changes with setConfigPin, never from the settings form.
   const configPin = previous.configPin ? { configPin: previous.configPin } : {};
-  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, ...configPin };
+  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, ...configPin };
 }
 
 export const CONFIG_PIN_NEEDED = "Enter the configuration PIN to change System configuration.";

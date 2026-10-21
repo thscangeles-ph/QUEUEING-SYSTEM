@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return {
       // beforeFiles: these take over from the older React staff pages at the same addresses.
-      beforeFiles: ["/", "/queue", "/queue/station", "/queue/display", "/queue/config"].map((source) => ({ source, destination: BOARD })),
+      beforeFiles: ["/", "/queue", "/queue/station", "/queue/display", "/queue/config", "/queue/kiosk"].map((source) => ({ source, destination: BOARD })),
       afterFiles: [],
       fallback: [],
     };
