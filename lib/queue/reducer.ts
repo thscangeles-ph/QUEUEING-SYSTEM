@@ -1,4 +1,4 @@
-import type { ActionResult, AnnounceLanguage, Announcement, Billing, NumberGroup, PatientKind, QueueAction, QueueState, Settings, Station, Step, Visit, VisitInput } from "./types";
+import type { ActionResult, AnnounceLanguage, Announcement, Billing, NumberGroup, PatientKind, TaggedGroup, QueueAction, QueueState, Settings, Station, Step, Visit, VisitInput } from "./types";
 import { slipWidthOf } from "./escpos";
 import { configPinOk, hashConfigPin } from "./pin";
 import { cleanTvMedia } from "./youtube";
@@ -30,6 +30,22 @@ export function purposeOptions(settings: Settings): { label: string; station?: s
 export function purposeStations(settings: Settings, purposes: string[] = []): string[] {
   const options = purposeOptions(settings);
   return [...new Set(purposes.map((purpose) => options.find((option) => option.label === purpose)?.station).filter((code): code is string => Boolean(code)))];
+}
+
+/** Checks the number tags from System configuration: 1 to 5 letters or digits, starting with a letter, each used once. */
+export function numberTagsOf(input: unknown): Partial<Record<TaggedGroup, string>> | string {
+  const raw = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const tags: Partial<Record<TaggedGroup, string>> = {};
+  for (const group of Object.keys(DEFAULT_NUMBER_TAGS) as TaggedGroup[]) {
+    const tag = String(raw[group] ?? "").trim().toUpperCase().replace(/-+$/, "");
+    if (!tag || tag === DEFAULT_NUMBER_TAGS[group]) continue;
+    if (!/^[A-Z][A-Z0-9]{0,4}$/.test(tag)) return `Number tag "${tag}": use 1 to 5 letters or numbers, starting with a letter (e.g. HMO, CL1).`;
+    tags[group] = tag;
+  }
+  const used = (Object.keys(DEFAULT_NUMBER_TAGS) as TaggedGroup[]).map((group) => tags[group] ?? DEFAULT_NUMBER_TAGS[group]);
+  const twice = used.find((tag, index) => used.indexOf(tag) !== index);
+  if (twice) return `Number tag ${twice} is used twice. Give each group its own tag.`;
+  return tags;
 }
 
 /** The address patients' phones open from the QR code poster, e.g. "http://172.16.100.62:3000": "" means automatic, null means it is not an address. */
@@ -93,22 +109,36 @@ const pad2 = (seq: number) => String(seq).padStart(2, "0");
 
 /** Pre-scheduled patients of Clinic 1, 2 and 3: each clinic has its own numbering, like HMO. */
 export const CLINIC_KINDS = ["P1", "P2", "P3"] as const;
+/** Clinic 1–3 patients pre-registered before they came: a separate numbering per clinic (PS1-01 …), so no two patients share a number. */
+export const PRESCHEDULED_KINDS = ["S1", "S2", "S3"] as const;
+/** The pre-scheduled kind of a clinic: P1 → S1. */
+export const prescheduledKind = (kind: PatientKind): PatientKind => (/^[PS][123]$/.test(kind) ? (`S${kind[1]}` as PatientKind) : kind);
 /** The numbering a kind uses: walk-in and scheduled share the regular numbers; HMO and each clinic count on their own. */
 export const numberGroup = (kind: PatientKind): NumberGroup => (kind === "W" || kind === "S" ? "R" : kind);
-const LABEL_PREFIX: Partial<Record<NumberGroup, string>> = { H: "HMO-", P1: "CL1-", P2: "CL2-", P3: "CL3-" };
-/** "Clinic 1" for a Clinic 1 patient (P1), otherwise null. */
-export const clinicOf = (kind: PatientKind) => ((CLINIC_KINDS as readonly string[]).includes(kind) ? `Clinic ${kind.slice(1)}` : null);
+/** The tags before the numbers, unless changed in System configuration → Number tags. */
+export const DEFAULT_NUMBER_TAGS: Record<TaggedGroup, string> = { H: "HMO", P1: "CL1", P2: "CL2", P3: "CL3", S1: "PS1", S2: "PS2", S3: "PS3" };
+const LABEL_PREFIX: Partial<Record<NumberGroup, string>> = Object.fromEntries(Object.entries(DEFAULT_NUMBER_TAGS).map(([group, tag]) => [group, `${tag}-`]));
+/** The tag (with its dash) that a new number of this kind gets now: "HMO-", "CL1-" …, or "" for regular numbers. */
+export function prefixOf(settings: Settings | undefined, kind: PatientKind): string {
+  const group = numberGroup(kind);
+  if (group === "R") return "";
+  return `${settings?.numberTags?.[group] || DEFAULT_NUMBER_TAGS[group]}-`;
+}
+/** The tag of a visit: the one it got when the number was given (numbers already given keep theirs when the tags change). */
+const prefixOfVisit = (visit: Pick<Visit, "kind" | "prefix">) => visit.prefix ?? LABEL_PREFIX[numberGroup(visit.kind)] ?? "";
+/** "Clinic 1" for a Clinic 1 patient (P1, or S1 when pre-scheduled), otherwise null. */
+export const clinicOf = (kind: PatientKind) => (/^[PS][123]$/.test(kind) ? `Clinic ${kind.slice(1)}` : null);
 
 /** 01-C1-W for walk-in and scheduled patients; HMO-01-C1 and CL1-01-C1 for HMO and Clinic 1–3 patients, who have their own numbering. */
-export const ticketLabel = (visit: Pick<Visit, "seq" | "kind">, station: string) => {
-  const prefix = LABEL_PREFIX[numberGroup(visit.kind)];
+export const ticketLabel = (visit: Pick<Visit, "seq" | "kind" | "prefix">, station: string) => {
+  const prefix = prefixOfVisit(visit);
   return prefix ? `${prefix}${pad2(visit.seq)}-${station}` : `${pad2(visit.seq)}-${station}-${visit.kind}`;
 };
 
 /** The number given on arrival, before registration: just 01 (walk-in or scheduled is chosen at registration), HMO-01 or CL1-01. */
-export const arrivalLabel = (visit: Pick<Visit, "seq" | "kind">) => `${LABEL_PREFIX[numberGroup(visit.kind)] ?? ""}${pad2(visit.seq)}`;
+export const arrivalLabel = (visit: Pick<Visit, "seq" | "kind" | "prefix">) => `${prefixOfVisit(visit)}${pad2(visit.seq)}`;
 
-const kindOf = (kind: unknown): PatientKind => (kind === "S" || kind === "H" || kind === "P1" || kind === "P2" || kind === "P3" ? kind : "W");
+const kindOf = (kind: unknown): PatientKind => (typeof kind === "string" && /^(S|H|[PS][123])$/.test(kind) ? (kind as PatientKind) : "W");
 
 /** Visits saved before arrival numbers existed have no `registered` flag; they were always registered. */
 export const isRegistered = (visit: Visit) => visit.registered !== false;
@@ -132,9 +162,10 @@ function makeStep(station: string, now: number, first: boolean): Step {
 }
 
 /** Where a call sends the patient: HMO arrival numbers to the HMO Desk and other arrival numbers to the Concierge (to register), everyone else straight to the station that called them. */
-export function callDestination(state: QueueState, entry: Pick<Announcement, "kind" | "station" | "label">) {
+export function callDestination(state: QueueState, entry: Pick<Announcement, "kind" | "station" | "label" | "hmo">) {
   if (entry.kind === "ticket") return findStation(state, entry.station)?.name ?? entry.station;
-  return entry.label.startsWith("HMO-") ? "HMO Desk" : "Concierge";
+  // Calls made before the hmo flag existed still have the HMO- tag.
+  return entry.hmo ?? entry.label.startsWith("HMO-") ? "HMO Desk" : "Concierge";
 }
 
 function announce(state: QueueState, entry: Omit<Announcement, "id" | "destination">) {
@@ -181,6 +212,7 @@ function newVisit(state: QueueState, kind: PatientKind, priority: boolean, newPa
     id: newId(),
     seq: nextNumber(state, group),
     kind: kindOf(kind),
+    prefix: prefixOf(state.settings, kindOf(kind)),
     name: "",
     mobile: "",
     notes: "",
@@ -311,9 +343,11 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   const slipWidth = slipWidthOf(input.slipWidth ?? previous.slipWidth);
   const qrAddress = qrAddressOf(input.qrAddress ?? previous.qrAddress);
   if (qrAddress === null) return "QR code address: use an address like http://172.16.100.62:3000.";
+  const numberTags = numberTagsOf(input.numberTags ?? previous.numberTags);
+  if (typeof numberTags === "string") return numberTags;
   // The configuration PIN only changes with setConfigPin, never from the settings form.
   const configPin = previous.configPin ? { configPin: previous.configPin } : {};
-  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, qrAddress, ...configPin };
+  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, qrAddress, numberTags, ...configPin };
 }
 
 export const CONFIG_PIN_NEEDED = "Enter the configuration PIN to change System configuration.";
@@ -374,7 +408,7 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       visit.regCalledAt = now;
       visit.regCalls = (visit.regCalls ?? 0) + 1;
       const label = arrivalLabel(visit);
-      announce(state, { at: now, kind: "registration", label, station: "DESK" });
+      announce(state, { at: now, kind: "registration", label, station: "DESK", hmo: visit.kind === "H" });
       return { ok: true, visitId: visit.id, label };
     }
     case "register": {
@@ -383,7 +417,9 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
         visit = findVisit(action.visitId);
         if (!visit || isRegistered(visit)) return fail("That queue number is no longer waiting to register.");
       } else {
-        visit = newVisit(state, action.visit.kind, Boolean(action.visit.priority), Boolean(action.visit.newPatient), now, "desk");
+        // A pre-registered Clinic 1–3 patient gets that clinic's pre-scheduled number (PS1-01 …).
+        const kind = action.preRegister && clinicOf(kindOf(action.visit.kind)) ? prescheduledKind(kindOf(action.visit.kind)) : action.visit.kind;
+        visit = newVisit(state, kind, Boolean(action.visit.priority), Boolean(action.visit.newPatient), now, "desk");
         if (typeof visit === "string") return fail(visit);
       }
       const problem = registerVisit(state, visit, action.visit, now);

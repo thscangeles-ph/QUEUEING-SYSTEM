@@ -68,7 +68,7 @@ export function queueMessage(state: QueueState, visit: Visit, trackingUrl?: stri
 
 /** Reads a queue number aloud in a way TTS voices pronounce clearly, e.g. "zero 1, C 1, W". */
 /** The number patients see and hear for a call: 07 for 07-C1-W, HMO-07 for HMO-07-C1, CL1-07 for CL1-07-C1 (station and W/S are for staff). */
-export const calledNumber = (label: string) => /^(HMO-|CL\d-)?\d+/.exec(label)?.[0] ?? label;
+export const calledNumber = (label: string) => /^([A-Z][A-Z0-9]*-)?\d+/.exec(label)?.[0] ?? label;
 
 export function spokenLabel(label: string) {
   return label
