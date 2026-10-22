@@ -88,6 +88,8 @@ The queue follows the clinic's arrival flow:
 | Check-in poster | `/queue/poster` | Printable QR poster for the entrance |
 | Patient ticket | `/queue/ticket?id=…` | Live status on the patient's phone (opened after taking a number with the QR code, or from the link in the queue message) |
 
+**QR code address:** System configuration → *QR code poster* sets the address inside the QR code, e.g. `http://172.16.100.62:3000` (the server address the clinic Wi-Fi can reach; the kiosk address uses it too). Empty means automatic: the website's own address, or on the clinic server its Wi-Fi address. The poster page also has a *QR code address* box to change it for one print. When phones are on a different network from the server (e.g. Wi-Fi `172.16.20.x`, server `172.16.100.x`), the router must allow it; in pfSense add a *Pass* rule on the Wi-Fi interface to the server's address, TCP port 3000.
+
 **QR code at the Concierge:** it is only for getting a queue number. The patient scans it and taps *Get my queue number*; their phone shows the next number (e.g. `07`) and a live page: patients ahead, then *It's your turn! Please proceed to Concierge* when called. The number joins *Waiting to register* on the front desk with a *📱 QR* tag, and the Concierge registers the patient as usual (walk-in or scheduled, services). A phone that already has today's number sees it again instead of taking another.
 
 **One-time message:** *Copy message* on the front desk copies an SMS/Viber text with the patient's queue number (and a live-status link in shared mode) and marks the patient as messaged, so the message is sent only once.

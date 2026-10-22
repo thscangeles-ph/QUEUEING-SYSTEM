@@ -513,6 +513,21 @@ const MAX_STEPS = 8;
 const DEFAULT_CLINIC = "The Heart Specialists Clinic";
 /** The clinic's name as set in System configuration. */
 const clinicNameOf = (settings) => clean(settings?.clinicName, 80) || DEFAULT_CLINIC;
+/** The address patients' phones open from the QR code poster, e.g. "http://172.16.100.62:3000": "" means automatic, null means it is not an address. */
+function qrAddressOf(value) {
+    const text = String(value ?? "").trim();
+    if (!text)
+        return "";
+    if (/\s/.test(text))
+        return null;
+    try {
+        const url = new URL(/^https?:\/\//i.test(text) ? text : `http://${text}`);
+        return /^https?:$/.test(url.protocol) && /^([a-z0-9-]+\.)*[a-z0-9-]+$|^\[[0-9a-f:.]+\]$/i.test(url.hostname) ? url.origin : null;
+    }
+    catch {
+        return null;
+    }
+}
 const DEFAULT_SETTINGS = {
     stations: [
         { code: "C1", name: "Consultation 1", service: "consultation", location: "Clinic Room 1", selfCheckIn: true, active: true },
@@ -747,6 +762,9 @@ function sanitizeSettings(input) {
     }
     if (!stations.length)
         return "Add at least one station.";
+    const qrAddress = qrAddressOf(input.qrAddress);
+    if (qrAddress === null)
+        return "QR code address: use an address like http://172.16.100.62:3000.";
     const tvMedia = cleanTvMedia(input);
     if (typeof tvMedia === "string")
         return tvMedia;
@@ -754,7 +772,7 @@ function sanitizeSettings(input) {
     const seconds = Math.round(Number(input.slideSeconds ?? 10));
     const slideSeconds = Number.isFinite(seconds) ? Math.min(120, Math.max(3, seconds)) : 10;
     const announceLanguage = input.announceLanguage === "en+fil" || input.announceLanguage === "fil" ? input.announceLanguage : "en";
-    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth) };
+    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth), qrAddress };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -1872,6 +1890,7 @@ function downloadQueueReport(xlsx, state, now) {
     draft.slideSeconds ??= 10;
     draft.slipPrinter ??= "";
     draft.slipWidth ??= 58;
+    draft.qrAddress ??= "";
     draftBase = JSON.stringify(draft);
   }
   // ---- Configuration PIN: needed to open System configuration (the staff PIN is not enough) ----
@@ -1991,6 +2010,12 @@ function downloadQueueReport(xlsx, state, now) {
             <div><button type="button" class="btn sm outline" data-act="changeConfigPin">Change PIN</button></div>
             <p style="margin:0;font-size:12px;color:var(--muted)">Forgot it? On the queue server computer, double-click <b>reset-config-pin.cmd</b> in the Queue Board folder (local-server).</p>
           </div></section>
+        <section class="panel"><div class="panel-h"><div><h2>QR code poster</h2><p>The address inside the QR code at the Concierge. Patients' phones open it, so it must be the queue server's address that the clinic Wi-Fi can reach.</p></div><button type="button" class="btn sm outline" data-act="openPoster">Open poster ↗</button></div>
+          <div class="panel-b" style="display:grid;gap:10px">
+            <label class="field">QR code address<em>For example http://172.16.100.62:3000. Leave empty to use the server's Wi-Fi address automatically.</em><input type="text" maxlength="200" spellcheck="false" class="mono" value="${esc(draft.qrAddress ?? "")}" placeholder="${esc(autoQrAddress() || "http://172.16.100.62:3000")}" data-set="qrAddress" id="cfg-qr"></label>
+            <p class="yt-hint" id="qr-hint"></p>
+            <p class="note" style="margin:0">After changing it, click <b>Save configuration</b>, then open the poster and print it again. The kiosk address uses it too. If phones are on a different network from the server (for example Wi-Fi 172.16.20.x and server 172.16.100.x), the router must allow it (in pfSense: a Pass rule to the server on port 3000).</p>
+          </div></section>
         <section class="panel"><div class="panel-h"><div><h2>Display connection</h2><p>How the TV and other screens reach the queue server: over the clinic Wi-Fi or with a LAN cable. A server on both has a different address for each.</p></div></div>
           <div class="panel-b" style="display:grid;gap:10px">
             <label class="check"><input type="radio" name="display-conn" value="wifi" data-set="displayConnection" ${draft.displayConnection === "lan" ? "" : "checked"}><span><b>📶 Wi-Fi</b><small>The TV computer or screen is connected to the clinic Wi-Fi</small></span></label>
@@ -2009,12 +2034,14 @@ function downloadQueueReport(xlsx, state, now) {
       if (field === "videoVolume") $("#cfg-volume").textContent = `${value}%`;
       if (field === "displayConnection") renderDisplayConnection();
       if (field === "slipWidth" || field === "slipPrinter") showPaperHint();
+      if (field === "qrAddress") { showQrHint(); renderKioskLink(); }
       refreshDirty();
     }));
     $("#picture-file").addEventListener("change", (event) => { void addPictures([...event.target.files]); event.target.value = ""; });
     renderMediaList();
     renderPrinterList();
     showPaperHint();
+    showQrHint();
     renderKioskLink();
     showVoiceHint();
     renderConfigStatus();
@@ -2036,7 +2063,7 @@ function downloadQueueReport(xlsx, state, now) {
     if (serverAddresses === null) {
       box.innerHTML = `<p class="note" style="margin:0">Looking up the server's addresses…</p>`;
       serverAddresses = [];
-      fetch(`${base}/api/server-info`, { cache: "no-store" }).then((r) => r.json()).then((body) => { serverAddresses = Array.isArray(body.servers) ? body.servers : []; }).catch(() => { serverAddresses = []; }).finally(() => { renderDisplayConnection(); renderKioskLink(); });
+      fetch(`${base}/api/server-info`, { cache: "no-store" }).then((r) => r.json()).then((body) => { serverAddresses = Array.isArray(body.servers) ? body.servers : []; }).catch(() => { serverAddresses = []; }).finally(() => { renderDisplayConnection(); renderKioskLink(); showQrHint(); });
       return;
     }
     const want = draft.displayConnection === "lan" ? "lan" : "wifi";
@@ -2096,18 +2123,36 @@ function downloadQueueReport(xlsx, state, now) {
     hint.textContent = !page ? "" : port ? "A4 and Letter need an office printer. Choose the printer by its name (🖨), not a COM port, or choose a roll size." : "✓ One page per queue number: the logo, the clinic name and the number in large print.";
   }
 
-  /** The kiosk's address for the tablet: the server's Wi-Fi address, since tablets and phones use Wi-Fi. */
-  function renderKioskLink() {
-    const box = $("#cfg-kiosk");
-    if (!box) return;
+  /** The server's Wi-Fi address (tablets and phones use Wi-Fi), or the address this computer uses for it. */
+  function autoQrAddress() {
     const base = queueServerBase();
-    if (!base) { box.innerHTML = ""; return; }
-    let url = base;
+    if (!base) return "";
     try {
       const server = new URL(base);
       const wifi = PRIVATE_HOST.test(server.hostname) && Array.isArray(serverAddresses) ? serverAddresses.find((a) => a.connection === "wifi") ?? serverAddresses[0] : null;
-      if (wifi) url = `${server.protocol}//${wifi.address}${server.port ? `:${server.port}` : ""}`;
-    } catch { /* keep the base address */ }
+      return wifi ? `${server.protocol}//${wifi.address}${server.port ? `:${server.port}` : ""}` : server.origin;
+    } catch {
+      return base;
+    }
+  }
+  /** The address for phones and tablets: the QR code address from System configuration, or the automatic one. */
+  const phoneAddress = () => (draft && qrAddressOf(draft.qrAddress)) || autoQrAddress();
+  function showQrHint() {
+    const hint = $("#qr-hint");
+    if (!hint || !draft) return;
+    const typed = qrAddressOf(draft.qrAddress);
+    const input = $("#cfg-qr");
+    if (input) input.placeholder = autoQrAddress() || "http://172.16.100.62:3000";
+    hint.className = `yt-hint ${typed === null ? "err" : "ok"}`;
+    hint.textContent = typed === null ? "That is not an address. Use one like http://172.16.100.62:3000."
+      : phoneAddress() ? `✓ The QR code opens ${phoneAddress()}/queue/checkin${typed ? "" : " (automatic)"}` : "";
+  }
+  /** The kiosk's address for the tablet: the QR code address, or the server's Wi-Fi address. */
+  function renderKioskLink() {
+    const box = $("#cfg-kiosk");
+    if (!box) return;
+    if (!queueServerBase()) { box.innerHTML = ""; return; }
+    const url = phoneAddress();
     box.innerHTML = `<div class="cfg-row"><span>Kiosk address</span><b class="mono">${esc(url)}/queue/kiosk</b></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button type="button" class="btn sm outline" data-act="copyText" data-text="${esc(url)}/queue/kiosk">Copy kiosk address</button></div>
       <p class="note" style="margin:10px 0 0">On the tablet or phone: connect to the clinic Wi-Fi, open this address in Chrome, enter the staff PIN once, then choose <b>Add to Home screen</b>. Keep the tablet charging and set its screen to stay on. To leave the kiosk, press and hold the logo for 3 seconds and enter the staff PIN.</p>`;

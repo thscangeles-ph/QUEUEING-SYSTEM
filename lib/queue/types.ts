@@ -92,6 +92,8 @@ export type Settings = {
   displayConnection?: "wifi" | "lan";
   /** Volume of the TV video's sound, 0–100; set from the front desk. Missing means 60. */
   videoVolume?: number;
+  /** The address inside the QR code poster (the server address patients' phones can reach), e.g. http://172.16.100.62:3000. Empty means automatic. */
+  qrAddress?: string;
   /** The clinic server's receipt printer for kiosk slips: a Windows printer name, a COM port (e.g. a Bluetooth printer's COM5) or a /dev device. Empty means no printer. */
   slipPrinter?: string;
   /** Paper width of that printer in mm (58, 76, 80 or 112); missing means 58. */
