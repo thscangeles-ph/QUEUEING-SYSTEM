@@ -2,10 +2,13 @@ import type { SlipWidth } from "./escpos";
 import type { ConfigPin } from "./pin";
 import type { TvMedia } from "./youtube";
 
-/** W walk-in, S scheduled, H HMO (its own numbering: HMO-01-C1), P1–P3 pre-scheduled Clinic 1–3 patients (their own numbering: CL1-01-C1). */
-export type PatientKind = "W" | "S" | "H" | "P1" | "P2" | "P3";
-/** Each numbering counts from 01 every day: R regular (walk-in and scheduled share it), H HMO, P1–P3 Clinic 1–3. */
-export type NumberGroup = "R" | "H" | "P1" | "P2" | "P3";
+/** W walk-in, S scheduled, H HMO (its own numbering: HMO-01-C1), P1–P3 Clinic 1–3 patients (CL1-01-C1),
+ *  S1–S3 Clinic 1–3 patients pre-registered before they came (PS1-01-C1). Each H, P and S kind has its own numbering. */
+export type PatientKind = "W" | "S" | "H" | "P1" | "P2" | "P3" | "S1" | "S2" | "S3";
+/** Each numbering counts from 01 every day: R regular (walk-in and scheduled share it), H HMO, P1–P3 Clinic 1–3, S1–S3 pre-scheduled Clinic 1–3. */
+export type NumberGroup = "R" | "H" | "P1" | "P2" | "P3" | "S1" | "S2" | "S3";
+/** The numberings that have a tag before the number (regular numbers have none). */
+export type TaggedGroup = Exclude<NumberGroup, "R">;
 export type ServiceType = "consultation" | "procedure" | "laboratory" | "imaging" | "cashier" | "hmo" | "other";
 export type StepStatus = "pending" | "waiting" | "called" | "done" | "missed";
 
@@ -60,6 +63,8 @@ export type Visit = {
   regCalls?: number;
   registeredAt?: number | null;
   createdAt: number;
+  /** The tag before the number ("HMO-", "CL1-" …), as set in System configuration when the number was given. */
+  prefix?: string;
   /** Pre-registered for today (a scheduled Clinic 1–3 patient) and not here yet: the first service waits until the Concierge marks them arrived. */
   expected?: boolean;
   /** Appointment time of a pre-registered patient, e.g. "10:30". */
@@ -82,6 +87,8 @@ export type Announcement = {
   label: string;
   /** Station code for tickets, or "DESK" for registration cards and arrival numbers. */
   station: string;
+  /** A registration call for an HMO patient (sent to the HMO Desk). */
+  hmo?: boolean;
   destination: string;
 };
 
@@ -102,6 +109,8 @@ export type Settings = {
   displayConnection?: "wifi" | "lan";
   /** Volume of the TV video's sound, 0–100; set from the front desk. Missing means 60. */
   videoVolume?: number;
+  /** The tags before the queue numbers of HMO (HMO), Clinic 1–3 (CL1 …) and pre-scheduled Clinic 1–3 (PS1 …) patients, e.g. { H: "HMO", P1: "DRA" }. Missing ones use the defaults. */
+  numberTags?: Partial<Record<TaggedGroup, string>>;
   /** The address inside the QR code poster (the server address patients' phones can reach), e.g. http://172.16.100.62:3000. Empty means automatic. */
   qrAddress?: string;
   /** The clinic server's receipt printer for kiosk slips: a Windows printer name, a COM port (e.g. a Bluetooth printer's COM5) or a /dev device. Empty means no printer. */
@@ -123,8 +132,8 @@ export type QueueState = {
   nextSeq: number;
   /** Next HMO number (HMO-01, HMO-02, …); missing on queues saved before HMO numbers existed. */
   nextHmoSeq?: number;
-  /** Next Clinic 1–3 numbers (CL1-01, CL2-01, CL3-01 …); missing until the first one is given. */
-  nextClinicSeq?: Partial<Record<"P1" | "P2" | "P3", number>>;
+  /** Next Clinic 1–3 numbers (CL1-01 …) and pre-scheduled Clinic 1–3 numbers (PS1-01 …); missing until the first one is given. */
+  nextClinicSeq?: Partial<Record<"P1" | "P2" | "P3" | "S1" | "S2" | "S3", number>>;
   /** Last report from the lobby TV: when it was seen and whether its sound is on, shown on the staff screens. */
   tv?: { seenAt: number; sound: boolean };
   visits: Visit[];

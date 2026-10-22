@@ -117,6 +117,8 @@ a.btn { text-decoration: none; }
 .cfg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-top: 16px; }
 .cfg-row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); font-size: 14px; }
 .cfg-row span { color: var(--muted); } .cfg-row b { text-align: right; } .cfg-row small { color: var(--muted); font-weight: 500; }
+.tag-grid { display: grid; gap: 6px; } .tag-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px 90px; gap: 10px; align-items: center; font-size: 13px; font-weight: 600; color: #514838; }
+.tag-row input { text-transform: uppercase; } .tag-row b { color: var(--muted); font-size: 13px; }
 .cfg-range { display: flex; align-items: center; gap: 10px; } .cfg-range input { flex: 1; accent-color: var(--brown); } .cfg-range b { min-width: 44px; text-align: right; }
 .cfg-foot { position: sticky; bottom: 0; z-index: 5; display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 16px; padding: 12px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 -6px 18px rgba(46,41,31,.08); }
 .cfg-foot span { margin-right: auto; font-size: 13px; color: var(--muted); } .cfg-foot span.dirty { color: #b4233c; font-weight: 700; }
@@ -592,19 +594,52 @@ function ensureDay(state, now) {
 const pad2 = (seq) => String(seq).padStart(2, "0");
 /** Pre-scheduled patients of Clinic 1, 2 and 3: each clinic has its own numbering, like HMO. */
 const CLINIC_KINDS = ["P1", "P2", "P3"];
+/** Clinic 1–3 patients pre-registered before they came: a separate numbering per clinic (PS1-01 …), so no two patients share a number. */
+const PRESCHEDULED_KINDS = ["S1", "S2", "S3"];
+/** The pre-scheduled kind of a clinic: P1 → S1. */
+const prescheduledKind = (kind) => (/^[PS][123]$/.test(kind) ? `S${kind[1]}` : kind);
 /** The numbering a kind uses: walk-in and scheduled share the regular numbers; HMO and each clinic count on their own. */
 const numberGroup = (kind) => (kind === "W" || kind === "S" ? "R" : kind);
-const LABEL_PREFIX = { H: "HMO-", P1: "CL1-", P2: "CL2-", P3: "CL3-" };
-/** "Clinic 1" for a Clinic 1 patient (P1), otherwise null. */
-const clinicOf = (kind) => (CLINIC_KINDS.includes(kind) ? `Clinic ${kind.slice(1)}` : null);
+/** The tags before the numbers, unless changed in System configuration → Number tags. */
+const DEFAULT_NUMBER_TAGS = { H: "HMO", P1: "CL1", P2: "CL2", P3: "CL3", S1: "PS1", S2: "PS2", S3: "PS3" };
+const LABEL_PREFIX = Object.fromEntries(Object.entries(DEFAULT_NUMBER_TAGS).map(([group, tag]) => [group, `${tag}-`]));
+/** The tag (with its dash) that a new number of this kind gets now: "HMO-", "CL1-" …, or "" for regular numbers. */
+function prefixOf(settings, kind) {
+    const group = numberGroup(kind);
+    if (group === "R")
+        return "";
+    return `${settings?.numberTags?.[group] || DEFAULT_NUMBER_TAGS[group]}-`;
+}
+/** The tag of a visit: the one it got when the number was given (numbers already given keep theirs when the tags change). */
+const prefixOfVisit = (visit) => visit.prefix ?? LABEL_PREFIX[numberGroup(visit.kind)] ?? "";
+/** Checks the number tags from System configuration: 1 to 5 letters or digits, starting with a letter, each used once. */
+function numberTagsOf(input) {
+    const raw = input && typeof input === "object" ? input : {};
+    const tags = {};
+    for (const group of Object.keys(DEFAULT_NUMBER_TAGS)) {
+        const tag = String(raw[group] ?? "").trim().toUpperCase().replace(/-+$/, "");
+        if (!tag || tag === DEFAULT_NUMBER_TAGS[group])
+            continue;
+        if (!/^[A-Z][A-Z0-9]{0,4}$/.test(tag))
+            return `Number tag "${tag}": use 1 to 5 letters or numbers, starting with a letter (e.g. HMO, CL1).`;
+        tags[group] = tag;
+    }
+    const used = Object.keys(DEFAULT_NUMBER_TAGS).map((group) => tags[group] ?? DEFAULT_NUMBER_TAGS[group]);
+    const twice = used.find((tag, index) => used.indexOf(tag) !== index);
+    if (twice)
+        return `Number tag ${twice} is used twice. Give each group its own tag.`;
+    return tags;
+}
+/** "Clinic 1" for a Clinic 1 patient (P1, or S1 when pre-scheduled), otherwise null. */
+const clinicOf = (kind) => (/^[PS][123]$/.test(kind) ? `Clinic ${kind.slice(1)}` : null);
 /** 01-C1-W for walk-in and scheduled patients; HMO-01-C1 and CL1-01-C1 for HMO and Clinic 1–3 patients, who have their own numbering. */
 const ticketLabel = (visit, station) => {
-    const prefix = LABEL_PREFIX[numberGroup(visit.kind)];
+    const prefix = prefixOfVisit(visit);
     return prefix ? `${prefix}${pad2(visit.seq)}-${station}` : `${pad2(visit.seq)}-${station}-${visit.kind}`;
 };
 /** The number given on arrival, before registration: just 01 (walk-in or scheduled is chosen at registration), HMO-01 or CL1-01. */
-const arrivalLabel = (visit) => `${LABEL_PREFIX[numberGroup(visit.kind)] ?? ""}${pad2(visit.seq)}`;
-const kindOf = (kind) => (kind === "S" || kind === "H" || kind === "P1" || kind === "P2" || kind === "P3" ? kind : "W");
+const arrivalLabel = (visit) => `${prefixOfVisit(visit)}${pad2(visit.seq)}`;
+const kindOf = (kind) => (typeof kind === "string" && /^(S|H|[PS][123])$/.test(kind) ? kind : "W");
 /** Visits saved before arrival numbers existed have no `registered` flag; they were always registered. */
 const isRegistered = (visit) => visit.registered !== false;
 function currentStep(visit) {
@@ -624,7 +659,8 @@ function makeStep(station, now, first) {
 function callDestination(state, entry) {
     if (entry.kind === "ticket")
         return findStation(state, entry.station)?.name ?? entry.station;
-    return entry.label.startsWith("HMO-") ? "HMO Desk" : "Concierge";
+    // Calls made before the hmo flag existed still have the HMO- tag.
+    return entry.hmo ?? entry.label.startsWith("HMO-") ? "HMO Desk" : "Concierge";
 }
 function announce(state, entry) {
     state.announcements = [...state.announcements, { id: newId(), ...entry, destination: callDestination(state, entry) }].slice(-MAX_ANNOUNCEMENTS);
@@ -675,6 +711,7 @@ function newVisit(state, kind, priority, newPatient, now, source) {
         id: newId(),
         seq: nextNumber(state, group),
         kind: kindOf(kind),
+        prefix: prefixOf(state.settings, kindOf(kind)),
         name: "",
         mobile: "",
         notes: "",
@@ -804,6 +841,9 @@ function sanitizeSettings(input) {
     const qrAddress = qrAddressOf(input.qrAddress);
     if (qrAddress === null)
         return "QR code address: use an address like http://172.16.100.62:3000.";
+    const numberTags = numberTagsOf(input.numberTags);
+    if (typeof numberTags === "string")
+        return numberTags;
     const tvMedia = cleanTvMedia(input);
     if (typeof tvMedia === "string")
         return tvMedia;
@@ -811,7 +851,7 @@ function sanitizeSettings(input) {
     const seconds = Math.round(Number(input.slideSeconds ?? 10));
     const slideSeconds = Number.isFinite(seconds) ? Math.min(120, Math.max(3, seconds)) : 10;
     const announceLanguage = input.announceLanguage === "en+fil" || input.announceLanguage === "fil" ? input.announceLanguage : "en";
-    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth), qrAddress };
+    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth), qrAddress, numberTags };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -841,7 +881,7 @@ function run(state, action, now) {
             visit.regCalledAt = now;
             visit.regCalls += 1;
             const label = arrivalLabel(visit);
-            announce(state, { at: now, kind: "registration", label, station: "DESK" });
+            announce(state, { at: now, kind: "registration", label, station: "DESK", hmo: visit.kind === "H" });
             return { ok: true, visitId: visit.id, label };
         }
         case "register": {
@@ -852,7 +892,9 @@ function run(state, action, now) {
                     return fail("That queue number is no longer waiting to register.");
             }
             else {
-                visit = newVisit(state, action.visit.kind, Boolean(action.visit.priority), Boolean(action.visit.newPatient), now, "desk");
+                // A pre-registered Clinic 1–3 patient gets that clinic's pre-scheduled number (PS1-01 …).
+                const kind = action.preRegister && clinicOf(kindOf(action.visit.kind)) ? prescheduledKind(kindOf(action.visit.kind)) : action.visit.kind;
+                visit = newVisit(state, kind, Boolean(action.visit.priority), Boolean(action.visit.newPatient), now, "desk");
                 if (typeof visit === "string")
                     return fail(visit);
             }
@@ -1224,7 +1266,7 @@ function queueMessage(state, visit, trackingUrl) {
     return lines.join(" ");
 }
 /** The number patients see and hear for a call: 07 for 07-C1-W, HMO-07 for HMO-07-C1 (station and W/S are for staff). */
-const calledNumber = (label) => /^(HMO-|CL\d-)?\d+/.exec(label)?.[0] ?? label;
+const calledNumber = (label) => /^([A-Z][A-Z0-9]*-)?\d+/.exec(label)?.[0] ?? label;
 /** Reads a queue number aloud in a way TTS voices pronounce clearly, e.g. "zero 1, C 1, W". */
 function spokenLabel(label) {
     return label
@@ -1339,7 +1381,7 @@ function buildQueueReport(state, now) {
         ["Walk-in (W)", count(active, (v) => v.kind === "W")],
         ["Scheduled (S)", count(active, (v) => v.kind === "S")],
         ["HMO", count(active, (v) => v.kind === "H")],
-        ...CLINIC_KINDS.map((kind) => [`${clinicOf(kind)} (pre-scheduled)`, count(active, (v) => v.kind === kind)]),
+        ...CLINIC_KINDS.flatMap((kind) => [[`${clinicOf(kind)} (not pre-registered)`, count(active, (v) => v.kind === kind)], [`${clinicOf(kind)} (pre-scheduled)`, count(active, (v) => v.kind === prescheduledKind(kind))]]),
         ["New patients", count(active, (v) => v.newPatient === true)],
         ["Returning patients", count(active, (v) => v.newPatient !== true)],
         ["Priority lane", count(active, (v) => v.priority)],
@@ -1731,12 +1773,17 @@ function downloadQueueReport(xlsx, state, now) {
   const tabGroup = () => (isHmoTab() ? "H" : isClinicTab() ? deskTab : "R");
   /** The kind a new number gets on the open tab (walk-in or scheduled is chosen at registration on the regular tab). */
   const tabKind = () => (isHmoTab() ? "H" : isClinicTab() ? deskTab : "W");
-  const inTab = (v) => numberGroup(v.kind) === tabGroup();
+  // A clinic tab shows both its numberings: CL1 (came without pre-registering) and PS1 (pre-registered).
+  /** The number the next patient of this kind gets, with the tag set in System configuration (e.g. HMO-03, PS1-02). */
+  const nextLabel = (kind) => arrivalLabel({ seq: nextNumber(state, numberGroup(kind)), kind, prefix: prefixOf(state.settings, kind) });
+  const inTab = (v) => (isClinicTab() ? clinicOf(v.kind) === clinicOf(deskTab) : numberGroup(v.kind) === tabGroup());
+  /** The kind of the next new number in Step 2: a clinic's pre-scheduled kind (PS1-01 …) while 📅 Pre-register is on. */
+  const newNumberKind = () => (isClinicTab() && form.prereg && !form.arrival ? prescheduledKind(deskTab) : tabKind());
   /** A Clinic 1–3 patient starts with that clinic's consultation room (C1–C3) as their first service, when it exists. */
   const clinicStationsFor = (kind) => (clinicOf(kind) && state?.settings.stations.some((st) => st.active && st.code === `C${kind.slice(1)}`) ? [`C${kind.slice(1)}`] : []);
   const clinicStations = () => clinicStationsFor(deskTab);
   /** The tags that show a patient's group on staff screens: HMO (company), or Clinic 1–3 (pre-scheduled). */
-  const groupTag = (v, withLoa = false) => (v.kind === "H" ? `<span class="tag hmo">HMO${v.hmo ? ` · ${esc(v.hmo)}` : ""}${withLoa && v.loa ? ` · LOA ${esc(v.loa)}` : ""}</span>` : clinicOf(v.kind) ? `<span class="tag clinic">${clinicOf(v.kind)} · pre-scheduled</span>` : "");
+  const groupTag = (v, withLoa = false) => (v.kind === "H" ? `<span class="tag hmo">HMO${v.hmo ? ` · ${esc(v.hmo)}` : ""}${withLoa && v.loa ? ` · LOA ${esc(v.loa)}` : ""}</span>` : clinicOf(v.kind) ? `<span class="tag clinic">${clinicOf(v.kind)}${PRESCHEDULED_KINDS.includes(v.kind) ? " · pre-scheduled" : ""}</span>` : "");
   const HMO_COMPANIES = ["Maxicare", "Intellicare", "MediCard", "PhilCare", "Cocolife", "Avega", "Pacific Cross", "ValuCare", "Etiqa", "Insular Health Care", "Kaiser", "Generali", "Caritas Health Shield", "AXA", "Sun Life Grepa"];
   const arr = { newPatient: false, priority: false };
   // prereg: on a Clinic 1–3 tab, a new number for a scheduled patient who is not here yet (with an optional appointment time).
@@ -1783,7 +1830,7 @@ function downloadQueueReport(xlsx, state, now) {
               ${isHmoTab()
                 ? `<div class="gen" style="grid-template-columns:1fr"><button class="btn" data-act="arrive" data-kind="H" id="arr-hmo" style="background:#6b48a8">🎫 HMO number</button></div>`
                 : isClinicTab()
-                ? `<div class="gen" style="grid-template-columns:1fr"><button class="btn" data-act="arrive" data-kind="${deskTab}" id="arr-clinic" style="background:#1f6f6b">🎫 ${clinicOf(deskTab)} number</button></div><p style="margin:6px 0 0;font-size:12px;color:var(--muted)">For patients with an appointment (pre-scheduled) at ${clinicOf(deskTab)}. They have their own numbers, like HMO.</p>`
+                ? `<div class="gen" style="grid-template-columns:1fr"><button class="btn" data-act="arrive" data-kind="${deskTab}" id="arr-clinic" style="background:#1f6f6b">🎫 ${clinicOf(deskTab)} number</button></div><p style="margin:6px 0 0;font-size:12px;color:var(--muted)">For ${clinicOf(deskTab)} patients who were not pre-registered (numbers ${esc(prefixOf(state?.settings, deskTab))}01 …). Pre-registered patients get their own numbers (${esc(prefixOf(state?.settings, prescheduledKind(deskTab)))}01 …): use 📅 Pre-register in Step 2.</p>`
                 : `<div class="gen" style="grid-template-columns:1fr"><button class="btn" data-act="arrive" data-kind="W" id="arr-reg">🎫 Queue number</button></div><p style="margin:6px 0 0;font-size:12px;color:var(--muted)">Walk-in or scheduled is chosen at registration.</p>`}
               <div class="toggles"><button type="button" class="tog" id="arr-new" data-act="togArrNew" aria-pressed="false"><span class="box">✓</span><span><b>New patient</b><small>First visit to THSC</small></span></button><button type="button" class="tog" id="arr-prio" data-act="togArrPrio" aria-pressed="false"><span class="box">✓</span><span><b>Priority lane</b><small>Senior, PWD, pregnant</small></span></button></div><div class="gen-opts" style="justify-content:flex-end"><label><input type="checkbox" id="arr-print">Print a slip for each number</label></div>
               <div id="newnum"></div>
@@ -1887,11 +1934,14 @@ function downloadQueueReport(xlsx, state, now) {
     if (!storageOk && sync.mode === "local") $("#storage-note").innerHTML = "<b>Saving is blocked in this browser</b> (private window or blocked site data). The queue will be lost when this window closes.";
     const inClinic = (v) => !v.cancelled && !["completed", "cancelled"].includes(visitStatus(v));
     document.querySelectorAll('[data-act="deskTab"]').forEach((b) => { const on = b.dataset.tab === deskTab; b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); });
-    DESK_TABS.forEach(([key]) => { const group = key === "regular" ? "R" : key === "hmo" ? "H" : key; $(`#tab-count-${key}`).textContent = state.visits.filter((v) => numberGroup(v.kind) === group && inClinic(v)).length; });
+    DESK_TABS.forEach(([key]) => {
+      const mine = key === "regular" ? (v) => numberGroup(v.kind) === "R" : key === "hmo" ? (v) => v.kind === "H" : (v) => clinicOf(v.kind) === clinicOf(key);
+      $(`#tab-count-${key}`).textContent = state.visits.filter((v) => mine(v) && inClinic(v)).length;
+    });
     if ($("#arr-reg")) $("#arr-reg").textContent = `🎫 Queue number (next: ${pad2(nextNumber(state, false))})`;
-    if ($("#arr-hmo")) $("#arr-hmo").textContent = `🎫 HMO number (next: HMO-${pad2(nextNumber(state, true))})`;
-    if ($("#arr-clinic")) $("#arr-clinic").textContent = `🎫 ${clinicOf(deskTab)} number (next: ${arrivalLabel({ seq: nextNumber(state, tabGroup()), kind: tabKind() })})`;
-    if (deskTab !== "regular") form.kind = tabKind();
+    if ($("#arr-hmo")) $("#arr-hmo").textContent = `🎫 HMO number (next: ${nextLabel("H")})`;
+    if ($("#arr-clinic")) $("#arr-clinic").textContent = `🎫 ${clinicOf(deskTab)} number (next: ${nextLabel(tabKind())})`;
+    if (deskTab !== "regular") form.kind = newNumberKind();
     renderTvSound();
     const active = state.visits.filter((v) => !v.cancelled && inTab(v));
     const waits = active.map((v) => v.steps[0]).filter((s) => s?.calledAt && s.queuedAt).map((s) => (s.calledAt - s.queuedAt) / 60000);
@@ -1950,12 +2000,13 @@ function downloadQueueReport(xlsx, state, now) {
     document.querySelectorAll('[data-act="kind"]').forEach((b) => { b.classList.toggle("on", b.dataset.kind === form.kind); b.setAttribute("aria-checked", String(b.dataset.kind === form.kind)); });
     if (form.arrival && !waitingReg.some((v) => v.id === form.arrival)) form.arrival = null;
     const sel = $("#reg-arrival");
-    sel.innerHTML = `<option value="">New number (${arrivalLabel({ seq: nextNumber(state, tabGroup()), kind: tabKind() })}) — patient has no number yet</option>` + waitingReg.map((v) => `<option value="${v.id}">${esc(arrivalLabel(v))}${v.name ? ` · ${esc(v.name)}` : ""} · arrived ${formatTime(v.createdAt)}</option>`).join("");
+    sel.innerHTML = `<option value="">New number (${nextLabel(newNumberKind())}) — patient has no number yet</option>` + waitingReg.map((v) => `<option value="${v.id}">${esc(arrivalLabel(v))}${v.name ? ` · ${esc(v.name)}` : ""} · arrived ${formatTime(v.createdAt)}</option>`).join("");
     sel.value = form.arrival ?? "";
-    const previewSeq = (form.arrival && state.visits.find((v) => v.id === form.arrival)?.seq) || nextNumber(state, tabGroup());
+    const previewSeq = (form.arrival && state.visits.find((v) => v.id === form.arrival)?.seq) || nextNumber(state, numberGroup(newNumberKind()));
+    const previewPrefix = (form.arrival && state.visits.find((v) => v.id === form.arrival)?.prefix) ?? prefixOf(state.settings, form.kind);
     const stations = state.settings.stations.filter((s) => s.active);
     form.stations = form.stations.filter((code) => stations.some((s) => s.code === code));
-    $("#reg-steps").innerHTML = form.stations.map((code, i) => `<li><span class="n">${i + 1}.</span><b class="mono">${esc(ticketLabel({ seq: previewSeq, kind: form.kind }, code))}</b><span class="name">${esc(stationName(state, code))}</span><button type="button" aria-label="Remove" data-act="unstep" data-index="${i}">✕</button></li>`).join("");
+    $("#reg-steps").innerHTML = form.stations.map((code, i) => `<li><span class="n">${i + 1}.</span><b class="mono">${esc(ticketLabel({ seq: previewSeq, kind: form.kind, prefix: previewPrefix }, code))}</b><span class="name">${esc(stationName(state, code))}</span><button type="button" aria-label="Remove" data-act="unstep" data-index="${i}">✕</button></li>`).join("");
     $("#reg-chips").innerHTML = stations.map((s) => `<button type="button" data-act="step" data-code="${esc(s.code)}">＋ <b class="mono">${esc(s.code)}</b> <span>${esc(s.name)}</span></button>`).join("");
     syncSubmit();
 
@@ -2025,6 +2076,7 @@ function downloadQueueReport(xlsx, state, now) {
     draft.slipPrinter ??= "";
     draft.slipWidth ??= 58;
     draft.qrAddress ??= "";
+    draft.numberTags = { ...draft.numberTags };
     draftBase = JSON.stringify(draft);
   }
   // ---- Configuration PIN: needed to open System configuration (the staff PIN is not enough) ----
@@ -2118,6 +2170,12 @@ function downloadQueueReport(xlsx, state, now) {
             <label class="check" style="border:0;padding:0"><input type="checkbox" ${draft.videoSound ? "checked" : ""} data-set="videoSound"><span>Play the video's sound <small>Muted automatically while queue numbers are announced</small></span></label>
             <label class="field">Video volume<span class="cfg-range"><input type="range" min="0" max="100" step="5" value="${volume}" data-set="videoVolume" aria-label="Video volume"><b class="mono" id="cfg-volume">${volume}%</b></span></label>
           </div></section>
+        <section class="panel"><div class="panel-h"><div><h2>Number tags</h2><p>The letters before the queue numbers, e.g. HMO in HMO-01. Regular numbers have no tag (01, 02 …).</p></div></div>
+          <div class="panel-b" style="display:grid;gap:8px">
+            <div class="tag-grid">${[["H", "HMO patients"], ["P1", "Clinic 1"], ["P2", "Clinic 2"], ["P3", "Clinic 3"], ["S1", "Clinic 1 · pre-scheduled"], ["S2", "Clinic 2 · pre-scheduled"], ["S3", "Clinic 3 · pre-scheduled"]].map(([group, label]) => `<label class="tag-row"><span>${label}</span><input type="text" class="mono" maxlength="5" spellcheck="false" value="${esc(draft.numberTags?.[group] || DEFAULT_NUMBER_TAGS[group])}" data-tag="${group}" aria-label="Tag for ${label}"><b class="mono" data-tag-preview="${group}"></b></label>`).join("")}</div>
+            <p class="yt-hint" id="tag-hint"></p>
+            <p style="margin:0;font-size:12px;color:var(--muted)">1 to 5 letters or numbers, starting with a letter. New numbers get the new tag; numbers already given today keep theirs.</p>
+          </div></section>
         <section class="panel"><div class="panel-h"><div><h2>Announcements</h2><p>The chime plays first, then the queue number is read out on the TV.</p></div></div>
           <div class="panel-b" style="display:grid;gap:10px">
             <label class="field">Spoken language<select data-set="announceLanguage">${[["en", "English only"], ["en+fil", "English, then Tagalog"], ["fil", "Tagalog only"]].map(([v, l]) => `<option value="${v}" ${(draft.announceLanguage ?? "en") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
@@ -2176,6 +2234,16 @@ function downloadQueueReport(xlsx, state, now) {
     renderPrinterList();
     showPaperHint();
     showQrHint();
+    box.querySelectorAll("[data-tag]").forEach((input) => input.addEventListener("input", () => {
+      const tag = input.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      if (input.value !== tag) input.value = tag;
+      // The default tag is not stored, so the draft only holds the tags that were changed.
+      const group = input.dataset.tag;
+      if (tag && tag !== DEFAULT_NUMBER_TAGS[group]) draft.numberTags[group] = tag; else delete draft.numberTags[group];
+      showTagHint();
+      refreshDirty();
+    }));
+    showTagHint();
     renderKioskLink();
     showVoiceHint();
     renderConfigStatus();
@@ -2247,6 +2315,17 @@ function downloadQueueReport(xlsx, state, now) {
       : !list.length ? "No printers or COM ports were found on the server computer. Pair the printer, then click Refresh list."
       : current ? "✓ Kiosk slips print on this printer. Use Test print to check it." : "Choose the printer, click Test print, then Save configuration.";
   }
+  /** Each number tag's example (HMO-01) and whether the tags can be saved. */
+  function showTagHint() {
+    const hint = $("#tag-hint");
+    if (!hint || !draft) return;
+    document.querySelectorAll("[data-tag-preview]").forEach((el) => { const group = el.dataset.tagPreview; el.textContent = `${draft.numberTags[group] || DEFAULT_NUMBER_TAGS[group]}-01`; });
+    const checked = numberTagsOf(draft.numberTags);
+    const empty = [...document.querySelectorAll("[data-tag]")].some((input) => !input.value);
+    hint.className = `yt-hint ${typeof checked === "string" ? "err" : "ok"}`;
+    hint.textContent = typeof checked === "string" ? checked : empty ? "An empty tag goes back to the standard one." : "";
+  }
+
   /** A4 and Letter need an office printer chosen by name, not a receipt printer's COM port. */
   function showPaperHint() {
     const hint = $("#paper-hint");
@@ -2329,7 +2408,7 @@ function downloadQueueReport(xlsx, state, now) {
     const visits = state.visits.filter((v) => !v.cancelled);
     const open = visits.filter((v) => visitStatus(v) !== "completed").length;
     const row = (k, v) => `<div class="cfg-row"><span>${k}</span><b>${v}</b></div>`;
-    today.innerHTML = `${row("Date", esc(longDate.format(Date.now())))}${row("Next queue number", `<span class="mono">${pad2(nextNumber(state, false))}</span>`)}${row("Next HMO number", `<span class="mono">HMO-${pad2(nextNumber(state, true))}</span>`)}${CLINIC_KINDS.map((kind) => row(`Next ${clinicOf(kind)} number`, `<span class="mono">${arrivalLabel({ seq: nextNumber(state, kind), kind })}</span>`)).join("")}${row("Patients today", `${visits.length} <small>(${open} still in the clinic)</small>`)}
+    today.innerHTML = `${row("Date", esc(longDate.format(Date.now())))}${row("Next queue number", `<span class="mono">${pad2(nextNumber(state, false))}</span>`)}${row("Next HMO number", `<span class="mono">${nextLabel("H")}</span>`)}${CLINIC_KINDS.map((kind) => row(`Next ${clinicOf(kind)} numbers`, `<span class="mono">${nextLabel(kind)} · ${nextLabel(prescheduledKind(kind))}</span>`)).join("")}${row("Patients today", `${visits.length} <small>(${open} still in the clinic)</small>`)}
       <div style="margin-top:12px"><button class="btn danger sm" data-act="resetDay">Clear today's queue</button></div>`;
     const [text, tone] = syncLabel();
     $("#cfg-computer").innerHTML = `${row("Sharing", sync.mode === "server" ? "Synced with other computers" : sync.mode === "local" ? "This computer only" : "Connecting…")}${sync.mode !== "local" ? row("Sync server", `<span class="mono">${esc(serverHost(syncServer()))}</span>`) : ""}${row("Status", `<span class="badge-device ${tone}">${esc(text)}</span>`)}${row("Staff PIN", sync.mode === "server" ? "Accepted on this computer" : "Not needed (this computer only)")}`;
@@ -3006,7 +3085,8 @@ function downloadQueueReport(xlsx, state, now) {
     // Clinic 1–3 (pre-scheduled) get their own groups too, shown while someone in them is waiting.
     const group = (key) => {
       const hmo = key === "H";
-      const mine = (v) => numberGroup(v.kind) === key;
+      // A clinic's group has both its numberings: CL1 and the pre-scheduled PS1.
+      const mine = (v) => (clinicOf(key) ? clinicOf(v.kind) === clinicOf(key) : numberGroup(v.kind) === key);
       const waitingReg = toRegister.filter(mine);
       // The next number the desk will call (priority lane first, then in arrival order).
       const nextToRegister = waitingReg.find((v) => v !== registering && !v.regCalledAt);
