@@ -139,6 +139,7 @@ export function TicketView() {
     called: { title: "It's your turn!", text: <>Please proceed to {place(station?.name ?? "your station")}</>, icon: <BellRing />, tone: "bg-[#d8a321] text-[#2f281c]" },
     waiting: { title: ahead === 0 ? "You're next" : `${ahead} patient${ahead > 1 ? "s" : ""} ahead of you`, text: `Waiting for ${station?.name ?? "your service"}. Watch the lobby TV for your number.`, icon: <Clock />, tone: "bg-[#fff2c8] text-[#5f4307]" },
     missed: { title: "We called your number", text: "Please approach the front desk so we can put you back in line.", icon: <BellRing />, tone: "bg-[#fde8eb] text-[#9b1f35]" },
+    expected: { title: "You're pre-registered", text: `Your number is ready${visit.appointment ? ` for ${visit.appointment}` : ""}. When you arrive, please tell the Concierge so you join the line.`, icon: <Clock />, tone: "bg-[#dff1ef] text-[#1d5a56]" },
     registration: visit.regCalledAt
       ? { title: "It's your turn!", text: <>Please proceed to {place(visit.kind === "H" ? "HMO Desk" : "Concierge")}</>, icon: <BellRing />, tone: "bg-[#d8a321] text-[#2f281c]" }
       : { title: ahead === 0 ? "You're next" : `${ahead} patient${ahead > 1 ? "s" : ""} ahead of you`, text: `Please wait in the lobby. ${visit.kind === "H" ? "The HMO Desk" : "The Concierge"} will call your number to register you. Watch the lobby TV.`, icon: <Clock />, tone: "bg-[#fff2c8] text-[#5f4307]" },

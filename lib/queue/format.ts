@@ -1,11 +1,12 @@
 import { arrivalLabel, clinicNameOf, currentStep, findStation, isRegistered, TIME_ZONE, waitingFor } from "./reducer";
 import type { Announcement, AnnounceLanguage, QueueState, Station, Visit } from "./types";
 
-export type VisitStatus = "registration" | "waiting" | "called" | "missed" | "completed" | "cancelled" | "pending";
+export type VisitStatus = "registration" | "expected" | "waiting" | "called" | "missed" | "completed" | "cancelled" | "pending";
 
 export function visitStatus(visit: Visit): VisitStatus {
   if (visit.cancelled) return "cancelled";
   if (!isRegistered(visit)) return "registration";
+  if (visit.expected) return "expected";
   const step = currentStep(visit);
   if (!step) return "completed";
   return step.status === "done" ? "completed" : step.status;
@@ -13,6 +14,7 @@ export function visitStatus(visit: Visit): VisitStatus {
 
 export const STATUS_LABEL: Record<VisitStatus, string> = {
   registration: "To register",
+  expected: "Not arrived yet",
   waiting: "Waiting",
   called: "Now serving",
   missed: "Missed call",
@@ -23,6 +25,7 @@ export const STATUS_LABEL: Record<VisitStatus, string> = {
 
 export const STATUS_TONE: Record<VisitStatus, string> = {
   registration: "bg-[#e8eef7] text-[#2d4a6e]",
+  expected: "bg-[#dff1ef] text-[#1d5a56]",
   waiting: "bg-[#fff2c8] text-[#6f4e0a]",
   called: "bg-[#2f281c] text-[#f0c864]",
   missed: "bg-[#fde8eb] text-[#9b1f35]",
@@ -64,13 +67,14 @@ export function queueMessage(state: QueueState, visit: Visit, trackingUrl?: stri
 }
 
 /** Reads a queue number aloud in a way TTS voices pronounce clearly, e.g. "zero 1, C 1, W". */
-/** The number patients see and hear for a call: 07 for 07-C1-W, HMO-07 for HMO-07-C1 (station and W/S are for staff). */
-export const calledNumber = (label: string) => /^(HMO-)?\d+/.exec(label)?.[0] ?? label;
+/** The number patients see and hear for a call: 07 for 07-C1-W, HMO-07 for HMO-07-C1, CL1-07 for CL1-07-C1 (station and W/S are for staff). */
+export const calledNumber = (label: string) => /^(HMO-|CL\d-)?\d+/.exec(label)?.[0] ?? label;
 
 export function spokenLabel(label: string) {
   return label
     .split("-")
-    .map((part) => part.split("").join(" "))
+    // CL1 is said "Clinic 1".
+    .map((part) => (/^CL\d$/.test(part) ? `Clinic ${part[2]}` : part.split("").join(" ")))
     .join(", ");
 }
 
@@ -80,7 +84,7 @@ const DIGIT_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seve
 export function spokenLabelTagalog(label: string) {
   return label
     .split("-")
-    .map((part) => part.split("").map((char) => (/\d/.test(char) ? DIGIT_WORDS[Number(char)] : char)).join(" "))
+    .map((part) => (/^CL\d$/.test(part) ? `Clinic ${DIGIT_WORDS[Number(part[2])]}` : part.split("").map((char) => (/\d/.test(char) ? DIGIT_WORDS[Number(char)] : char)).join(" ")))
     .join(", ");
 }
 

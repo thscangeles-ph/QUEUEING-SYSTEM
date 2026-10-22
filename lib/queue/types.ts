@@ -2,8 +2,10 @@ import type { SlipWidth } from "./escpos";
 import type { ConfigPin } from "./pin";
 import type { TvMedia } from "./youtube";
 
-/** W walk-in, S scheduled, H HMO (its own numbering: HMO-01-C1). */
-export type PatientKind = "W" | "S" | "H";
+/** W walk-in, S scheduled, H HMO (its own numbering: HMO-01-C1), P1–P3 pre-scheduled Clinic 1–3 patients (their own numbering: CL1-01-C1). */
+export type PatientKind = "W" | "S" | "H" | "P1" | "P2" | "P3";
+/** Each numbering counts from 01 every day: R regular (walk-in and scheduled share it), H HMO, P1–P3 Clinic 1–3. */
+export type NumberGroup = "R" | "H" | "P1" | "P2" | "P3";
 export type ServiceType = "consultation" | "procedure" | "laboratory" | "imaging" | "cashier" | "hmo" | "other";
 export type StepStatus = "pending" | "waiting" | "called" | "done" | "missed";
 
@@ -58,6 +60,12 @@ export type Visit = {
   regCalls?: number;
   registeredAt?: number | null;
   createdAt: number;
+  /** Pre-registered for today (a scheduled Clinic 1–3 patient) and not here yet: the first service waits until the Concierge marks them arrived. */
+  expected?: boolean;
+  /** Appointment time of a pre-registered patient, e.g. "10:30". */
+  appointment?: string;
+  /** When the Concierge pre-registered the patient; createdAt becomes the arrival time when they come. */
+  preRegisteredAt?: number | null;
   /** Why the patient came, chosen on the QR check-in page (e.g. "Doctor consultation", "ECG"). Staff only. */
   purposes?: string[];
   /** When the one-time queue message was sent to the patient. */
@@ -115,6 +123,8 @@ export type QueueState = {
   nextSeq: number;
   /** Next HMO number (HMO-01, HMO-02, …); missing on queues saved before HMO numbers existed. */
   nextHmoSeq?: number;
+  /** Next Clinic 1–3 numbers (CL1-01, CL2-01, CL3-01 …); missing until the first one is given. */
+  nextClinicSeq?: Partial<Record<"P1" | "P2" | "P3", number>>;
   /** Last report from the lobby TV: when it was seen and whether its sound is on, shown on the staff screens. */
   tv?: { seenAt: number; sound: boolean };
   visits: Visit[];
@@ -134,6 +144,8 @@ export type VisitInput = {
   loa?: string;
   stations: string[];
   card?: number | null;
+  /** Appointment time of a pre-registered patient, e.g. "10:30". */
+  appointment?: string;
 };
 
 export type QueueAction =
@@ -141,8 +153,12 @@ export type QueueAction =
   | { type: "callCard"; card?: number }
   | { type: "removeCard"; card: number }
   | { type: "arrive"; kind: PatientKind; priority?: boolean; newPatient?: boolean }
-  | { type: "callRegistration"; visitId?: string; hmo?: boolean }
-  | { type: "register"; visitId?: string; visit: VisitInput }
+  /** Calls the next number of one numbering (group) to register; hmo is the older way to say group H (true) or R (false). */
+  | { type: "callRegistration"; visitId?: string; hmo?: boolean; group?: NumberGroup }
+  /** preRegister: a new number for a scheduled patient who is not here yet (they join the line with checkIn). */
+  | { type: "register"; visitId?: string; visit: VisitInput; preRegister?: boolean }
+  /** A pre-registered patient has arrived: their first service's line starts now. */
+  | { type: "checkIn"; visitId: string }
   /** A patient takes a queue number with the QR code, giving their name and the purpose(s) of the visit. */
   | { type: "qrArrive"; name?: string; purposes?: string[] }
   | { type: "verify"; visitId: string }
