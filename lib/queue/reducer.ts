@@ -11,6 +11,27 @@ export const DEFAULT_CLINIC = "The Heart Specialists Clinic";
 /** The clinic's name as set in System configuration. */
 export const clinicNameOf = (settings?: Partial<Settings>) => clean(settings?.clinicName, 80) || DEFAULT_CLINIC;
 
+/** The purposes of a visit a patient can choose on the QR check-in page; each test or procedure brings its station. */
+export function purposeOptions(settings: Settings): { label: string; station?: string }[] {
+  const options: { label: string; station?: string }[] = [{ label: "Doctor consultation" }];
+  const seen = new Set<string>();
+  for (const station of settings.stations.filter((item) => item.active && ["procedure", "laboratory", "imaging"].includes(item.service))) {
+    // "2D Echo 1" and "2D Echo 2" are one choice for the patient.
+    const label = station.name.replace(/\s+\d+$/, "");
+    if (seen.has(label.toLowerCase())) continue;
+    seen.add(label.toLowerCase());
+    options.push({ label, station: station.code });
+  }
+  options.push({ label: "Get results / medical certificate" }, { label: "Other" });
+  return options;
+}
+
+/** The stations for the purposes a patient chose, in the order of the choices, to start the Concierge's services list. */
+export function purposeStations(settings: Settings, purposes: string[] = []): string[] {
+  const options = purposeOptions(settings);
+  return [...new Set(purposes.map((purpose) => options.find((option) => option.label === purpose)?.station).filter((code): code is string => Boolean(code)))];
+}
+
 /** The address patients' phones open from the QR code poster, e.g. "http://172.16.100.62:3000": "" means automatic, null means it is not an address. */
 export function qrAddressOf(value: unknown): string | null {
   const text = String(value ?? "").trim();
@@ -353,9 +374,16 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
     case "qrArrive": {
       // The QR code at the Concierge only hands out an arrival number, like the desk's Queue number button.
       // The Concierge calls it and registers the patient (walk-in or scheduled, services) as usual.
+      // The patient also gives their name and why they came; the Concierge sees both when registering them.
+      const name = clean(action.name, 80);
+      if (name.length < 2) return fail("Please type your full name.");
+      const purposes = (Array.isArray(action.purposes) ? action.purposes : []).map((purpose) => clean(purpose, 80)).filter(Boolean).slice(0, 8);
+      if (!purposes.length) return fail("Please choose the purpose of your visit.");
       const visit = newVisit(state, "W", false, false, now, "self");
       if (typeof visit === "string") return fail(visit);
       visit.verified = true;
+      visit.name = name;
+      visit.purposes = purposes;
       return { ok: true, visitId: visit.id, label: arrivalLabel(visit) };
     }
     case "verify": {
@@ -561,5 +589,5 @@ export function withoutSecrets(state: QueueState): QueueState {
 }
 
 export function publicView(state: QueueState): QueueState {
-  return { ...withoutSecrets(state), visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", steps: visit.steps.map(withoutBilling) })) };
+  return { ...withoutSecrets(state), visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", purposes: undefined, steps: visit.steps.map(withoutBilling) })) };
 }
