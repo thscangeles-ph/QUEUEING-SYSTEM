@@ -11,6 +11,19 @@ export const DEFAULT_CLINIC = "The Heart Specialists Clinic";
 /** The clinic's name as set in System configuration. */
 export const clinicNameOf = (settings?: Partial<Settings>) => clean(settings?.clinicName, 80) || DEFAULT_CLINIC;
 
+/** The address patients' phones open from the QR code poster, e.g. "http://172.16.100.62:3000": "" means automatic, null means it is not an address. */
+export function qrAddressOf(value: unknown): string | null {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (/\s/.test(text)) return null;
+  try {
+    const url = new URL(/^https?:\/\//i.test(text) ? text : `http://${text}`);
+    return /^https?:$/.test(url.protocol) && /^([a-z0-9-]+\.)*[a-z0-9-]+$|^\[[0-9a-f:.]+\]$/i.test(url.hostname) ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
 export const DEFAULT_SETTINGS: Settings = {
   stations: [
     { code: "C1", name: "Consultation 1", service: "consultation", location: "Clinic Room 1", selfCheckIn: true, active: true },
@@ -256,9 +269,11 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   const displayConnection = (input.displayConnection ?? previous.displayConnection) === "lan" ? "lan" : "wifi";
   const slipPrinter = clean(input.slipPrinter ?? previous.slipPrinter, 200);
   const slipWidth = slipWidthOf(input.slipWidth ?? previous.slipWidth);
+  const qrAddress = qrAddressOf(input.qrAddress ?? previous.qrAddress);
+  if (qrAddress === null) return "QR code address: use an address like http://172.16.100.62:3000.";
   // The configuration PIN only changes with setConfigPin, never from the settings form.
   const configPin = previous.configPin ? { configPin: previous.configPin } : {};
-  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, ...configPin };
+  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, qrAddress, ...configPin };
 }
 
 export const CONFIG_PIN_NEEDED = "Enter the configuration PIN to change System configuration.";

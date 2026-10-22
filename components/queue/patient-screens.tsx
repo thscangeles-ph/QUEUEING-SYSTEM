@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 import { BellRing, CheckCircle2, Clock, Printer, Ticket } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { arrivalLabel, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation, waitingToRegister } from "@/lib/queue/reducer";
+import { arrivalLabel, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation, qrAddressOf, waitingToRegister } from "@/lib/queue/reducer";
 import { estimatedWait, formatEstimate, patientsAhead, visitStatus } from "@/lib/queue/format";
 import type { QueueState } from "@/lib/queue/types";
 import { readStorage, useNow, useQueue, writeStorage } from "./use-queue";
@@ -169,32 +169,50 @@ export function CheckInPoster() {
   const [url, setUrl] = useState("");
   const [choices, setChoices] = useState<string[]>([]);
   const [warning, setWarning] = useState("");
+  // The address set in System configuration → QR code poster, if any.
+  const [saved, setSaved] = useState("");
+  // What staff type in "QR code address" above the poster, to change it for this print.
+  const [typed, setTyped] = useState<string | null>(null);
   useEffect(() => {
     const { hostname, port, protocol, origin } = window.location;
-    if (!LOCAL_HOSTS.includes(hostname)) {
-      const timer = setTimeout(() => setUrl(`${origin}${CHECKIN_PATH}`), 0);
-      return () => clearTimeout(timer);
-    }
-    // Opened on the clinic server itself: "localhost" on a phone is the phone, so use this computer's network address.
     let cancelled = false;
-    const fallback = () => {
-      setUrl(`${origin}${CHECKIN_PATH}`);
-      setWarning("This QR code points to localhost, which phones cannot open. Open this poster from another computer using the server's address (e.g. http://192.168.1.20:3000/queue/poster).");
+    const automatic = () => {
+      if (!LOCAL_HOSTS.includes(hostname)) { setUrl(`${origin}${CHECKIN_PATH}`); return; }
+      // Opened on the clinic server itself: "localhost" on a phone is the phone, so use this computer's network address.
+      const fallback = () => {
+        setUrl(`${origin}${CHECKIN_PATH}`);
+        setWarning("This QR code points to localhost, which phones cannot open. Type the server's address in QR code address above, or set it in System configuration → QR code poster.");
+      };
+      fetch("/api/server-info", { cache: "no-store" })
+        .then((response) => response.json() as Promise<{ addresses?: string[] }>)
+        .then(({ addresses = [] }) => {
+          if (cancelled) return;
+          const list = addresses.map((address) => `${protocol}//${address}${port ? `:${port}` : ""}${CHECKIN_PATH}`);
+          setChoices(list);
+          if (list.length) setUrl(list[0]);
+          else fallback();
+        })
+        .catch(() => { if (!cancelled) fallback(); });
     };
-    fetch("/api/server-info", { cache: "no-store" })
-      .then((response) => response.json() as Promise<{ addresses?: string[] }>)
-      .then(({ addresses = [] }) => {
+    fetch("/api/queue", { cache: "no-store" })
+      .then((response) => response.json() as Promise<{ state?: QueueState }>)
+      .then(({ state }) => {
         if (cancelled) return;
-        const list = addresses.map((address) => `${protocol}//${address}${port ? `:${port}` : ""}${CHECKIN_PATH}`);
-        setChoices(list);
-        if (list.length) setUrl(list[0]);
-        else fallback();
+        const address = qrAddressOf(state?.settings.qrAddress);
+        if (address) { setSaved(address); setUrl(`${address}${CHECKIN_PATH}`); } else automatic();
       })
-      .catch(() => { if (!cancelled) fallback(); });
+      .catch(() => { if (!cancelled) automatic(); });
     return () => { cancelled = true; };
   }, []);
+  const typedAddress = typed === null ? undefined : qrAddressOf(typed);
+  const shown = typedAddress ? `${typedAddress}${CHECKIN_PATH}` : url;
+  const changeAddress = (value: string) => {
+    setTyped(value);
+    const address = qrAddressOf(value);
+    if (address) setWarning("");
+  };
   // A local network address only works on the clinic Wi-Fi, so the printed poster says so.
-  const onClinicNetwork = /^https?:\/\/(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(url);
+  const onClinicNetwork = /^https?:\/\/(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(shown);
 
   return (
     <main className="min-h-screen bg-[#f7f4ed] py-8 text-[#2e291f] print:bg-white print:py-0">
@@ -202,7 +220,13 @@ export function CheckInPoster() {
         <Link href="/queue" className="font-semibold text-[#8b6512] underline">← Front desk</Link>
         <Button onClick={() => window.print()} className="bg-[#8b6512] text-white hover:bg-[#6f4e0a]"><Printer size={16} /> Print poster</Button>
       </div>
-      {choices.length > 1 && (
+      <label className="mx-auto mb-4 grid max-w-[680px] gap-1.5 px-5 text-sm font-semibold text-[#514838] print:hidden">
+        QR code address
+        <span className="text-xs font-normal text-[#756b59]">The address patients&apos; phones open, e.g. http://172.16.100.62:3000. {saved ? "Set in System configuration → QR code poster." : "Set it in System configuration → QR code poster to keep it for every poster."} A change here is only for this print.</span>
+        <input value={typed ?? shown.replace(CHECKIN_PATH, "")} onChange={(event) => changeAddress(event.target.value)} spellCheck={false} className="rounded-lg border border-[#e2d7c2] bg-white px-3 py-2 font-mono font-normal" aria-label="QR code address" />
+        {typed !== null && typedAddress === null && <span role="alert" className="text-xs font-semibold text-[#9b1f35]">That is not an address. Use one like http://172.16.100.62:3000.</span>}
+      </label>
+      {!saved && typed === null && choices.length > 1 && (
         <label className="mx-auto mb-4 grid max-w-[680px] gap-1.5 px-5 text-sm font-semibold text-[#514838] print:hidden">
           This computer has more than one network address. Choose the one on the clinic Wi-Fi:
           <select value={url} onChange={(event) => setUrl(event.target.value)} className="rounded-lg border border-[#e2d7c2] bg-white px-3 py-2 font-mono font-normal">
@@ -217,8 +241,8 @@ export function CheckInPoster() {
         <p className="mt-3 text-sm font-semibold tracking-[0.12em] text-[#8b6512]">THE HEART SPECIALISTS CLINIC</p>
         <h1 className="mt-4 text-4xl font-extrabold tracking-tight">Get your queue number</h1>
         <p className="mt-2 text-xl text-[#5e5443]">Scan with your phone camera.</p>
-        <div className="mx-auto mt-8 w-72 rounded-2xl border-4 border-[#2f281c] p-3">{url && <QrCode value={url} />}</div>
-        <p className="mt-3 break-all font-mono text-sm text-[#756b59]">{url}</p>
+        <div className="mx-auto mt-8 w-72 rounded-2xl border-4 border-[#2f281c] p-3">{shown && <QrCode value={shown} />}</div>
+        <p className="mt-3 break-all font-mono text-sm text-[#756b59]">{shown}</p>
         {onClinicNetwork && <p className="mt-4 rounded-xl bg-[#fff2c8] px-4 py-2 text-lg font-semibold text-[#5f4307]">Connect to the clinic Wi-Fi first.</p>}
         <ol className="mx-auto mt-8 grid max-w-md gap-3 text-left text-lg">
           <li><strong>1.</strong> Scan the code and tap <em>Get my queue number</em>.</li>
