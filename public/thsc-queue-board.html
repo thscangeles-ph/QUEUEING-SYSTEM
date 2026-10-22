@@ -513,6 +513,26 @@ const MAX_STEPS = 8;
 const DEFAULT_CLINIC = "The Heart Specialists Clinic";
 /** The clinic's name as set in System configuration. */
 const clinicNameOf = (settings) => clean(settings?.clinicName, 80) || DEFAULT_CLINIC;
+/** The purposes of a visit a patient can choose on the QR check-in page; each test or procedure brings its station. */
+function purposeOptions(settings) {
+    const options = [{ label: "Doctor consultation" }];
+    const seen = new Set();
+    for (const station of settings.stations.filter((item) => item.active && ["procedure", "laboratory", "imaging"].includes(item.service))) {
+        // "2D Echo 1" and "2D Echo 2" are one choice for the patient.
+        const label = station.name.replace(/\s+\d+$/, "");
+        if (seen.has(label.toLowerCase()))
+            continue;
+        seen.add(label.toLowerCase());
+        options.push({ label, station: station.code });
+    }
+    options.push({ label: "Get results / medical certificate" }, { label: "Other" });
+    return options;
+}
+/** The stations for the purposes a patient chose, in the order of the choices, to start the Concierge's services list. */
+function purposeStations(settings, purposes = []) {
+    const options = purposeOptions(settings);
+    return [...new Set(purposes.map((purpose) => options.find((option) => option.label === purpose)?.station).filter((code) => Boolean(code)))];
+}
 /** The address patients' phones open from the QR code poster, e.g. "http://172.16.100.62:3000": "" means automatic, null means it is not an address. */
 function qrAddressOf(value) {
     const text = String(value ?? "").trim();
@@ -824,10 +844,19 @@ function run(state, action, now) {
         case "qrArrive": {
             // The QR code at the Concierge only hands out an arrival number, like the desk's Queue number button.
             // The Concierge calls it and registers the patient (walk-in or scheduled, services) as usual.
+            // The patient also gives their name and why they came; the Concierge sees both when registering them.
+            const name = clean(action.name, 80);
+            if (name.length < 2)
+                return fail("Please type your full name.");
+            const purposes = (Array.isArray(action.purposes) ? action.purposes : []).map((purpose) => clean(purpose, 80)).filter(Boolean).slice(0, 8);
+            if (!purposes.length)
+                return fail("Please choose the purpose of your visit.");
             const visit = newVisit(state, "W", false, false, now, "self");
             if (typeof visit === "string")
                 return fail(visit);
             visit.verified = true;
+            visit.name = name;
+            visit.purposes = purposes;
             return { ok: true, visitId: visit.id, label: arrivalLabel(visit) };
         }
         case "verify": {
@@ -1074,7 +1103,7 @@ function slipWidthOf(value) {
 const CONFIG_PIN_NEEDED = "Enter the configuration PIN to change System configuration.";
 const withoutVideoSound = (settings) => JSON.stringify({ ...settings, videoSound: undefined, videoVolume: undefined });
 function publicView(state) {
-    return { ...state, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", steps: visit.steps.map(withoutBilling) })) };
+    return { ...state, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", purposes: undefined, steps: visit.steps.map(withoutBilling) })) };
 }
 /** What the patient has to pay at the cashier, from the doctors' choices: e.g. ["Professional fee (Consultation 1)", "Clearance"]. */
 function payItems(state, visit) {
@@ -1655,6 +1684,17 @@ function downloadQueueReport(xlsx, state, now) {
     ["#reg-name", "#reg-mobile", "#reg-notes", "#reg-hmo", "#reg-loa"].forEach((sel) => { const input = $(sel); if (input) input.value = ""; });
   }
   resetForm();
+  /** Picks a waiting queue number to register. A number taken with the QR code brings the patient's name and purpose of visit:
+   *  the name, "Purpose: …" in the notes, and the tests or procedures chosen as the first services (the Concierge adds the doctor). */
+  function pickArrival(v) {
+    form.arrival = v.id; form.kind = v.kind; form.priority = v.priority; form.newPatient = v.newPatient === true;
+    if (v.source !== "self") return;
+    if (v.name) form.name = v.name;
+    if (v.purposes?.length) form.notes = `Purpose: ${v.purposes.join(", ")}`;
+    if (!form.stations.length) form.stations = purposeStations(state.settings, v.purposes);
+    const name = $("#reg-name"); if (name) name.value = form.name;
+    const notes = $("#reg-notes"); if (notes) notes.value = form.notes;
+  }
   let issued = null;
   let filter = "active";
   let search = "";
@@ -1726,7 +1766,7 @@ function downloadQueueReport(xlsx, state, now) {
     $("#reg-arrival").addEventListener("change", (e) => {
       form.arrival = e.target.value || null;
       const v = form.arrival && state.visits.find((x) => x.id === form.arrival);
-      if (v) { form.kind = v.kind; form.priority = v.priority; form.newPatient = v.newPatient === true; }
+      if (v) pickArrival(v);
       updateDesk();
     });
     $("#search").addEventListener("input", (e) => { search = e.target.value; renderPatients(); });
@@ -1804,7 +1844,7 @@ function downloadQueueReport(xlsx, state, now) {
     $("#arrivals").innerHTML = waitingReg.length ? waitingReg.map((v) => `
       <li class="${v.regCalledAt ? "called" : ""}">
         <span class="chip-num wide mono">${esc(arrivalLabel(v))}</span>
-        <div class="info"><b>${v.regCalledAt ? `Called${v.regCalls > 1 ? ` ×${v.regCalls}` : ""}` : "Waiting"}${v.source === "self" ? ` <span class="tag" title="Took this number with the QR code">📱 QR</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</b><span>Arrived ${formatTime(v.createdAt)} · ${formatWait(minutesSince(v.createdAt, now))}</span></div>
+        <div class="info"><b>${v.regCalledAt ? `Called${v.regCalls > 1 ? ` ×${v.regCalls}` : ""}` : "Waiting"}${v.source === "self" ? ` <span class="tag" title="Took this number with the QR code">📱 QR</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</b><span>${v.name ? `<b style="color:var(--ink)">${esc(v.name)}</b> · ` : ""}${v.purposes?.length ? `${esc(v.purposes.join(", "))} · ` : ""}Arrived ${formatTime(v.createdAt)} · ${formatWait(minutesSince(v.createdAt, now))}</span></div>
         <button class="btn icon outline" title="Call to register" aria-label="Call ${esc(arrivalLabel(v))} to register" data-act="callReg" data-id="${v.id}">🔔</button>
         <button class="btn sm" data-act="registerArrival" data-id="${v.id}">Register</button>
         <button class="btn icon ghost" title="Remove number" aria-label="Remove ${esc(arrivalLabel(v))}" data-act="removeArrival" data-id="${v.id}">✕</button>
@@ -1817,7 +1857,7 @@ function downloadQueueReport(xlsx, state, now) {
     document.querySelectorAll('[data-act="kind"]').forEach((b) => { b.classList.toggle("on", b.dataset.kind === form.kind); b.setAttribute("aria-checked", String(b.dataset.kind === form.kind)); });
     if (form.arrival && !waitingReg.some((v) => v.id === form.arrival)) form.arrival = null;
     const sel = $("#reg-arrival");
-    sel.innerHTML = `<option value="">New number (${isHmoTab() ? `HMO-${pad2(nextNumber(state, true))}` : pad2(nextNumber(state, false))}) — patient has no number yet</option>` + waitingReg.map((v) => `<option value="${v.id}">${esc(arrivalLabel(v))} · arrived ${formatTime(v.createdAt)}</option>`).join("");
+    sel.innerHTML = `<option value="">New number (${isHmoTab() ? `HMO-${pad2(nextNumber(state, true))}` : pad2(nextNumber(state, false))}) — patient has no number yet</option>` + waitingReg.map((v) => `<option value="${v.id}">${esc(arrivalLabel(v))}${v.name ? ` · ${esc(v.name)}` : ""} · arrived ${formatTime(v.createdAt)}</option>`).join("");
     sel.value = form.arrival ?? "";
     const previewSeq = (form.arrival && state.visits.find((v) => v.id === form.arrival)?.seq) || nextNumber(state, isHmoTab());
     const stations = state.settings.stations.filter((s) => s.active);
@@ -3103,7 +3143,7 @@ function downloadQueueReport(xlsx, state, now) {
       case "slip": { const v = state.visits.find((x) => x.id === id); if (v) printSlip(arrivalLabel(v), v.createdAt, LOGO, clinicNameOf(state.settings)); break; }
       case "callReg": dispatch({ type: "callRegistration", visitId: id || undefined, hmo: id ? undefined : isHmoTab() }, (r) => `${r.label} called to register — shown on the TV.`).then(warnIfSilent); break;
       case "removeArrival": { const v = state.visits.find((x) => x.id === id); if (v && confirm(`Remove ${arrivalLabel(v)}? Use this if the patient left before registering. The number ${arrivalLabel(v)} will be given to the next arrival.`)) dispatch({ type: "cancel", visitId: id }, `${arrivalLabel(v)} removed — the next Queue number will reuse it.`); break; }
-      case "registerArrival": { const v = state.visits.find((x) => x.id === id); if (v) { form.arrival = id; form.kind = v.kind; form.priority = v.priority; form.newPatient = v.newPatient === true; updateDesk(); $("#reg-name").focus(); } break; }
+      case "registerArrival": { const v = state.visits.find((x) => x.id === id); if (v) { pickArrival(v); updateDesk(); $("#reg-name").focus(); } break; }
       case "togArrNew": arr.newPatient = !arr.newPatient; updateDesk(); break;
       case "togArrPrio": arr.priority = !arr.priority; updateDesk(); break;
       case "togRegNew": form.newPatient = !form.newPatient; updateDesk(); break;

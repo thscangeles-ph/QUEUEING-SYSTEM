@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 import { BellRing, CheckCircle2, Clock, Printer, Ticket } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { arrivalLabel, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation, qrAddressOf, waitingToRegister } from "@/lib/queue/reducer";
+import { arrivalLabel, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation, purposeOptions, qrAddressOf, waitingToRegister } from "@/lib/queue/reducer";
 import { estimatedWait, formatEstimate, patientsAhead, visitStatus } from "@/lib/queue/format";
 import type { QueueState } from "@/lib/queue/types";
 import { readStorage, useNow, useQueue, writeStorage } from "./use-queue";
@@ -39,21 +39,30 @@ function storedTicket(state: QueueState) {
   }
 }
 
-/** The QR code at the Concierge: it only hands out a queue number. The Concierge registers the patient when calling it. */
+/** The QR code at the Concierge: the patient gives their name and purpose of visit and gets a queue number. The Concierge registers them when calling it. */
 export function CheckIn() {
   const queue = useQueue();
   const router = useRouter();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [name, setName] = useState("");
+  const [purposes, setPurposes] = useState<string[]>([]);
+  const [other, setOther] = useState("");
   const state = queue.state;
 
   if (!state) return <PatientFrame><p className="py-16 text-center text-[#756b59]">{queue.error || "Loading…"}</p></PatientFrame>;
   // One number per phone: a phone that already has today's number sees it again instead of taking another.
   const existing = storedTicket(state);
 
+  const options = purposeOptions(state.settings);
+  const toggle = (label: string) => setPurposes((current) => (current.includes(label) ? current.filter((item) => item !== label) : [...current, label]));
+  const ready = name.trim().length >= 2 && purposes.length > 0;
   const take = async () => {
+    if (!ready) { setError(name.trim().length < 2 ? "Please type your full name." : "Please choose the purpose of your visit."); return; }
     setBusy(true);
-    const result = await queue.dispatch({ type: "qrArrive" });
+    // "Other" carries what the patient typed, e.g. "Other: follow-up for my mother".
+    const chosen = purposes.map((purpose) => (purpose === "Other" && other.trim() ? `Other: ${other.trim()}` : purpose));
+    const result = await queue.dispatch({ type: "qrArrive", name: name.trim(), purposes: chosen });
     setBusy(false);
     if (!result.ok) { setError(result.error); return; }
     writeStorage(TICKET_KEY, JSON.stringify({ id: result.visitId, day: state.day }));
@@ -63,7 +72,7 @@ export function CheckIn() {
   return (
     <PatientFrame clinic={clinicNameOf(state.settings)}>
       <h1 className="text-2xl font-bold tracking-tight">Get your queue number</h1>
-      <p className="mt-1 text-[#6a604f]">Then please wait in the lobby. The Concierge will call your number to register you.</p>
+      <p className="mt-1 text-[#6a604f]">{existing ? "Please wait in the lobby. The Concierge will call your number to register you." : "Tell us your name and why you are here. The Concierge sees it when calling your number to register you."}</p>
       {queue.mode === "local" && <p className="mt-5 rounded-xl bg-[#fff9e9] px-4 py-3 text-sm text-[#5f4307]">This page is running in single-device mode and only works on the front-desk computer.</p>}
       {existing ? (
         <Link href={`/queue/ticket?id=${existing.id}`} className="mt-6 flex items-center gap-4 rounded-2xl bg-[#2f281c] p-5 text-white">
@@ -72,11 +81,30 @@ export function CheckIn() {
           <span className="font-semibold">View →</span>
         </Link>
       ) : (
-        <div className="mt-6 grid gap-3">
+        <form className="mt-6 grid gap-5" onSubmit={(event) => { event.preventDefault(); void take(); }}>
+          <label className="grid gap-1.5 text-sm font-semibold text-[#514838]">
+            Your full name
+            <input value={name} onChange={(event) => { setName(event.target.value); setError(""); }} autoComplete="name" maxLength={80} placeholder="e.g. Juan Dela Cruz" className="h-12 rounded-xl border border-[#d8c79f] bg-white px-3 text-base font-normal text-[#2e291f]" />
+          </label>
+          <fieldset className="grid gap-2">
+            <legend className="mb-1.5 text-sm font-semibold text-[#514838]">Purpose of your visit <span className="font-normal text-[#857967]">(choose all that apply)</span></legend>
+            <div className="flex flex-wrap gap-2">
+              {options.map((option) => {
+                const on = purposes.includes(option.label);
+                return (
+                  <button key={option.label} type="button" aria-pressed={on} onClick={() => { toggle(option.label); setError(""); }}
+                    className={`min-h-11 rounded-full border px-4 py-2 text-sm font-semibold ${on ? "border-[#8b6512] bg-[#8b6512] text-white" : "border-[#d8c79f] bg-white text-[#514838]"}`}>
+                    {on ? "✓ " : ""}{option.label}
+                  </button>
+                );
+              })}
+            </div>
+            {purposes.includes("Other") && <input value={other} onChange={(event) => setOther(event.target.value)} maxLength={60} placeholder="Please tell us (optional)" aria-label="Other purpose" className="h-11 rounded-xl border border-[#d8c79f] bg-white px-3 text-base text-[#2e291f]" />}
+          </fieldset>
           {error && <p role="alert" className="text-sm font-semibold text-[#b4233c]">{error}</p>}
-          <Button onClick={() => void take()} disabled={busy} className="h-14 bg-[#8b6512] text-lg text-white hover:bg-[#6f4e0a]">{busy ? "Getting your number…" : "Get my queue number"}</Button>
-          <p className="text-xs leading-5 text-[#857967]">One number per person. Watch the lobby TV for your number.</p>
-        </div>
+          <Button type="submit" disabled={busy} className="h-14 bg-[#8b6512] text-lg text-white hover:bg-[#6f4e0a]">{busy ? "Getting your number…" : "Get my queue number"}</Button>
+          <p className="text-xs leading-5 text-[#857967]">One number per person. Your name is shown only to the clinic staff, never on the TV. Watch the lobby TV for your number.</p>
+        </form>
       )}
     </PatientFrame>
   );

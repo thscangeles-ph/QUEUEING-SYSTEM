@@ -58,6 +58,8 @@ export type Visit = {
   regCalls?: number;
   registeredAt?: number | null;
   createdAt: number;
+  /** Why the patient came, chosen on the QR check-in page (e.g. "Doctor consultation", "ECG"). Staff only. */
+  purposes?: string[];
   /** When the one-time queue message was sent to the patient. */
   messagedAt: number | null;
   steps: Step[];
@@ -141,7 +143,8 @@ export type QueueAction =
   | { type: "arrive"; kind: PatientKind; priority?: boolean; newPatient?: boolean }
   | { type: "callRegistration"; visitId?: string; hmo?: boolean }
   | { type: "register"; visitId?: string; visit: VisitInput }
-  | { type: "qrArrive" }
+  /** A patient takes a queue number with the QR code, giving their name and the purpose(s) of the visit. */
+  | { type: "qrArrive"; name?: string; purposes?: string[] }
   | { type: "verify"; visitId: string }
   | { type: "updateVisit"; visitId: string; name?: string; mobile?: string; notes?: string; priority?: boolean; newPatient?: boolean }
   | { type: "markMessaged"; visitId: string }
