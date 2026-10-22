@@ -1,4 +1,4 @@
-import type { ActionResult, AnnounceLanguage, Announcement, Billing, PatientKind, QueueAction, QueueState, Settings, Station, Step, Visit, VisitInput } from "./types";
+import type { ActionResult, AnnounceLanguage, Announcement, Billing, NumberGroup, PatientKind, QueueAction, QueueState, Settings, Station, Step, Visit, VisitInput } from "./types";
 import { slipWidthOf } from "./escpos";
 import { configPinOk, hashConfigPin } from "./pin";
 import { cleanTvMedia } from "./youtube";
@@ -80,7 +80,7 @@ export function newId() {
 }
 
 export function emptyState(now: number, settings: Settings = DEFAULT_SETTINGS): QueueState {
-  return { day: clinicDay(now), nextSeq: 1, nextHmoSeq: 1, visits: [], cards: [], announcements: [], settings: structuredClone(settings) };
+  return { day: clinicDay(now), nextSeq: 1, nextHmoSeq: 1, nextClinicSeq: {}, visits: [], cards: [], announcements: [], settings: structuredClone(settings) };
 }
 
 /** Queues reset at midnight Manila time; settings carry over. */
@@ -91,13 +91,24 @@ export function ensureDay(state: QueueState | null | undefined, now: number): Qu
 
 const pad2 = (seq: number) => String(seq).padStart(2, "0");
 
-/** 01-C1-W for walk-in and scheduled patients; HMO-01-C1 for HMO patients, who have their own numbering. */
-export const ticketLabel = (visit: Pick<Visit, "seq" | "kind">, station: string) => (visit.kind === "H" ? `HMO-${pad2(visit.seq)}-${station}` : `${pad2(visit.seq)}-${station}-${visit.kind}`);
+/** Pre-scheduled patients of Clinic 1, 2 and 3: each clinic has its own numbering, like HMO. */
+export const CLINIC_KINDS = ["P1", "P2", "P3"] as const;
+/** The numbering a kind uses: walk-in and scheduled share the regular numbers; HMO and each clinic count on their own. */
+export const numberGroup = (kind: PatientKind): NumberGroup => (kind === "W" || kind === "S" ? "R" : kind);
+const LABEL_PREFIX: Partial<Record<NumberGroup, string>> = { H: "HMO-", P1: "CL1-", P2: "CL2-", P3: "CL3-" };
+/** "Clinic 1" for a Clinic 1 patient (P1), otherwise null. */
+export const clinicOf = (kind: PatientKind) => ((CLINIC_KINDS as readonly string[]).includes(kind) ? `Clinic ${kind.slice(1)}` : null);
 
-/** The number given on arrival, before registration: just 01 (walk-in or scheduled is chosen at registration), or HMO-01. */
-export const arrivalLabel = (visit: Pick<Visit, "seq" | "kind">) => (visit.kind === "H" ? `HMO-${pad2(visit.seq)}` : pad2(visit.seq));
+/** 01-C1-W for walk-in and scheduled patients; HMO-01-C1 and CL1-01-C1 for HMO and Clinic 1–3 patients, who have their own numbering. */
+export const ticketLabel = (visit: Pick<Visit, "seq" | "kind">, station: string) => {
+  const prefix = LABEL_PREFIX[numberGroup(visit.kind)];
+  return prefix ? `${prefix}${pad2(visit.seq)}-${station}` : `${pad2(visit.seq)}-${station}-${visit.kind}`;
+};
 
-const kindOf = (kind: unknown): PatientKind => (kind === "S" || kind === "H" ? kind : "W");
+/** The number given on arrival, before registration: just 01 (walk-in or scheduled is chosen at registration), HMO-01 or CL1-01. */
+export const arrivalLabel = (visit: Pick<Visit, "seq" | "kind">) => `${LABEL_PREFIX[numberGroup(visit.kind)] ?? ""}${pad2(visit.seq)}`;
+
+const kindOf = (kind: unknown): PatientKind => (kind === "S" || kind === "H" || kind === "P1" || kind === "P2" || kind === "P3" ? kind : "W");
 
 /** Visits saved before arrival numbers existed have no `registered` flag; they were always registered. */
 export const isRegistered = (visit: Visit) => visit.registered !== false;
@@ -147,19 +158,28 @@ function validateStations(state: QueueState, codes: unknown): string[] | string 
  * The number the next arrival gets: the lowest number freed by an arrival removed before registering
  * (so 03 is given again after 03 is removed), otherwise the next new number.
  */
-export function nextNumber(state: QueueState, hmo: boolean): number {
-  const next = hmo ? state.nextHmoSeq ?? 1 : state.nextSeq;
-  const used = new Set(state.visits.filter((visit) => (visit.kind === "H") === hmo && !(visit.cancelled && !isRegistered(visit))).map((visit) => visit.seq));
+export function nextNumber(state: QueueState, numbering: NumberGroup | boolean): number {
+  // true and false are the older way to ask for the HMO or the regular numbers.
+  const group: NumberGroup = numbering === true ? "H" : numbering === false ? "R" : numbering;
+  const next = counterOf(state, group);
+  const used = new Set(state.visits.filter((visit) => numberGroup(visit.kind) === group && !(visit.cancelled && !isRegistered(visit))).map((visit) => visit.seq));
   for (let seq = 1; seq < next; seq += 1) if (!used.has(seq)) return seq;
   return next;
 }
 
+const counterOf = (state: QueueState, group: NumberGroup) => (group === "R" ? state.nextSeq : group === "H" ? state.nextHmoSeq ?? 1 : state.nextClinicSeq?.[group] ?? 1);
+function setCounter(state: QueueState, group: NumberGroup, value: number) {
+  if (group === "R") state.nextSeq = value;
+  else if (group === "H") state.nextHmoSeq = value;
+  else state.nextClinicSeq = { ...state.nextClinicSeq, [group]: value };
+}
+
 function newVisit(state: QueueState, kind: PatientKind, priority: boolean, newPatient: boolean, now: number, source: Visit["source"]): Visit | string {
-  const hmo = kindOf(kind) === "H";
-  if (state.visits.filter((visit) => (visit.kind === "H") === hmo).length >= 999) return "The daily queue limit of 999 patients has been reached.";
+  const group = numberGroup(kindOf(kind));
+  if (state.visits.filter((visit) => numberGroup(visit.kind) === group).length >= 999) return "The daily queue limit of 999 patients has been reached.";
   const visit: Visit = {
     id: newId(),
-    seq: nextNumber(state, hmo),
+    seq: nextNumber(state, group),
     kind: kindOf(kind),
     name: "",
     mobile: "",
@@ -181,8 +201,7 @@ function newVisit(state: QueueState, kind: PatientKind, priority: boolean, newPa
     steps: [],
   };
   // A reused number leaves the counter where it is.
-  if (hmo) { if (visit.seq === (state.nextHmoSeq ?? 1)) state.nextHmoSeq = visit.seq + 1; }
-  else if (visit.seq === state.nextSeq) state.nextSeq += 1;
+  if (visit.seq === counterOf(state, group)) setCounter(state, group, visit.seq + 1);
   state.visits.push(visit);
   return visit;
 }
@@ -193,8 +212,8 @@ function registerVisit(state: QueueState, visit: Visit, input: VisitInput, now: 
   if (!name) return "Enter the patient's name.";
   const stations = validateStations(state, input.stations);
   if (typeof stations === "string") return stations;
-  // HMO numbers come from their own count, so an HMO visit stays HMO; walk-in and scheduled can switch.
-  visit.kind = visit.kind === "H" ? "H" : input.kind === "S" ? "S" : "W";
+  // HMO and clinic numbers come from their own count, so those visits keep their kind; walk-in and scheduled can switch.
+  visit.kind = numberGroup(visit.kind) !== "R" ? visit.kind : input.kind === "S" ? "S" : "W";
   visit.name = name;
   visit.mobile = clean(input.mobile, 20);
   visit.notes = clean(input.notes, 200);
@@ -348,7 +367,8 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       return { ok: true, visitId: visit.id, label: arrivalLabel(visit) };
     }
     case "callRegistration": {
-      const waiting = waitingToRegister(state).filter((item) => action.hmo === undefined || (item.kind === "H") === action.hmo);
+      const group = action.group ?? (action.hmo === undefined ? undefined : action.hmo ? "H" : "R");
+      const waiting = waitingToRegister(state).filter((item) => group === undefined || numberGroup(item.kind) === group);
       const visit = action.visitId ? waiting.find((item) => item.id === action.visitId) : waiting.find((item) => !item.regCalledAt);
       if (!visit) return fail(action.visitId ? "That number is not waiting to register." : "Everyone waiting has been called. Use Call on a number to call it again.");
       visit.regCalledAt = now;
