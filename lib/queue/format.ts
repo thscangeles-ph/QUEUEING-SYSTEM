@@ -1,11 +1,12 @@
 import { arrivalLabel, clinicNameOf, currentStep, findStation, isRegistered, TIME_ZONE, waitingFor } from "./reducer";
 import type { Announcement, AnnounceLanguage, QueueState, Station, Visit } from "./types";
 
-export type VisitStatus = "registration" | "waiting" | "called" | "missed" | "completed" | "cancelled" | "pending";
+export type VisitStatus = "registration" | "expected" | "waiting" | "called" | "missed" | "completed" | "cancelled" | "pending";
 
 export function visitStatus(visit: Visit): VisitStatus {
   if (visit.cancelled) return "cancelled";
   if (!isRegistered(visit)) return "registration";
+  if (visit.expected) return "expected";
   const step = currentStep(visit);
   if (!step) return "completed";
   return step.status === "done" ? "completed" : step.status;
@@ -13,6 +14,7 @@ export function visitStatus(visit: Visit): VisitStatus {
 
 export const STATUS_LABEL: Record<VisitStatus, string> = {
   registration: "To register",
+  expected: "Not arrived yet",
   waiting: "Waiting",
   called: "Now serving",
   missed: "Missed call",
@@ -23,6 +25,7 @@ export const STATUS_LABEL: Record<VisitStatus, string> = {
 
 export const STATUS_TONE: Record<VisitStatus, string> = {
   registration: "bg-[#e8eef7] text-[#2d4a6e]",
+  expected: "bg-[#dff1ef] text-[#1d5a56]",
   waiting: "bg-[#fff2c8] text-[#6f4e0a]",
   called: "bg-[#2f281c] text-[#f0c864]",
   missed: "bg-[#fde8eb] text-[#9b1f35]",

@@ -389,6 +389,24 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       const problem = registerVisit(state, visit, action.visit, now);
       if (problem) return fail(problem);
       if (visit.card !== null) state.cards = state.cards.filter((card) => card.number !== (visit as Visit).card);
+      // A scheduled patient entered before they come: their number is ready, but no line until they arrive.
+      if (action.preRegister && !action.visitId) {
+        visit.expected = true;
+        visit.preRegisteredAt = now;
+        visit.appointment = /^\d{1,2}:\d{2}$/.test(String(action.visit.appointment ?? "").trim()) ? String(action.visit.appointment).trim() : "";
+        visit.steps.forEach((step) => { step.status = "pending"; step.queuedAt = null; });
+      }
+      return { ok: true, visitId: visit.id, label: currentLabel(visit) };
+    }
+    case "checkIn": {
+      const visit = findVisit(action.visitId);
+      if (!visit || !visit.expected) return fail("That patient is not waiting to arrive.");
+      visit.expected = false;
+      // From now on the visit counts from the arrival, like any other patient's.
+      visit.createdAt = now;
+      visit.registeredAt = now;
+      const first = visit.steps.find((step) => step.status !== "done");
+      if (first) { first.status = "waiting"; first.queuedAt = now; }
       return { ok: true, visitId: visit.id, label: currentLabel(visit) };
     }
     case "qrArrive": {
@@ -528,7 +546,8 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
         return index >= 0 ? unused.splice(index, 1)[0] : makeStep(code, now, false);
       });
       next.forEach((step, index) => {
-        if (index === 0 && !locked.length) {
+        // A pre-registered patient who has not arrived joins no line yet.
+        if (index === 0 && !locked.length && !visit.expected) {
           if (step.status === "pending") { step.status = "waiting"; step.queuedAt = now; }
         } else {
           step.status = "pending";

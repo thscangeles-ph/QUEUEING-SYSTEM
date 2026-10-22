@@ -60,6 +60,12 @@ export type Visit = {
   regCalls?: number;
   registeredAt?: number | null;
   createdAt: number;
+  /** Pre-registered for today (a scheduled Clinic 1–3 patient) and not here yet: the first service waits until the Concierge marks them arrived. */
+  expected?: boolean;
+  /** Appointment time of a pre-registered patient, e.g. "10:30". */
+  appointment?: string;
+  /** When the Concierge pre-registered the patient; createdAt becomes the arrival time when they come. */
+  preRegisteredAt?: number | null;
   /** Why the patient came, chosen on the QR check-in page (e.g. "Doctor consultation", "ECG"). Staff only. */
   purposes?: string[];
   /** When the one-time queue message was sent to the patient. */
@@ -138,6 +144,8 @@ export type VisitInput = {
   loa?: string;
   stations: string[];
   card?: number | null;
+  /** Appointment time of a pre-registered patient, e.g. "10:30". */
+  appointment?: string;
 };
 
 export type QueueAction =
@@ -147,7 +155,10 @@ export type QueueAction =
   | { type: "arrive"; kind: PatientKind; priority?: boolean; newPatient?: boolean }
   /** Calls the next number of one numbering (group) to register; hmo is the older way to say group H (true) or R (false). */
   | { type: "callRegistration"; visitId?: string; hmo?: boolean; group?: NumberGroup }
-  | { type: "register"; visitId?: string; visit: VisitInput }
+  /** preRegister: a new number for a scheduled patient who is not here yet (they join the line with checkIn). */
+  | { type: "register"; visitId?: string; visit: VisitInput; preRegister?: boolean }
+  /** A pre-registered patient has arrived: their first service's line starts now. */
+  | { type: "checkIn"; visitId: string }
   /** A patient takes a queue number with the QR code, giving their name and the purpose(s) of the visit. */
   | { type: "qrArrive"; name?: string; purposes?: string[] }
   | { type: "verify"; visitId: string }
