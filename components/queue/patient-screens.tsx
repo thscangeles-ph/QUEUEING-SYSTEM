@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 import { BellRing, CheckCircle2, Clock, Printer, Ticket } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { arrivalLabel, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation, purposeOptions, qrAddressOf, waitingToRegister } from "@/lib/queue/reducer";
+import { arrivalLabel, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation, purposeOptions, qrAddressOf, vitalsPlaceOf, waitingToRegister } from "@/lib/queue/reducer";
 import { estimatedWait, formatEstimate, patientsAhead, visitStatus } from "@/lib/queue/format";
 import type { QueueState } from "@/lib/queue/types";
 import { readStorage, useNow, useQueue, writeStorage } from "./use-queue";
@@ -117,7 +117,10 @@ export function TicketView() {
   const visit = state?.visits.find((item) => item.id === id);
   const status = visit ? visitStatus(visit) : null;
   // An arrival number the Concierge has called to register counts as called, so the phone buzzes for it too.
-  const calledNow = status === "called" || (status === "registration" && Boolean(visit?.regCalledAt));
+  // A clinic calling the patient for vital signs counts as called too.
+  const vitalsStep = visit ? currentStep(visit) : null;
+  const vitalsNow = status === "waiting" && Boolean(vitalsStep?.vitalsCalledAt) && !vitalsStep?.vitalsDoneAt;
+  const calledNow = status === "called" || vitalsNow || (status === "registration" && Boolean(visit?.regCalledAt));
   const lastStatus = useRef(false);
   const now = useNow(30000);
 
@@ -137,6 +140,7 @@ export function TicketView() {
   const place = (name: string) => <span className="ml-1 inline-block rounded-md bg-[#2f281c] px-2 py-0.5 font-bold text-[#f0c864]">{name}</span>;
   const messages: Record<string, { title: string; text: React.ReactNode; icon: React.ReactNode; tone: string }> = {
     called: { title: "It's your turn!", text: <>Please proceed to {place(station?.name ?? "your station")}</>, icon: <BellRing />, tone: "bg-[#d8a321] text-[#2f281c]" },
+    vitals: { title: "Vital signs first", text: <>Please proceed to {place(vitalsPlaceOf(state.settings))} before {station?.name ?? "your clinic"}.</>, icon: <BellRing />, tone: "bg-[#d8a321] text-[#2f281c]" },
     waiting: { title: ahead === 0 ? "You're next" : `${ahead} patient${ahead > 1 ? "s" : ""} ahead of you`, text: `Waiting for ${station?.name ?? "your service"}. Watch the lobby TV for your number.`, icon: <Clock />, tone: "bg-[#fff2c8] text-[#5f4307]" },
     missed: { title: "We called your number", text: "Please approach the front desk so we can put you back in line.", icon: <BellRing />, tone: "bg-[#fde8eb] text-[#9b1f35]" },
     expected: { title: "You're pre-registered", text: `Your number is ready${visit.appointment ? ` for ${visit.appointment}` : ""}. When you arrive, please tell the Concierge so you join the line.`, icon: <Clock />, tone: "bg-[#dff1ef] text-[#1d5a56]" },
@@ -145,7 +149,7 @@ export function TicketView() {
       : { title: ahead === 0 ? "You're next" : `${ahead} patient${ahead > 1 ? "s" : ""} ahead of you`, text: `Please wait in the lobby. ${visit.kind === "H" ? "The HMO Desk" : "The Concierge"} will call your number to register you. Watch the lobby TV.`, icon: <Clock />, tone: "bg-[#fff2c8] text-[#5f4307]" },
     completed: { title: "All done for today", text: `Thank you for visiting ${clinicNameOf(state.settings)}.`, icon: <CheckCircle2 />, tone: "bg-[#edf5e8] text-[#41612c]" },
   };
-  const message = messages[status ?? "waiting"] ?? messages.waiting;
+  const message = (vitalsNow ? messages.vitals : messages[status ?? "waiting"]) ?? messages.waiting;
   const wait = now ? estimatedWait(state, visit, now) : null;
 
   return (

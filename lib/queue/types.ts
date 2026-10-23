@@ -34,6 +34,10 @@ export type Step = {
   calls: number;
   /** Place in the station's line once staff have dragged patients in it; cleared when the patient is called. */
   lineOrder?: number;
+  /** Clinic stations: when the patient was last called for vital signs before going in, how often, and when they were taken. */
+  vitalsCalledAt?: number | null;
+  vitalsCalls?: number;
+  vitalsDoneAt?: number | null;
   /** Set when a consultation is finished: the professional fee (or no charge) and other items to pay at the cashier. */
   billing?: Billing;
 };
@@ -87,7 +91,8 @@ export type Card = { number: number; issuedAt: number; calledAt: number | null; 
 export type Announcement = {
   id: string;
   at: number;
-  kind: "ticket" | "card" | "registration";
+  /** vitals: a patient waiting for a clinic is called for vital signs first. */
+  kind: "ticket" | "card" | "registration" | "vitals";
   label: string;
   /** Station code for tickets, or "DESK" for registration cards and arrival numbers. */
   station: string;
@@ -113,6 +118,8 @@ export type Settings = {
   displayConnection?: "wifi" | "lan";
   /** Volume of the TV video's sound, 0–100; set from the front desk. Missing means 60. */
   videoVolume?: number;
+  /** Where patients have their vital signs taken before a clinic (read on the TV); missing means "Vital Signs". */
+  vitalsPlace?: string;
   /** The tags before the queue numbers of HMO (HMO), Clinic 1–3 (CL1 …) and pre-scheduled Clinic 1–3 (PS1 …) patients, e.g. { H: "HMO", P1: "DRA" }. Missing ones use the defaults. */
   numberTags?: Partial<Record<TaggedGroup, string>>;
   /** The address inside the QR code poster (the server address patients' phones can reach), e.g. http://172.16.100.62:3000. Empty means automatic. */
@@ -172,6 +179,10 @@ export type QueueAction =
   | { type: "register"; visitId?: string; visit: VisitInput; preRegister?: boolean }
   /** A pre-registered patient has arrived: their first service's line starts now. */
   | { type: "checkIn"; visitId: string }
+  /** A clinic calls a waiting patient (or the next one not yet called) for vital signs, before calling them in. */
+  | { type: "callVitals"; station: string; visitId?: string }
+  /** Marks a waiting patient's vital signs as taken (done: false undoes it). */
+  | { type: "vitalsDone"; station: string; visitId: string; done?: boolean }
   /** Moves a patient in a station's waiting line: to a place (to, from 0, when dragged) or one up (-1) or down (1). */
   | { type: "moveInLine"; station: string; visitId: string; to?: number; offset?: number }
   /** Moves a pre-registered patient in their clinic's list: to a place (to, from 0, when dragged) or one up (-1) or down (1). */

@@ -169,8 +169,12 @@ function makeStep(station: string, now: number, first: boolean): Step {
 }
 
 /** Where a call sends the patient: HMO arrival numbers to the HMO Desk and other arrival numbers to the Concierge (to register), everyone else straight to the station that called them. */
+/** Where patients have their vital signs taken, as set in System configuration. */
+export const vitalsPlaceOf = (settings?: Partial<Settings>) => clean(settings?.vitalsPlace, 60) || "Vital Signs";
+
 export function callDestination(state: QueueState, entry: Pick<Announcement, "kind" | "station" | "label" | "hmo">) {
   if (entry.kind === "ticket") return findStation(state, entry.station)?.name ?? entry.station;
+  if (entry.kind === "vitals") return vitalsPlaceOf(state.settings);
   // Calls made before the hmo flag existed still have the HMO- tag.
   return entry.hmo ?? entry.label.startsWith("HMO-") ? "HMO Desk" : "Concierge";
 }
@@ -353,9 +357,10 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   if (qrAddress === null) return "QR code address: use an address like http://172.16.100.62:3000.";
   const numberTags = numberTagsOf(input.numberTags ?? previous.numberTags);
   if (typeof numberTags === "string") return numberTags;
+  const vitalsPlace = clean(input.vitalsPlace ?? previous.vitalsPlace, 60);
   // The configuration PIN only changes with setConfigPin, never from the settings form.
   const configPin = previous.configPin ? { configPin: previous.configPin } : {};
-  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, qrAddress, numberTags, ...configPin };
+  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, qrAddress, numberTags, vitalsPlace, ...configPin };
 }
 
 export const CONFIG_PIN_NEEDED = "Enter the configuration PIN to change System configuration.";
@@ -441,6 +446,26 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
         visit.steps.forEach((step) => { step.status = "pending"; step.queuedAt = null; });
       }
       return { ok: true, visitId: visit.id, label: currentLabel(visit) };
+    }
+    case "callVitals": {
+      const station = findStation(state, action.station);
+      if (!station) return fail("Unknown station.");
+      const waiting = waitingFor(state, station.code);
+      // Without a patient chosen, the next one in line who has not been called for vital signs yet.
+      const target = action.visitId ? waiting.find((visit) => visit.id === action.visitId) : waiting.find((visit) => !currentStep(visit)!.vitalsCalledAt && !currentStep(visit)!.vitalsDoneAt);
+      if (!target) return fail(action.visitId ? "That patient is not waiting for this station." : "Everyone waiting has been called for vital signs.");
+      const step = currentStep(target)!;
+      step.vitalsCalledAt = now;
+      step.vitalsCalls = (step.vitalsCalls ?? 0) + 1;
+      const label = ticketLabel(target, station.code);
+      announce(state, { at: now, kind: "vitals", label, station: station.code });
+      return { ok: true, visitId: target.id, label };
+    }
+    case "vitalsDone": {
+      const visit = waitingFor(state, action.station).find((item) => item.id === action.visitId);
+      if (!visit) return fail("That patient is not waiting for this station.");
+      currentStep(visit)!.vitalsDoneAt = action.done === false ? null : now;
+      return { ok: true };
     }
     case "moveInLine": {
       const station = findStation(state, action.station);

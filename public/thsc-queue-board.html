@@ -238,6 +238,8 @@ tr.cancelled td { opacity: .55; }
 .serving + .serving { margin-top: 0; }
 .callnext { width: 100%; min-height: 80px; border-radius: 16px; border: 0; background: var(--gold); color: var(--brown); font-size: 22px; font-weight: 800; margin-top: 18px; }
 .callnext:hover { background: var(--gold-2); } .callnext:disabled { opacity: .5; cursor: default; }
+.callnext.vitals { min-height: 56px; font-size: 18px; margin-top: 10px; background: #1f6f6b; color: #fff; } .callnext.vitals:hover { background: #24807b; }
+.tag.vitals { background: #dff1ef; color: #1d5a56; white-space: nowrap; } .tag.vitals.done { background: #edf5e8; color: var(--ok); }
 .hint { text-align: center; color: var(--muted); font-size: 13px; margin: 8px 0 0; }
 .wlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .wlist li { display: flex; align-items: center; gap: 10px; border: 1px solid #e8dfce; border-radius: 12px; padding: 8px 12px; }
@@ -666,9 +668,13 @@ function makeStep(station, now, first) {
     return { id: newId(), station, status: first ? "waiting" : "pending", queuedAt: first ? now : null, calledAt: null, doneAt: null, calls: 0 };
 }
 /** Where a call sends the patient: HMO arrival numbers to the HMO Desk and other arrival numbers to the Concierge (to register), everyone else straight to the station that called them. */
+/** Where patients have their vital signs taken, as set in System configuration. */
+const vitalsPlaceOf = (settings) => clean(settings?.vitalsPlace, 60) || "Vital Signs";
 function callDestination(state, entry) {
     if (entry.kind === "ticket")
         return findStation(state, entry.station)?.name ?? entry.station;
+    if (entry.kind === "vitals")
+        return vitalsPlaceOf(state.settings);
     // Calls made before the hmo flag existed still have the HMO- tag.
     return entry.hmo ?? entry.label.startsWith("HMO-") ? "HMO Desk" : "Concierge";
 }
@@ -795,6 +801,8 @@ function callStillOpen(state, item) {
     // Arrival numbers can be given again after removal, so the call must be for this arrival, not an earlier one.
     if (item.kind === "registration") return waitingToRegister(state).some((visit) => arrivalLabel(visit) === item.label && visit.createdAt <= item.at);
     if (item.kind === "card") return (state.cards ?? []).some((card) => `Card ${card.number}` === item.label);
+    // A vital signs call stays up until the vital signs are taken or the clinic calls the patient in.
+    if (item.kind === "vitals") return waitingFor(state, item.station).some((visit) => { const step = currentStep(visit); return ticketLabel(visit, item.station) === item.label && step.vitalsCalledAt && !step.vitalsDoneAt; });
     return servingAt(state, item.station).some((visit) => ticketLabel(visit, item.station) === item.label);
 }
 /** The most recent call that is still open, shown as "Now calling" on the TV. */
@@ -862,7 +870,7 @@ function sanitizeSettings(input) {
     const seconds = Math.round(Number(input.slideSeconds ?? 10));
     const slideSeconds = Number.isFinite(seconds) ? Math.min(120, Math.max(3, seconds)) : 10;
     const announceLanguage = input.announceLanguage === "en+fil" || input.announceLanguage === "fil" ? input.announceLanguage : "en";
-    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth), qrAddress, numberTags };
+    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth), qrAddress, numberTags, vitalsPlace: clean(input.vitalsPlace, 60) };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -920,6 +928,29 @@ function run(state, action, now) {
                 visit.steps.forEach((step) => { step.status = "pending"; step.queuedAt = null; });
             }
             return { ok: true, visitId: visit.id, label: currentLabel(visit) };
+        }
+        case "callVitals": {
+            const station = findStation(state, action.station);
+            if (!station)
+                return fail("Unknown station.");
+            const waiting = waitingFor(state, station.code);
+            // Without a patient chosen, the next one in line who has not been called for vital signs yet.
+            const target = action.visitId ? waiting.find((visit) => visit.id === action.visitId) : waiting.find((visit) => !currentStep(visit).vitalsCalledAt && !currentStep(visit).vitalsDoneAt);
+            if (!target)
+                return fail(action.visitId ? "That patient is not waiting for this station." : "Everyone waiting has been called for vital signs.");
+            const step = currentStep(target);
+            step.vitalsCalledAt = now;
+            step.vitalsCalls = (step.vitalsCalls ?? 0) + 1;
+            const label = ticketLabel(target, station.code);
+            announce(state, { at: now, kind: "vitals", label, station: station.code });
+            return { ok: true, visitId: target.id, label };
+        }
+        case "vitalsDone": {
+            const visit = waitingFor(state, action.station).find((item) => item.id === action.visitId);
+            if (!visit)
+                return fail("That patient is not waiting for this station.");
+            currentStep(visit).vitalsDoneAt = action.done === false ? null : now;
+            return { ok: true };
         }
         case "moveInLine": {
             const station = findStation(state, action.station);
@@ -2182,6 +2213,7 @@ function downloadQueueReport(xlsx, state, now) {
     draft.slipPrinter ??= "";
     draft.slipWidth ??= 58;
     draft.qrAddress ??= "";
+    draft.vitalsPlace ??= "";
     draft.numberTags = { ...draft.numberTags };
     draftBase = JSON.stringify(draft);
   }
@@ -2264,6 +2296,7 @@ function downloadQueueReport(xlsx, state, now) {
           <div class="panel-b" style="display:grid;gap:12px">
             <label class="field">Clinic name<input type="text" maxlength="80" value="${esc(draft.clinicName ?? DEFAULT_CLINIC)}" data-set="clinicName" placeholder="${esc(DEFAULT_CLINIC)}"></label>
             <label class="field">TV display message<em>Scrolls along the bottom of the lobby TV.</em><input type="text" maxlength="240" value="${esc(draft.ticker)}" data-set="ticker"></label>
+            <label class="field">Vital signs area<em>Where clinic patients go when a clinic calls them for vital signs (read on the TV), e.g. Vital Signs or Triage.</em><input type="text" maxlength="60" value="${esc(draft.vitalsPlace ?? "")}" placeholder="Vital Signs" data-set="vitalsPlace"></label>
           </div></section>
         <section class="panel"><div class="panel-h"><div><h2>TV video &amp; slideshow</h2><p>YouTube videos, YouTube playlists and pictures shown on the lobby TV while patients wait. YouTube needs internet.</p></div><button class="btn sm outline" data-act="openTv">TV display ↗</button></div>
           <div class="panel-b" style="display:grid;gap:10px">
@@ -2739,6 +2772,15 @@ function downloadQueueReport(xlsx, state, now) {
     const next = waiting[0];
     const others = stations.filter((s) => s.code !== station.code);
     const consult = station.service === "consultation";
+    // Clinics call each waiting patient for vital signs first, then call them in.
+    const nextVitals = consult ? waiting.find((v) => !currentStep(v).vitalsCalledAt && !currentStep(v).vitalsDoneAt) : null;
+    const vitalsCell = (v) => {
+      if (!consult) return "";
+      const step = currentStep(v);
+      if (step.vitalsDoneAt) return `<span class="tag vitals done" title="Vital signs taken at ${formatTime(step.vitalsDoneAt)}">✓ Vitals done</span><button class="btn icon ghost" data-act="vitalsUndo" data-station="${esc(station.code)}" data-id="${v.id}" title="Undo: vital signs not taken yet" aria-label="Undo vital signs for ${esc(ticketLabel(v, station.code))}">↺</button>`;
+      if (step.vitalsCalledAt) return `<span class="tag vitals" title="Called ${formatTime(step.vitalsCalledAt)}">🩺 Called for vitals${step.vitalsCalls > 1 ? ` ×${step.vitalsCalls}` : ""}</span><button class="btn sm outline" data-act="callVitalsOne" data-station="${esc(station.code)}" data-id="${v.id}" title="Call again for vital signs">🔔</button><button class="btn sm" data-act="vitalsDone" data-station="${esc(station.code)}" data-id="${v.id}">✓ Done</button>`;
+      return `<button class="btn sm outline" data-act="callVitalsOne" data-station="${esc(station.code)}" data-id="${v.id}" title="Call to ${esc(vitalsPlaceOf(state.settings))}">🩺 Vitals</button>`;
+    };
     const cashier = stations.find((s) => s.service === "cashier");
     // The screen is redrawn on every update; starting the blink part-way through keeps it smooth across redraws.
     const blinkDelay = -(Date.now() % 2400);
@@ -2760,11 +2802,12 @@ function downloadQueueReport(xlsx, state, now) {
             }).join(`<hr style="border:0;border-top:1px solid #4a3d27;margin:18px 0">`) : `<p style="color:#e8dec7;font-size:17px;margin:20px 0 0">No patient called yet.</p>`}
           </section>
           <button class="callnext" data-act="callNext" data-station="${esc(station.code)}" ${next ? "" : "disabled"}>🔔 ${next ? `Call next · <span class="mono">${esc(ticketLabel(next, station.code))}</span>` : "No one waiting"}</button>
+          ${consult ? `<button class="callnext vitals" data-act="callVitals" data-station="${esc(station.code)}" ${nextVitals ? "" : "disabled"}>🩺 ${nextVitals ? `Call next for vital signs · <span class="mono">${esc(ticketLabel(nextVitals, station.code))}</span>` : "Everyone waiting was called for vital signs"}</button>` : ""}
           ${serving.length && next ? `<p class="hint">${consult ? `Choose <b>Professional fee</b> or <b>No charge</b> first — calling the next patient completes ${esc(ticketLabel(serving[0], station.code))} with no charges recorded.` : `Calling the next patient marks ${esc(ticketLabel(serving[0], station.code))} as complete.`}</p>` : ""}
         </div>
         <div class="col">
           <section class="panel"><div class="panel-h"><div><h2>Waiting for ${esc(station.name)}</h2><p>Priority lane patients are called first, then in arrival order.${reorder ? " Drag ⠿ to change who is called next." : ""}</p></div></div>
-            <div class="panel-b">${waiting.length ? `<ol class="wlist"${reorder ? ` data-drag-list="line" data-station="${esc(station.code)}"` : ""}>${waiting.map((v, i) => `<li data-id="${v.id}">${reorder && waiting.length > 1 ? `<button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, station.code))}, place ${i + 1} of ${waiting.length}. Use the up and down arrow keys.">⠿</button>` : ""}<span class="pos">${i + 1}</span><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${groupTag(v) ? ` ${groupTag(v)}` : ""}${station.service === "cashier" && payItems(state, v).length ? ` <span class="tag pay">💳 ${payItems(state, v).map(esc).join(", ")}</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
+            <div class="panel-b">${waiting.length ? `<ol class="wlist"${reorder ? ` data-drag-list="line" data-station="${esc(station.code)}"` : ""}>${waiting.map((v, i) => `<li data-id="${v.id}">${reorder && waiting.length > 1 ? `<button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, station.code))}, place ${i + 1} of ${waiting.length}. Use the up and down arrow keys.">⠿</button>` : ""}<span class="pos">${i + 1}</span><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${groupTag(v) ? ` ${groupTag(v)}` : ""}${station.service === "cashier" && payItems(state, v).length ? ` <span class="tag pay">💳 ${payItems(state, v).map(esc).join(", ")}</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span>${vitalsCell(v)}<button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
           </section>
           ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map((v) => `<li class="missed"><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
           <section class="panel"><div class="panel-h"><div><h2>Served here today</h2><p>Queue numbers stay here. Call again brings the patient back to ${esc(station.name)}.</p></div><span class="count">${served.length}</span></div>
@@ -3450,6 +3493,10 @@ function downloadQueueReport(xlsx, state, now) {
       case "requeue": dispatch({ type: "requeue", visitId: id }, "Back in line."); break;
       case "callNext": dispatch({ type: "call", station }).then(warnIfSilent); break;
       case "callOne": dispatch({ type: "call", station, visitId: id }).then(warnIfSilent); break;
+      case "callVitals": dispatch({ type: "callVitals", station }, (r) => `${r.label} called to ${vitalsPlaceOf(state.settings)}.`).then(warnIfSilent); break;
+      case "callVitalsOne": dispatch({ type: "callVitals", station, visitId: id }, (r) => `${r.label} called to ${vitalsPlaceOf(state.settings)}.`).then(warnIfSilent); break;
+      case "vitalsDone": dispatch({ type: "vitalsDone", station, visitId: id }); break;
+      case "vitalsUndo": dispatch({ type: "vitalsDone", station, visitId: id, done: false }); break;
       case "callBack": dispatch({ type: "callBack", station, visitId: id }, (r) => `${r.label} called back — shown on the TV.`).then(warnIfSilent); break;
       case "recall": dispatch({ type: "recall", visitId: id }).then(warnIfSilent); break;
       case "miss": dispatch({ type: "miss", visitId: id }); break;
