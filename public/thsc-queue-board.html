@@ -704,11 +704,16 @@ function nextNumber(state, numbering) {
     // true and false are the older way to ask for the HMO or the regular numbers.
     const group = numbering === true ? "H" : numbering === false ? "R" : numbering;
     const next = counterOf(state, group);
-    const used = new Set(state.visits.filter((visit) => numberGroup(visit.kind) === group && !(visit.cancelled && !isRegistered(visit))).map((visit) => visit.seq));
+    // Numbers of a clinic cleared for another doctor are free again.
+    const used = new Set(state.visits.filter((visit) => numberGroup(visit.kind) === group && !visit.clearedAt && !(visit.cancelled && !isRegistered(visit))).map((visit) => visit.seq));
     for (let seq = 1; seq < next; seq += 1)
         if (!used.has(seq))
             return seq;
-    return next;
+    // After a clinic is cleared, a patient still busy elsewhere (e.g. at the laboratory) keeps their number.
+    let seq = next;
+    while (used.has(seq))
+        seq += 1;
+    return seq;
 }
 const counterOf = (state, group) => (group === "R" ? state.nextSeq : group === "H" ? state.nextHmoSeq ?? 1 : state.nextClinicSeq?.[group] ?? 1);
 function setCounter(state, group, value) {
@@ -747,7 +752,7 @@ function newVisit(state, kind, priority, newPatient, now, source) {
         steps: [],
     };
     // A reused number leaves the counter where it is.
-    if (visit.seq === counterOf(state, group))
+    if (visit.seq >= counterOf(state, group))
         setCounter(state, group, visit.seq + 1);
     state.visits.push(visit);
     return visit;
@@ -928,6 +933,30 @@ function run(state, action, now) {
                 visit.steps.forEach((step) => { step.status = "pending"; step.queuedAt = null; });
             }
             return { ok: true, visitId: visit.id, label: currentLabel(visit) };
+        }
+        case "clearClinic": {
+            if (!/^P[123]$/.test(String(action.clinic)))
+                return fail("Choose Clinic 1, 2 or 3.");
+            const kind = action.clinic;
+            const clinic = clinicOf(kind);
+            const station = `C${kind[1]}`;
+            let count = 0;
+            for (const visit of state.visits) {
+                if (visit.clearedAt || clinicOf(visit.kind) !== clinic)
+                    continue;
+                const step = currentStep(visit);
+                const completed = isRegistered(visit) && !visit.expected && !step;
+                // A patient now at another service (e.g. the laboratory) keeps going there with their number.
+                if (!visit.cancelled && isRegistered(visit) && !visit.expected && step && step.station !== station)
+                    continue;
+                visit.clearedAt = now;
+                if (!visit.cancelled && !completed)
+                    visit.cancelled = true;
+                count += 1;
+            }
+            setCounter(state, numberGroup(kind), 1);
+            setCounter(state, numberGroup(prescheduledKind(kind)), 1);
+            return { ok: true, count };
         }
         case "callVitals": {
             const station = findStation(state, action.station);
@@ -1494,7 +1523,7 @@ function buildQueueReport(state, now) {
     visits.forEach((visit, index) => {
         patientRows.push([
             currentLabel(visit), visit.name, visit.mobile, { S: "Scheduled", H: "HMO", W: "Walk-in" }[visit.kind] ?? "Walk-in", visit.newPatient ? "Yes" : "No", visit.priority ? "Yes" : "",
-            visit.source === "self" ? "QR check-in" : "Front desk", STATUS_LABEL[visitStatus(visit)], visit.steps.map((step) => stationName(state, step.station)).join(" → "),
+            visit.source === "self" ? "QR check-in" : "Front desk", visit.clearedAt && visit.cancelled ? "Cleared (clinic cleared for another doctor)" : STATUS_LABEL[visitStatus(visit)], visit.steps.map((step) => stationName(state, step.station)).join(" → "),
             time(visit.createdAt), time(visit.registeredAt), time(visit.steps[0]?.calledAt), time(finishedAt(visit)),
             toRegister[index], toFirstCall[index], inClinic[index], visit.notes, visit.hmo ?? "", visit.loa ?? "",
             payItems(state, visit).join(", ") + (payStatus(state, visit) ? ` (${payStatus(state, visit)})` : ""),
@@ -1508,6 +1537,43 @@ function buildQueueReport(state, now) {
     ];
 }
 /** Builds the workbook and downloads it as THSC-Queue-Report-YYYY-MM-DD.xlsx. */
+/** One clinic's patients for the Excel report saved when the clinic is cleared for another doctor: every queue number
+ *  of the clinic still holding its number (pre-scheduled PS1-… and not pre-registered CL1-…), in number order. */
+function clinicReportRows(state, kind, now, doctor) {
+    const clinic = clinicOf(kind);
+    const station = `C${kind[1]}`;
+    const time = (at) => (at ? formatTime(at) : "");
+    const count = (list, test) => list.filter(test).length;
+    const visits = state.visits.filter((v) => clinicOf(v.kind) === clinic && !v.clearedAt)
+        .sort((a, b) => Number(PRESCHEDULED_KINDS.includes(b.kind)) - Number(PRESCHEDULED_KINDS.includes(a.kind)) || a.seq - b.seq);
+    const rows = [
+        [`${clinicNameOf(state.settings)} — ${clinic} report`],
+        ["Date", longDate.format(now)],
+        ["Saved", formatTime(now)],
+        ["Doctor", doctor || ""],
+        ["Patients", visits.length, "Pre-scheduled", count(visits, (v) => PRESCHEDULED_KINDS.includes(v.kind)), "Not pre-registered", count(visits, (v) => CLINIC_KINDS.includes(v.kind))],
+        [],
+        ["Queue number", "Type", "Patient", "Mobile", "Appointment", "Pre-registered", "Arrived", "Vital signs called", "Vital signs taken", "Called in", "Finished", "Status", "Services", "Notes"],
+    ];
+    visits.forEach((v) => {
+        const step = v.steps.find((s) => s.station === station);
+        rows.push([
+            arrivalLabel(v), PRESCHEDULED_KINDS.includes(v.kind) ? "Pre-scheduled" : "Not pre-registered", v.name || "", v.mobile || "", v.appointment || "",
+            time(v.preRegisteredAt), v.expected ? "Not arrived" : time(v.createdAt), time(step?.vitalsCalledAt), time(step?.vitalsDoneAt), time(step?.calledAt), time(step?.doneAt),
+            STATUS_LABEL[visitStatus(v)], v.steps.map((s) => stationName(state, s.station)).join(" → "), v.notes || "",
+        ]);
+    });
+    return rows;
+}
+/** Saves one clinic's report as an Excel file, e.g. THSC-Clinic-1-2026-10-23-1430.xlsx. */
+function downloadClinicReport(xlsx, state, kind, now, doctor) {
+    const book = xlsx.utils.book_new();
+    const ws = xlsx.utils.aoa_to_sheet(clinicReportRows(state, kind, now, doctor));
+    ws["!cols"] = [14, 18, 28, 16, 12, 14, 12, 16, 16, 12, 12, 14, 34, 30].map((wch) => ({ wch }));
+    xlsx.utils.book_append_sheet(book, ws, clinicOf(kind));
+    const stamp = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(now)).replace(":", "");
+    xlsx.writeFile(book, `THSC-${clinicOf(kind).replace(" ", "-")}-${state.day}-${stamp}.xlsx`);
+}
 function downloadQueueReport(xlsx, state, now) {
     const book = xlsx.utils.book_new();
     buildQueueReport(state, now).forEach((sheet) => {
@@ -1971,7 +2037,8 @@ function downloadQueueReport(xlsx, state, now) {
               <div id="newnum"></div>
               <p class="sub" id="reg-count"></p>
               <ul class="cards" id="arrivals"></ul>
-              ${isClinicTab() ? `<p class="sub" id="prereg-count"></p><ul class="cards" id="prereg-list" data-drag-list="prereg"></ul>` : ""}
+              ${isClinicTab() ? `<p class="sub" id="prereg-count"></p><ul class="cards" id="prereg-list" data-drag-list="prereg"></ul>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)"><button type="button" class="btn sm outline" data-act="clinicReport">📊 ${clinicOf(deskTab)} report</button><button type="button" class="btn sm danger" data-act="clearClinic">🧹 Clear ${clinicOf(deskTab)} for another doctor</button></div>` : ""}
             </div>
           </section>
           <section class="panel">
@@ -3476,6 +3543,23 @@ function downloadQueueReport(xlsx, state, now) {
       case "registerArrival": { const v = state.visits.find((x) => x.id === id); if (v) { pickArrival(v); updateDesk(); $("#reg-name").focus(); } break; }
       case "togArrNew": arr.newPatient = !arr.newPatient; updateDesk(); break;
       case "togPrereg": form.prereg = !form.prereg; updateDesk(); break;
+      case "clinicReport": {
+        const clinic = clinicOf(deskTab);
+        if (state.visits.some((v) => clinicOf(v.kind) === clinic && !v.clearedAt)) downloadClinicReport(XLSX, state, deskTab, Date.now(), "");
+        else toast(`${clinic} has no queue numbers yet.`, true);
+        break;
+      }
+      case "clearClinic": {
+        // For a doctor change: save the clinic's report to Excel first, then clear it so its numbers start again at 01.
+        const clinic = clinicOf(deskTab);
+        const kind = deskTab;
+        const has = state.visits.some((v) => clinicOf(v.kind) === clinic && !v.clearedAt);
+        const doctor = window.prompt(`Clear ${clinic} for another doctor?\n\n${has ? `1. The ${clinic} report (its queue numbers and pre-scheduled patients) is saved to Excel.\n2. ` : ""}Its waiting and pre-registered patients are removed, and its numbers start again at ${prefixOf(state.settings, kind)}01 and ${prefixOf(state.settings, prescheduledKind(kind))}01. Patients now at another service (e.g. the laboratory) keep their number.\n\nDoctor who used ${clinic} (for the report, optional), then OK:`, "");
+        if (doctor === null) break;
+        if (has) downloadClinicReport(XLSX, state, kind, Date.now(), doctor.trim());
+        void dispatch({ type: "clearClinic", clinic: kind }, (r) => `${clinic} is clear${r.count ? `: ${r.count} patient${r.count === 1 ? "" : "s"} saved to the Excel report and cleared` : ""}. Numbers start again at ${prefixOf(state.settings, kind)}01.`).then(() => { resetForm(); updateDesk(); });
+        break;
+      }
 
       case "checkIn": { const v = state.visits.find((x) => x.id === id); if (v) dispatch({ type: "checkIn", visitId: id }, (r) => `${r.label} has arrived and is now in line${currentStep(v) ? ` for ${stationName(state, currentStep(v).station)}` : ""}.`); break; }
       case "togArrPrio": arr.priority = !arr.priority; updateDesk(); break;
