@@ -69,6 +69,8 @@ export type Visit = {
   regCalls?: number;
   registeredAt?: number | null;
   createdAt: number;
+  /** When the clinic was cleared for another doctor: the visit no longer holds its number, and if it was still open it ended then. */
+  clearedAt?: number | null;
   /** The tag before the number ("HMO-", "CL1-" …), as set in System configuration when the number was given. */
   prefix?: string;
   /** Pre-registered for today (a scheduled Clinic 1–3 patient) and not here yet: the first service waits until the Concierge marks them arrived. */
@@ -179,6 +181,8 @@ export type QueueAction =
   | { type: "register"; visitId?: string; visit: VisitInput; preRegister?: boolean }
   /** A pre-registered patient has arrived: their first service's line starts now. */
   | { type: "checkIn"; visitId: string }
+  /** Clears Clinic 1–3 (P1–P3) for another doctor: its open, waiting and pre-registered patients are removed and its numbers start again at 01. */
+  | { type: "clearClinic"; clinic: string }
   /** A clinic calls a waiting patient (or the next one not yet called) for vital signs, before calling them in. */
   | { type: "callVitals"; station: string; visitId?: string }
   /** Marks a waiting patient's vital signs as taken (done: false undoes it). */
@@ -210,7 +214,7 @@ export type QueueAction =
   /** Only checks the configuration PIN (to open System configuration); nothing is saved. */
   | { type: "checkConfigPin"; pin: string };
 
-export type ActionResult = { ok: true; visitId?: string; label?: string; card?: number } | { ok: false; error: string };
+export type ActionResult = { ok: true; visitId?: string; label?: string; card?: number; count?: number } | { ok: false; error: string };
 
 export const PUBLIC_ACTIONS: QueueAction["type"][] = ["qrArrive", "tvStatus"];
 /** Actions that only check something: the server answers them without saving. */

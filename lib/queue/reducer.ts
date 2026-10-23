@@ -204,9 +204,13 @@ export function nextNumber(state: QueueState, numbering: NumberGroup | boolean):
   // true and false are the older way to ask for the HMO or the regular numbers.
   const group: NumberGroup = numbering === true ? "H" : numbering === false ? "R" : numbering;
   const next = counterOf(state, group);
-  const used = new Set(state.visits.filter((visit) => numberGroup(visit.kind) === group && !(visit.cancelled && !isRegistered(visit))).map((visit) => visit.seq));
+  // Numbers of a clinic cleared for another doctor are free again.
+  const used = new Set(state.visits.filter((visit) => numberGroup(visit.kind) === group && !visit.clearedAt && !(visit.cancelled && !isRegistered(visit))).map((visit) => visit.seq));
   for (let seq = 1; seq < next; seq += 1) if (!used.has(seq)) return seq;
-  return next;
+  // After a clinic is cleared, a patient still busy elsewhere (e.g. at the laboratory) keeps their number.
+  let seq = next;
+  while (used.has(seq)) seq += 1;
+  return seq;
 }
 
 const counterOf = (state: QueueState, group: NumberGroup) => (group === "R" ? state.nextSeq : group === "H" ? state.nextHmoSeq ?? 1 : state.nextClinicSeq?.[group] ?? 1);
@@ -244,7 +248,7 @@ function newVisit(state: QueueState, kind: PatientKind, priority: boolean, newPa
     steps: [],
   };
   // A reused number leaves the counter where it is.
-  if (visit.seq === counterOf(state, group)) setCounter(state, group, visit.seq + 1);
+  if (visit.seq >= counterOf(state, group)) setCounter(state, group, visit.seq + 1);
   state.visits.push(visit);
   return visit;
 }
@@ -446,6 +450,26 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
         visit.steps.forEach((step) => { step.status = "pending"; step.queuedAt = null; });
       }
       return { ok: true, visitId: visit.id, label: currentLabel(visit) };
+    }
+    case "clearClinic": {
+      if (!/^P[123]$/.test(String(action.clinic))) return fail("Choose Clinic 1, 2 or 3.");
+      const kind = action.clinic as PatientKind;
+      const clinic = clinicOf(kind);
+      const station = `C${kind[1]}`;
+      let count = 0;
+      for (const visit of state.visits) {
+        if (visit.clearedAt || clinicOf(visit.kind) !== clinic) continue;
+        const step = currentStep(visit);
+        const completed = isRegistered(visit) && !visit.expected && !step;
+        // A patient now at another service (e.g. the laboratory) keeps going there with their number.
+        if (!visit.cancelled && isRegistered(visit) && !visit.expected && step && step.station !== station) continue;
+        visit.clearedAt = now;
+        if (!visit.cancelled && !completed) visit.cancelled = true;
+        count += 1;
+      }
+      setCounter(state, numberGroup(kind), 1);
+      setCounter(state, numberGroup(prescheduledKind(kind)), 1);
+      return { ok: true, count };
     }
     case "callVitals": {
       const station = findStation(state, action.station);
