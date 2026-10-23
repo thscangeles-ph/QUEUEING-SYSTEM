@@ -137,6 +137,7 @@ $doc.add_PrintPage({
     $points -= 10
   } while ($g.MeasureString($env:THSC_LABEL, $big).Width -gt $area.Width * 0.95 -and $points -gt 40)
   & $write $env:THSC_LABEL $big
+  if ($env:THSC_DETAILS) { & $write $env:THSC_DETAILS (New-Object System.Drawing.Font 'Arial', 20, ([System.Drawing.FontStyle]::Bold)) }
   & $write $env:THSC_TIME (New-Object System.Drawing.Font 'Arial', 16)
   $script:y += 10
   $g.DrawLine([System.Drawing.Pens]::Gray, [single]$area.Left, [single]$script:y, [single]$area.Right, [single]$script:y)
@@ -147,14 +148,15 @@ $doc.add_PrintPage({
 $doc.Print()
 `;
 
-export type PageSlip = { label: string; clinic: string; heading: string; time: string; message: string; paper: "a4" | "letter"; logo?: string };
+/** `details`: extra lines under the number (a pre-registered patient's name and appointment), one per line. */
+export type PageSlip = { label: string; clinic: string; heading: string; details?: string; time: string; message: string; paper: "a4" | "letter"; logo?: string };
 
 /** Prints the queue number on an A4 or Letter page through a Windows printer (an office printer). */
 export function printPage(printer: string, slip: PageSlip): Promise<void> {
   const job = queue.then(async () => {
     if (process.platform !== "win32") throw new Error("A4 and Letter pages print through Windows printers only");
     if (/^COM\d+$/i.test(printer)) throw new Error("A4 and Letter need an office printer, not a COM port. Choose the printer by name, or a roll paper size");
-    await powershell(PAGE_PRINT_SCRIPT, { THSC_PRINTER: printer, THSC_PAPER: slip.paper, THSC_LABEL: slip.label, THSC_CLINIC: slip.clinic.toUpperCase(), THSC_HEADING: slip.heading, THSC_TIME: slip.time, THSC_MESSAGE: slip.message, THSC_LOGO: slip.logo ?? "" }, 60000);
+    await powershell(PAGE_PRINT_SCRIPT, { THSC_PRINTER: printer, THSC_PAPER: slip.paper, THSC_LABEL: slip.label, THSC_CLINIC: slip.clinic.toUpperCase(), THSC_HEADING: slip.heading, THSC_DETAILS: slip.details ?? "", THSC_TIME: slip.time, THSC_MESSAGE: slip.message, THSC_LOGO: slip.logo ?? "" }, 60000);
   });
   queue = job.catch(() => undefined);
   return job;

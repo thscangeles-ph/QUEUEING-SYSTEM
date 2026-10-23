@@ -39,12 +39,15 @@ export function slipWidthOf(value: unknown): SlipWidth {
 }
 
 export const SLIP_MESSAGE = "Please take a seat. Watch the TV screen - your number will be called for registration. Keep this number for every service today.";
+/** For a pre-registered (scheduled) clinic patient, whose slip is printed before they arrive. */
+export const PREREG_SLIP_MESSAGE = "Please show this number at the Concierge when you arrive. Keep this number for every service today.";
 export const slipTime = (at: number) => slipFormat.format(new Date(at));
 
-export type SlipInput = { label: string; clinic: string; issuedAt: number; width?: SlipWidth; hmo?: boolean };
+/** `heading`, `details` and `message` replace the usual texts (a pre-registered patient's slip); `details` are bold lines under the number. */
+export type SlipInput = { label: string; clinic: string; issuedAt: number; width?: SlipWidth; hmo?: boolean; heading?: string; details?: string[]; message?: string };
 
 /** The slip: clinic name, "Your queue number", the number as large as the paper allows, the time and what to do next. */
-export function slipBytes({ label, clinic, issuedAt, width = 58, hmo = false }: SlipInput): Uint8Array {
+export function slipBytes({ label, clinic, issuedAt, width = 58, hmo = false, heading, details = [], message = SLIP_MESSAGE }: SlipInput): Uint8Array {
   const paper = slipWidthOf(width);
   const cols = SLIP_PAPER[isPagePaper(paper) ? 58 : paper];
   const bytes: number[] = [];
@@ -58,15 +61,20 @@ export function slipBytes({ label, clinic, issuedAt, width = 58, hmo = false }: 
   wrap(clinic.toUpperCase(), cols).forEach((part) => line(part));
   cmd(GS, 0x21, 0x00, ESC, 0x45, 0);
   line();
-  line(hmo ? "Your HMO queue number" : "Your queue number");
+  wrap(heading ?? (hmo ? "Your HMO queue number" : "Your queue number"), cols).forEach((part) => line(part));
   // The number as large as fits the paper: up to 6 times the normal size.
   const size = Math.max(1, Math.min(6, Math.floor(cols / Math.max(label.length, 1))));
   cmd(ESC, 0x45, 1, GS, 0x21, ((size - 1) << 4) | (size - 1));
   line(label);
   cmd(GS, 0x21, 0x00, ESC, 0x45, 0);
+  if (details.length) {
+    cmd(ESC, 0x45, 1);
+    details.forEach((detail) => wrap(detail, cols).forEach((part) => line(part)));
+    cmd(ESC, 0x45, 0);
+  }
   line(slipTime(issuedAt));
   line("-".repeat(cols));
-  wrap(SLIP_MESSAGE, cols).forEach((part) => line(part));
+  wrap(message, cols).forEach((part) => line(part));
   line();
   line();
   line();

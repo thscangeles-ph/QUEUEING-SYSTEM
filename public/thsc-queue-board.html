@@ -1448,7 +1448,7 @@ const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 60
 const slipTime = new Intl.DateTimeFormat("en-PH", { timeZone: TIME_ZONE, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 const escapeHtml = (value) => value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 /** A small paper ticket for receipt/thermal printers (about 72 mm wide) showing the arrival queue number. */
-function slipHtml(label, issuedAt, logoUrl, clinic = DEFAULT_CLINIC) {
+function slipHtml(label, issuedAt, logoUrl, clinic = DEFAULT_CLINIC, extra = null) {
     return `<!doctype html><html><head><meta charset="utf-8"><title>Queue ${escapeHtml(label)}</title><style>
 @page { size: 80mm auto; margin: 4mm; }
 body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; color: #000; text-align: center; width: 72mm; }
@@ -1457,26 +1457,65 @@ img { height: 22mm; margin-top: 2mm; }
 .k { font-size: 10pt; margin: 4mm 0 0; }
 .n { font: 800 34pt ui-monospace, Consolas, monospace; margin: 1mm 0; letter-spacing: .04em; }
 .t { font-size: 9pt; margin: 0; }
+.x { font-size: 11pt; font-weight: 700; margin: 0 0 1mm; }
 .m { font-size: 10pt; line-height: 1.35; margin: 4mm 2mm 2mm; border-top: 1px dashed #000; padding-top: 3mm; }
 </style></head><body>
 <img src="${logoUrl}" alt="">
 <p class="c">${escapeHtml(clinic.toUpperCase())}</p>
-<p class="k">Your queue number</p>
+<p class="k">${escapeHtml(extra?.kicker ?? "Your queue number")}</p>
 <p class="n">${escapeHtml(label)}</p>
+${(extra?.lines ?? []).map((line) => `<p class="x">${escapeHtml(line)}</p>`).join("")}
 <p class="t">${escapeHtml(slipTime.format(new Date(issuedAt)))}</p>
-<p class="m">Please take a seat. Watch the TV screen — your number will be called for registration. Keep this number for every service today.</p>
+<p class="m">${escapeHtml(extra?.message ?? "Please take a seat. Watch the TV screen — your number will be called for registration. Keep this number for every service today.")}</p>
 <script>window.onload = function () { window.focus(); window.print(); setTimeout(function () { window.close(); }, 500); };<\/script>
 </body></html>`;
 }
 /** Opens the slip in a small window and sends it to the printer. */
-function printSlip(label, issuedAt, logoUrl, clinic) {
+function printSlip(label, issuedAt, logoUrl, clinic, extra = null) {
     const win = window.open("", "thsc-queue-slip", "width=360,height=560");
     if (!win)
         return false;
     win.document.open();
-    win.document.write(slipHtml(label, issuedAt, logoUrl, clinic));
+    win.document.write(slipHtml(label, issuedAt, logoUrl, clinic, extra));
     win.document.close();
     return true;
+}
+/** "14:30" → "2:30 PM", for printed appointment times. */
+function appointmentText(time) {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(time || "");
+    if (!match)
+        return time || "";
+    const hour = Number(match[1]);
+    return `${hour % 12 || 12}:${match[2]} ${hour < 12 ? "AM" : "PM"}`;
+}
+/** The extra lines on the slip of a pre-registered (scheduled) clinic patient: clinic, name and appointment, and where to go on arrival. */
+function preRegisteredSlip(visit) {
+    return {
+        kicker: `Pre-registered · ${clinicOf(visit.kind) ?? "Scheduled"}`,
+        lines: [visit.name, visit.appointment ? `Appointment ${appointmentText(visit.appointment)}` : ""].filter(Boolean),
+        message: "Please show this number at the Concierge when you arrive. Keep this number for every service today.",
+    };
+}
+/** A page listing a clinic's pre-registered patients who have not arrived yet, in their queue order. */
+function preRegisteredListHtml(visits, clinic, clinicName, logoUrl, now) {
+    const rows = visits.map((visit, i) => `<tr><td>${i + 1}</td><td class="n">${escapeHtml(visit.label)}</td><td>${escapeHtml(visit.name)}</td><td>${escapeHtml(appointmentText(visit.appointment))}</td><td>${escapeHtml(visit.services)}</td><td></td></tr>`).join("");
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(clinic)} pre-registered</title><style>
+@page { size: A4; margin: 12mm; }
+body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; color: #000; }
+header { display: flex; align-items: center; gap: 4mm; border-bottom: 2px solid #000; padding-bottom: 3mm; }
+img { height: 16mm; }
+h1 { font-size: 16pt; margin: 0; }
+p { margin: 1mm 0 0; font-size: 10pt; }
+table { width: 100%; border-collapse: collapse; margin-top: 5mm; font-size: 11pt; }
+th, td { border: 1px solid #000; padding: 2mm; text-align: left; vertical-align: top; }
+th { background: #eee; }
+td.n { font: 700 13pt ui-monospace, Consolas, monospace; white-space: nowrap; }
+td:last-child { width: 22mm; }
+</style></head><body>
+<header><img src="${logoUrl}" alt=""><div><h1>${escapeHtml(clinic)} · Pre-registered patients</h1><p>${escapeHtml(clinicName)} · printed ${escapeHtml(slipTime.format(new Date(now)))} · ${visits.length} not arrived yet</p></div></header>
+<table><thead><tr><th>#</th><th>Queue number</th><th>Patient</th><th>Appointment</th><th>Services</th><th>Arrived</th></tr></thead><tbody>${rows || `<tr><td colspan="6">No pre-registered patients.</td></tr>`}</tbody></table>
+<script>window.onload = function () { window.focus(); window.print(); };<\/script>
+</body></html>`;
 }
 
 // ---- from lib/queue/report.ts ----
@@ -2081,7 +2120,7 @@ function downloadQueueReport(xlsx, state, now) {
               <p class="sub" id="reg-count"></p>
               <ul class="cards" id="arrivals"></ul>
               ${isClinicTab() ? `<p class="sub" id="prereg-count"></p><ul class="cards" id="prereg-list" data-drag-list="prereg"></ul>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)"><button type="button" class="btn sm outline" data-act="clinicReport">📊 ${clinicOf(deskTab)} report</button><button type="button" class="btn sm danger" data-act="clearClinic">🧹 Clear ${clinicOf(deskTab)} for another doctor</button></div>` : ""}
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)"><button type="button" class="btn sm outline" data-act="printPrereg">🖨 Print pre-registered list</button><button type="button" class="btn sm outline" data-act="clinicReport">📊 ${clinicOf(deskTab)} report</button><button type="button" class="btn sm danger" data-act="clearClinic">🧹 Clear ${clinicOf(deskTab)} for another doctor</button></div>` : ""}
             </div>
           </section>
           <section class="panel">
@@ -2245,6 +2284,7 @@ function downloadQueueReport(xlsx, state, now) {
         <button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(arrivalLabel(v))}, place ${i + 1} of ${expected.length}. Use the up and down arrow keys.">⠿</button>
         <span class="chip-num wide mono">${esc(arrivalLabel(v))}</span>
         <div class="info"><b>${esc(v.name)}</b><span>${v.appointment ? `🕘 ${esc(v.appointment)} · ` : ""}${esc(v.steps.map((st) => stationName(state, st.station)).join(" → "))}</span></div>
+        <button class="btn icon ghost" data-act="slip" data-id="${v.id}" title="Print the queue number slip" aria-label="Print slip for ${esc(arrivalLabel(v))}">🖨</button>
         <button class="btn sm" data-act="checkIn" data-id="${v.id}">✅ Arrived</button>
         <button class="btn icon ghost" title="Cancel (did not come)" aria-label="Cancel ${esc(arrivalLabel(v))}" data-act="cancel" data-id="${v.id}">✕</button>
       </li>`).join("") : `<li class="empty" style="display:block;border-style:dashed">No pre-registered patients. Use 📅 Pre-register in Step 2 for scheduled patients before they come.</li>`;
@@ -2280,7 +2320,7 @@ function downloadQueueReport(xlsx, state, now) {
     syncSubmit();
 
     const visit = issued && state.visits.find((v) => v.id === issued);
-    $("#issued").innerHTML = visit ? `<div class="issued"><p class="k">${visit.expected ? `Pre-registered${visit.appointment ? ` for ${esc(visit.appointment)}` : ""} — the number is ready; tap ✅ Arrived when the patient comes` : "Queue number issued — tell the patient"}</p><p class="num mono">${esc(currentLabel(visit))}</p><p class="d">They keep the same number (${esc(arrivalLabel(visit))}) for every service today.</p><button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="message" data-id="${visit.id}">${visit.messagedAt ? "✓ Message copied" : "Copy message"}</button> <button class="btn sm ghost" style="color:#e8dec7" data-act="closeIssued">Done</button></div>` : "";
+    $("#issued").innerHTML = visit ? `<div class="issued"><p class="k">${visit.expected ? `Pre-registered${visit.appointment ? ` for ${esc(visit.appointment)}` : ""} — the number is ready; tap ✅ Arrived when the patient comes` : "Queue number issued — tell the patient"}</p><p class="num mono">${esc(currentLabel(visit))}</p><p class="d">They keep the same number (${esc(arrivalLabel(visit))}) for every service today.</p><button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="message" data-id="${visit.id}">${visit.messagedAt ? "✓ Message copied" : "Copy message"}</button> <button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="slip" data-id="${visit.id}">🖨 Print slip</button> <button class="btn sm ghost" style="color:#e8dec7" data-act="closeIssued">Done</button></div>` : "";
 
     document.querySelectorAll('[data-act="filter"]').forEach((b) => b.classList.toggle("on", b.dataset.filter === filter));
     renderPatients();
@@ -3603,7 +3643,29 @@ function downloadQueueReport(xlsx, state, now) {
         });
         break;
       }
-      case "slip": { const v = state.visits.find((x) => x.id === id); if (v) printSlip(arrivalLabel(v), v.createdAt, LOGO, clinicNameOf(state.settings)); break; }
+      case "slip": {
+        const v = state.visits.find((x) => x.id === id);
+        if (!v) break;
+        const browserPrint = () => { if (!printSlip(arrivalLabel(v), v.expected ? v.preRegisteredAt ?? v.createdAt : v.createdAt, LOGO, clinicNameOf(state.settings), v.expected ? preRegisteredSlip(v) : null)) toast("The browser blocked the print window — allow pop-ups for this page.", true); };
+        // A pre-registered slip goes to the clinic server's slip printer when one is set (System configuration → Kiosk & slip printer).
+        if (!v.expected || sync.mode !== "server" || !state.settings.slipPrinter) { browserPrint(); break; }
+        printOnServer(v.id).then((printed) => {
+          if (printed.ok) toast(`${arrivalLabel(v)} slip printed on ${state.settings.slipPrinter}.`);
+          else { toast(`${printed.error || "The server printer is not available."} Printing from this computer instead.`, true); browserPrint(); }
+        });
+        break;
+      }
+      case "printPrereg": {
+        const clinic = clinicOf(deskTab);
+        const visits = preRegisteredList(state, clinic).map((v) => ({ label: arrivalLabel(v), name: v.name, appointment: v.appointment, services: v.steps.map((st) => stationName(state, st.station)).join(" → ") }));
+        if (!visits.length) { toast(`${clinic} has no pre-registered patients to print.`, true); break; }
+        const win = window.open("", "thsc-prereg-list", "width=900,height=700");
+        if (!win) { toast("The browser blocked the print window — allow pop-ups for this page.", true); break; }
+        win.document.open();
+        win.document.write(preRegisteredListHtml(visits, clinic, clinicNameOf(state.settings), LOGO, Date.now()));
+        win.document.close();
+        break;
+      }
       case "callReg": dispatch({ type: "callRegistration", visitId: id || undefined, group: id ? undefined : tabGroup() }, (r) => `${r.label} called to register — shown on the TV.`).then(warnIfSilent); break;
       case "removeArrival": { const v = state.visits.find((x) => x.id === id); if (v && confirm(`Remove ${arrivalLabel(v)}? Use this if the patient left before registering. The number ${arrivalLabel(v)} will be given to the next arrival.`)) dispatch({ type: "cancel", visitId: id }, `${arrivalLabel(v)} removed — the next Queue number will reuse it.`); break; }
       case "registerArrival": { const v = state.visits.find((x) => x.id === id); if (v) { pickArrival(v); updateDesk(); $("#reg-name").focus(); } break; }
