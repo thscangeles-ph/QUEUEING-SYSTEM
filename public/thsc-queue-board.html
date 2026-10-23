@@ -95,6 +95,8 @@ label.field em, div.field em { font-style: normal; font-weight: 400; color: var(
 .tag.qr { background: #e8eef7; color: #2d4a6e; }
 .tag.hmo { background: #ece4f6; color: #4b2f7a; }
 .tag.clinic { background: #dff1ef; color: #1d5a56; }
+.bday-field { display: grid; gap: 6px; } .bday-row { display: grid; grid-template-columns: 74px minmax(0, 1fr) 84px 86px; gap: 6px; align-items: end; }
+.age-box { display: grid; gap: 2px; font-size: 11px; font-weight: 600; color: var(--muted); } .age-box input[readonly] { background: var(--soft); }
 .drag-handle { flex: none; align-self: stretch; width: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; cursor: grab; touch-action: none; }
 .drag-handle:hover, .drag-handle:focus-visible { background: var(--soft); color: var(--ink); }
 [data-drag-list] li { transition: box-shadow .1s; } [data-drag-list] li.shifting { transition: transform .18s ease; } [data-drag-list] li.dragging { position: relative; z-index: 5; background: var(--card); border-color: var(--gold); box-shadow: 0 10px 24px rgba(31,26,18,.25); cursor: grabbing; transition: none; }
@@ -523,6 +525,31 @@ const MAX_STEPS = 8;
 const DEFAULT_CLINIC = "The Heart Specialists Clinic";
 /** The clinic's name as set in System configuration. */
 const clinicNameOf = (settings) => clean(settings?.clinicName, 80) || DEFAULT_CLINIC;
+/** Age in whole years on a day ("YYYY-MM-DD"), from a birthday ("YYYY-MM-DD"). */
+function ageOn(birthDate, day) {
+    const [by, bm, bd] = birthDate.split("-").map(Number);
+    const [y, m, d] = day.split("-").map(Number);
+    return y - by - (m < bm || (m === bm && d < bd) ? 1 : 0);
+}
+/** A birthday from the registration form as "YYYY-MM-DD": "" when none was given, null when it is not a real past date. */
+function birthDateOf(value, today) {
+    const text = String(value ?? "").trim();
+    if (!text)
+        return "";
+    const match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text);
+    if (!match)
+        return null;
+    const [year, month, day] = match.slice(1).map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (year < 1900 || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day)
+        return null;
+    const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    return iso > today ? null : iso;
+}
+/** A birthday as "Mar 5, 1971". */
+const formatBirthday = (iso) => (iso ? new Intl.DateTimeFormat("en-PH", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" }).format(new Date(`${iso}T00:00:00Z`)) : "");
+/** The patient's type as written in reports: Walk-in, Scheduled, HMO, Clinic 1 or Clinic 1 · pre-scheduled. */
+const kindLabel = (kind) => ({ S: "Scheduled", H: "HMO", W: "Walk-in" }[kind] ?? (clinicOf(kind) ? `${clinicOf(kind)}${PRESCHEDULED_KINDS.includes(kind) ? " · pre-scheduled" : ""}` : "Walk-in"));
 /** A clinic's pre-registered patients who have not arrived yet: in the order staff set, otherwise by appointment time, then number. */
 function preRegisteredList(state, clinic) {
     return state.visits
@@ -770,6 +797,14 @@ function registerVisit(state, visit, input, now) {
     visit.name = name;
     visit.mobile = clean(input.mobile, 20);
     visit.notes = clean(input.notes, 200);
+    const birthDate = birthDateOf(input.birthDate, state.day);
+    if (birthDate === null)
+        return "Check the birthday: choose a real date that is not in the future.";
+    visit.birthDate = birthDate;
+    // The age comes from the birthday; without one, the age staff typed (if any).
+    const typedAge = Math.round(Number(input.age));
+    visit.age = birthDate ? ageOn(birthDate, state.day) : input.age !== null && input.age !== undefined && String(input.age) !== "" && Number.isFinite(typedAge) && typedAge >= 0 && typedAge <= 130 ? typedAge : null;
+    visit.requestingPhysician = clean(input.requestingPhysician, 80);
     visit.priority = Boolean(input.priority) || visit.priority;
     if (input.newPatient !== undefined)
         visit.newPatient = Boolean(input.newPatient);
@@ -1294,7 +1329,7 @@ function slipWidthOf(value) {
 const CONFIG_PIN_NEEDED = "Enter the configuration PIN to change System configuration.";
 const withoutVideoSound = (settings) => JSON.stringify({ ...settings, videoSound: undefined, videoVolume: undefined });
 function publicView(state) {
-    return { ...state, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", purposes: undefined, steps: visit.steps.map(withoutBilling) })) };
+    return { ...state, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", purposes: undefined, birthDate: undefined, age: undefined, requestingPhysician: undefined, steps: visit.steps.map(withoutBilling) })) };
 }
 /** What the patient has to pay at the cashier, from the doctors' choices: e.g. ["Professional fee (Consultation 1)", "Clearance"]. */
 function payItems(state, visit) {
@@ -1519,10 +1554,10 @@ function buildQueueReport(state, now) {
     });
     if (hours.length)
         hourRows.push(["Total", visits.length, count(visits, (v) => v.kind === "W"), count(visits, (v) => v.kind === "S"), count(visits, (v) => v.kind === "H"), count(visits, (v) => v.newPatient === true), count(visits, (v) => v.priority)]);
-    const patientRows = [["Queue no.", "Patient", "Mobile", "Type", "New patient", "Priority", "Source", "Status", "Services", "Arrived", "Registered", "First called", "Finished", "Wait to register (min)", "Wait for first call (min)", "Time in clinic (min)", "Notes", "HMO", "LOA / approval no.", "Charges"]];
+    const patientRows = [["Queue no.", "Patient", "Birthday", "Age", "Requesting physician", "Mobile", "Type", "New patient", "Priority", "Source", "Status", "Services", "Arrived", "Registered", "First called", "Finished", "Wait to register (min)", "Wait for first call (min)", "Time in clinic (min)", "Notes", "HMO", "LOA / approval no.", "Charges"]];
     visits.forEach((visit, index) => {
         patientRows.push([
-            currentLabel(visit), visit.name, visit.mobile, { S: "Scheduled", H: "HMO", W: "Walk-in" }[visit.kind] ?? "Walk-in", visit.newPatient ? "Yes" : "No", visit.priority ? "Yes" : "",
+            currentLabel(visit), visit.name, formatBirthday(visit.birthDate), visit.age ?? "", visit.requestingPhysician ?? "", visit.mobile, kindLabel(visit.kind), visit.newPatient ? "Yes" : "No", visit.priority ? "Yes" : "",
             visit.source === "self" ? "QR check-in" : "Front desk", visit.clearedAt && visit.cancelled ? "Cleared (clinic cleared for another doctor)" : STATUS_LABEL[visitStatus(visit)], visit.steps.map((step) => stationName(state, step.station)).join(" → "),
             time(visit.createdAt), time(visit.registeredAt), time(visit.steps[0]?.calledAt), time(finishedAt(visit)),
             toRegister[index], toFirstCall[index], inClinic[index], visit.notes, visit.hmo ?? "", visit.loa ?? "",
@@ -1533,7 +1568,7 @@ function buildQueueReport(state, now) {
         { name: "Summary", rows: summary, widths: [40, 30, 12] },
         { name: "By station", rows: stationRows, widths: [8, 28, 14, 16, 10, 13, 9, 15, 18, 22] },
         { name: "By hour", rows: hourRows, widths: [22, 22, 10, 11, 8, 14, 13] },
-        { name: "Patient list", rows: patientRows, widths: [13, 26, 15, 11, 12, 9, 13, 14, 40, 10, 11, 12, 10, 20, 22, 19, 30, 18, 18, 45] },
+        { name: "Patient list", rows: patientRows, widths: [13, 26, 13, 6, 24, 15, 22, 12, 9, 13, 14, 40, 10, 11, 12, 10, 20, 22, 19, 30, 18, 18, 45] },
     ];
 }
 /** Builds the workbook and downloads it as THSC-Queue-Report-YYYY-MM-DD.xlsx. */
@@ -1553,12 +1588,12 @@ function clinicReportRows(state, kind, now, doctor) {
         ["Doctor", doctor || ""],
         ["Patients", visits.length, "Pre-scheduled", count(visits, (v) => PRESCHEDULED_KINDS.includes(v.kind)), "Not pre-registered", count(visits, (v) => CLINIC_KINDS.includes(v.kind))],
         [],
-        ["Queue number", "Type", "Patient", "Mobile", "Appointment", "Pre-registered", "Arrived", "Vital signs called", "Vital signs taken", "Called in", "Finished", "Status", "Services", "Notes"],
+        ["Queue number", "Type", "Patient", "Birthday", "Age", "Requesting physician", "Mobile", "Appointment", "Pre-registered", "Arrived", "Vital signs called", "Vital signs taken", "Called in", "Finished", "Status", "Services", "Notes"],
     ];
     visits.forEach((v) => {
         const step = v.steps.find((s) => s.station === station);
         rows.push([
-            arrivalLabel(v), PRESCHEDULED_KINDS.includes(v.kind) ? "Pre-scheduled" : "Not pre-registered", v.name || "", v.mobile || "", v.appointment || "",
+            arrivalLabel(v), PRESCHEDULED_KINDS.includes(v.kind) ? "Pre-scheduled" : "Not pre-registered", v.name || "", formatBirthday(v.birthDate), v.age ?? "", v.requestingPhysician || "", v.mobile || "", v.appointment || "",
             time(v.preRegisteredAt), v.expected ? "Not arrived" : time(v.createdAt), time(step?.vitalsCalledAt), time(step?.vitalsDoneAt), time(step?.calledAt), time(step?.doneAt),
             STATUS_LABEL[visitStatus(v)], v.steps.map((s) => stationName(state, s.station)).join(" → "), v.notes || "",
         ]);
@@ -1569,7 +1604,7 @@ function clinicReportRows(state, kind, now, doctor) {
 function downloadClinicReport(xlsx, state, kind, now, doctor) {
     const book = xlsx.utils.book_new();
     const ws = xlsx.utils.aoa_to_sheet(clinicReportRows(state, kind, now, doctor));
-    ws["!cols"] = [14, 18, 28, 16, 12, 14, 12, 16, 16, 12, 12, 14, 34, 30].map((wch) => ({ wch }));
+    ws["!cols"] = [14, 18, 28, 13, 6, 24, 16, 12, 14, 12, 16, 16, 12, 12, 14, 34, 30].map((wch) => ({ wch }));
     xlsx.utils.book_append_sheet(book, ws, clinicOf(kind));
     const stamp = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(now)).replace(":", "");
     xlsx.writeFile(book, `THSC-${clinicOf(kind).replace(" ", "-")}-${state.day}-${stamp}.xlsx`);
@@ -1925,16 +1960,21 @@ function downloadQueueReport(xlsx, state, now) {
   /** A Clinic 1–3 patient starts with that clinic's consultation room (C1–C3) as their first service, when it exists. */
   const clinicStationsFor = (kind) => (clinicOf(kind) && state?.settings.stations.some((st) => st.active && st.code === `C${kind.slice(1)}`) ? [`C${kind.slice(1)}`] : []);
   const clinicStations = () => clinicStationsFor(deskTab);
+  /** Birthday, age and requesting physician in one line for staff screens, e.g. "🎂 Mar 5, 1971 · 54 y · Requested by Dr. Santos". */
+  const patientFacts = (v) => [v.birthDate ? `🎂 ${esc(formatBirthday(v.birthDate))}` : "", v.age !== null && v.age !== undefined ? `${v.age} y` : "", v.requestingPhysician ? `Requested by ${esc(v.requestingPhysician)}` : ""].filter(Boolean).join(" · ");
   /** The tags that show a patient's group on staff screens: HMO (company), or Clinic 1–3 (pre-scheduled). */
   const groupTag = (v, withLoa = false) => (v.kind === "H" ? `<span class="tag hmo">HMO${v.hmo ? ` · ${esc(v.hmo)}` : ""}${withLoa && v.loa ? ` · LOA ${esc(v.loa)}` : ""}</span>` : clinicOf(v.kind) ? `<span class="tag clinic">${clinicOf(v.kind)}${PRESCHEDULED_KINDS.includes(v.kind) ? " · pre-scheduled" : ""}</span>` : "");
   const HMO_COMPANIES = ["Maxicare", "Intellicare", "MediCard", "PhilCare", "Cocolife", "Avega", "Pacific Cross", "ValuCare", "Etiqa", "Insular Health Care", "Kaiser", "Generali", "Caritas Health Shield", "AXA", "Sun Life Grepa"];
   const arr = { newPatient: false, priority: false };
   // prereg: on a Clinic 1–3 tab, a new number for a scheduled patient who is not here yet (with an optional appointment time).
-  const form = { kind: "W", newPatient: false, arrival: null, name: "", mobile: "", notes: "", hmo: "", loa: "", priority: false, stations: [], prereg: false, appointment: "" };
+  const form = { kind: "W", newPatient: false, arrival: null, name: "", mobile: "", notes: "", hmo: "", loa: "", priority: false, stations: [], prereg: false, appointment: "", bdayDay: "", bdayMonth: "", bdayYear: "", age: "", physician: "" };
   /** Empties the registration form; the services list starts blank for every patient, HMO included. */
   function resetForm() {
-    Object.assign(form, { kind: tabKind(), newPatient: false, arrival: null, name: "", mobile: "", notes: "", hmo: "", loa: "", priority: false, stations: clinicStations(), prereg: false, appointment: "" });
-    ["#reg-name", "#reg-mobile", "#reg-notes", "#reg-hmo", "#reg-loa"].forEach((sel) => { const input = $(sel); if (input) input.value = ""; });
+    Object.assign(form, { kind: tabKind(), newPatient: false, arrival: null, name: "", mobile: "", notes: "", hmo: "", loa: "", priority: false, stations: clinicStations(), prereg: false, appointment: "", bdayDay: "", bdayMonth: "", bdayYear: "", age: "", physician: "" });
+    ["#reg-name", "#reg-mobile", "#reg-notes", "#reg-hmo", "#reg-loa", "#reg-bday-day", "#reg-bday-month", "#reg-bday-year", "#reg-age", "#reg-physician"].forEach((sel) => { const input = $(sel); if (input) input.value = ""; });
+    // The age can be typed again until a new birthday is chosen.
+    if ($("#reg-age")) $("#reg-age").readOnly = false;
+    if ($("#reg-bday-hint")) $("#reg-bday-hint").textContent = "";
   }
   resetForm();
   // Lists in an order staff can change (pre-registered patients, and a clinic's waiting line): drag the ⠿ handle up or
@@ -1995,6 +2035,9 @@ function downloadQueueReport(xlsx, state, now) {
     void dispatch(moveAction(handle.closest("[data-drag-list]"), id, { offset: event.key === "ArrowUp" ? -1 : 1 })).then(() => document.querySelector(`[data-drag-list="${kind}"] .drag-handle[data-id="${id}"]`)?.focus());
   });
 
+  /** The birthday chosen in the registration form as "YYYY-MM-DD", or "" until day, month and year are all there. */
+  const formBirthDate = () => (form.bdayDay && form.bdayMonth && /^\d{4}$/.test(form.bdayYear) ? `${form.bdayYear}-${String(form.bdayMonth).padStart(2, "0")}-${String(form.bdayDay).padStart(2, "0")}` : "");
+
   /** Picks a waiting queue number to register. A number taken with the QR code brings the patient's name and purpose of visit:
    *  the name, "Purpose: …" in the notes, and the tests or procedures chosen as the first services (the Concierge adds the doctor). */
   function pickArrival(v) {
@@ -2050,6 +2093,13 @@ function downloadQueueReport(xlsx, state, now) {
                 <label class="field">Queue number<select id="reg-arrival"></select></label>
                 ${isClinicTab() ? `<div class="toggles" style="margin-top:0"><button type="button" class="tog" id="reg-prereg" data-act="togPrereg" aria-pressed="false"><span class="box">✓</span><span><b>📅 Pre-register</b><small>Scheduled, not here yet: the number is ready when they arrive</small></span></button><label class="field" id="reg-appt-wrap" style="margin:0">Appointment time<em>Optional</em><input type="time" id="reg-appt"></label></div>` : ""}
                 <label class="field">Patient name<input type="text" id="reg-name" placeholder="Full name" autocomplete="off" required></label>
+                <div class="field bday-field">Birthday<em>Optional — the age is filled in from it</em><div class="bday-row">
+                  <select id="reg-bday-day" aria-label="Day of birth"><option value="">Day</option>${Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join("")}</select>
+                  <select id="reg-bday-month" aria-label="Month of birth"><option value="">Month</option>${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((m, i) => `<option value="${i + 1}">${m}</option>`).join("")}</select>
+                  <input type="number" id="reg-bday-year" inputmode="numeric" min="1900" max="${state.day.slice(0, 4)}" placeholder="Year" aria-label="Year of birth">
+                  <label class="age-box">Age<input type="number" id="reg-age" inputmode="numeric" min="0" max="130" placeholder="—" aria-label="Age"></label>
+                </div><p class="yt-hint" id="reg-bday-hint"></p></div>
+                <label class="field">Requesting physician<em>Optional</em><input type="text" id="reg-physician" list="physician-list" maxlength="80" placeholder="e.g. Dr. Santos" autocomplete="off"><datalist id="physician-list">${[...new Set(state.visits.map((v) => v.requestingPhysician).filter(Boolean))].sort().map((name) => `<option value="${esc(name)}">`).join("")}</datalist></label>
                 <label class="field">Mobile number<em>Optional — for the one-time queue message</em><input type="tel" id="reg-mobile" placeholder="09XX XXX XXXX" autocomplete="off"></label>
                 ${isHmoTab() ? `<label class="field">HMO company<input type="text" id="reg-hmo" list="hmo-list" placeholder="e.g. Maxicare" autocomplete="off"><datalist id="hmo-list">${HMO_COMPANIES.map((name) => `<option value="${esc(name)}">`).join("")}</datalist></label>
                 <label class="field">LOA / approval number<em>Optional</em><input type="text" id="reg-loa" autocomplete="off"></label>` : ""}
@@ -2071,6 +2121,21 @@ function downloadQueueReport(xlsx, state, now) {
       </div>
       <div id="route-editor"></div>`;
     $("#reg-name").value = form.name; $("#reg-mobile").value = form.mobile; $("#reg-notes").value = form.notes;
+    $("#reg-bday-day").value = form.bdayDay; $("#reg-bday-month").value = form.bdayMonth; $("#reg-bday-year").value = form.bdayYear; $("#reg-age").value = form.age; $("#reg-physician").value = form.physician;
+    // Birthday: once day, month and year are all chosen, the age is worked out (and checked) from it.
+    const syncBirthday = () => {
+      const hint = $("#reg-bday-hint");
+      const birthDate = formBirthDate();
+      const checked = birthDate ? birthDateOf(birthDate, state.day) : "";
+      if (checked) { form.age = String(ageOn(checked, state.day)); $("#reg-age").value = form.age; }
+      $("#reg-age").readOnly = Boolean(checked);
+      hint.className = `yt-hint ${checked === null ? "err" : "ok"}`;
+      hint.textContent = checked === null ? "That is not a real date, or it is in the future." : checked ? `✓ ${formatBirthday(checked)} · ${ageOn(checked, state.day)} years old` : form.bdayDay || form.bdayMonth || form.bdayYear ? "Choose the day, month and year." : "";
+    };
+    [["#reg-bday-day", "bdayDay"], ["#reg-bday-month", "bdayMonth"], ["#reg-bday-year", "bdayYear"]].forEach(([sel, key]) => $(sel).addEventListener(sel === "#reg-bday-year" ? "input" : "change", (e) => { form[key] = e.target.value; syncBirthday(); }));
+    $("#reg-age").addEventListener("input", (e) => { form.age = e.target.value; });
+    $("#reg-physician").addEventListener("input", (e) => { form.physician = e.target.value; });
+    syncBirthday();
     if ($("#reg-hmo")) {
       $("#reg-hmo").value = form.hmo; $("#reg-loa").value = form.loa;
       $("#reg-hmo").addEventListener("input", (e) => { form.hmo = e.target.value; });
@@ -2100,7 +2165,7 @@ function downloadQueueReport(xlsx, state, now) {
       registering = true;
       syncSubmit();
       const preRegister = isClinicTab() && form.prereg && !form.arrival;
-      const result = await dispatch({ type: "register", visitId: form.arrival || undefined, preRegister, visit: { kind: form.kind, name: form.name, mobile: form.mobile, notes: form.notes, hmo: form.hmo, loa: form.loa, priority: form.priority, newPatient: form.newPatient, stations: form.stations, appointment: preRegister ? form.appointment : "" } });
+      const result = await dispatch({ type: "register", visitId: form.arrival || undefined, preRegister, visit: { kind: form.kind, name: form.name, mobile: form.mobile, notes: form.notes, hmo: form.hmo, loa: form.loa, priority: form.priority, newPatient: form.newPatient, stations: form.stations, appointment: preRegister ? form.appointment : "", birthDate: formBirthDate(), age: form.age === "" ? null : Number(form.age), requestingPhysician: form.physician } });
       registering = false;
       if (view !== "desk") return;
       if (!result.ok) { syncSubmit(); return; }
@@ -2240,7 +2305,7 @@ function downloadQueueReport(xlsx, state, now) {
       const live = status === "waiting" || status === "called";
       return `<tr class="${v.cancelled ? "cancelled" : ""}">
         <td><span class="q mono">${esc(currentLabel(v))}</span><small>${v.expected ? `Pre-registered${v.appointment ? ` · 🕘 ${esc(v.appointment)}` : ""}` : `Arrived ${formatTime(v.createdAt)}`}</small></td>
-        <td style="max-width:240px">${v.name ? `<b>${esc(v.name)}</b>` : `<i style="color:var(--muted-2)">Not registered yet</i>`}<div class="tags">${v.source === "self" ? `<span class="tag qr">${v.verified ? "QR check-in" : "QR check-in · verify"}</span>` : ""}${groupTag(v)}${v.loa ? `<span>LOA ${esc(v.loa)}</span>` : ""}${payStatus(state, v) ? `<span class="tag ${payStatus(state, v) === "paid" ? "paid" : "pay"}" title="${esc(payItems(state, v).join(", "))}">${payStatus(state, v) === "paid" ? "✓ Paid" : `💳 To pay: ${payItems(state, v).map((x) => esc(x.replace(/^Professional fee.*/, "PF"))).join(", ")}`}</span>` : ""}${v.newPatient ? `<span class="tag new">New patient</span>` : ""}${v.priority ? `<span class="tag prio">Priority</span>` : ""}${v.mobile ? `<span>${esc(v.mobile)}</span>` : ""}${v.notes ? `<span>· ${esc(v.notes)}</span>` : ""}</div></td>
+        <td style="max-width:240px">${v.name ? `<b>${esc(v.name)}</b>` : `<i style="color:var(--muted-2)">Not registered yet</i>`}${patientFacts(v) ? `<small style="display:block;color:var(--muted)">${patientFacts(v)}</small>` : ""}<div class="tags">${v.source === "self" ? `<span class="tag qr">${v.verified ? "QR check-in" : "QR check-in · verify"}</span>` : ""}${groupTag(v)}${v.loa ? `<span>LOA ${esc(v.loa)}</span>` : ""}${payStatus(state, v) ? `<span class="tag ${payStatus(state, v) === "paid" ? "paid" : "pay"}" title="${esc(payItems(state, v).join(", "))}">${payStatus(state, v) === "paid" ? "✓ Paid" : `💳 To pay: ${payItems(state, v).map((x) => esc(x.replace(/^Professional fee.*/, "PF"))).join(", ")}`}</span>` : ""}${v.newPatient ? `<span class="tag new">New patient</span>` : ""}${v.priority ? `<span class="tag prio">Priority</span>` : ""}${v.mobile ? `<span>${esc(v.mobile)}</span>` : ""}${v.notes ? `<span>· ${esc(v.notes)}</span>` : ""}</div></td>
         <td><span class="pill st-${status}">${STATUS_LABEL[status]}</span>${step && status !== "completed" ? `<small>${esc(stationName(state, step.station))}</small>` : ""}</td>
         <td style="font-variant-numeric:tabular-nums">${live ? formatWait(minutesSince(since, now)) : "—"}</td>
         <td><div class="route">${v.steps.map((s) => `<span class="mono ${s.status === "done" ? "done" : s === step ? "cur" : ""}" title="${esc(stationName(state, s.station))}">${s.status === "done" ? "✓" : ""}${esc(s.station)}</span>`).join("")}${!v.cancelled && isRegistered(v) && status !== "completed" ? `<button type="button" class="route-edit" title="Edit or delete the route" aria-label="Edit route for ${esc(currentLabel(v))}" data-act="editRoute" data-id="${v.id}">✎ Edit</button>` : ""}</div></td>
@@ -2861,6 +2926,7 @@ function downloadQueueReport(xlsx, state, now) {
               const upcoming = v.steps[v.steps.indexOf(step) + 1];
               return `<div><p class="num mono">${esc(ticketLabel(v, station.code))}</p>
                 <p class="who">${esc(v.name)}${groupTag(v, true) ? ` ${groupTag(v, true).replace('<span class="tag ', '<span style="vertical-align:middle" class="tag ')}` : ""}${v.newPatient ? ` <span class="tag new" style="vertical-align:middle">New patient</span>` : ""}${v.priority ? ` <span class="tag prio" style="vertical-align:middle">Priority</span>` : ""}</p>
+                ${patientFacts(v) ? `<p class="meta">${patientFacts(v)}</p>` : ""}
                 <p class="meta">Called ${step.calledAt ? formatTime(step.calledAt) : ""} · ${formatWait(minutesSince(step.calledAt, now))} ago${step.calls > 1 ? ` · called ${step.calls}×` : ""}${v.notes ? ` · ${esc(v.notes)}` : ""}</p>
                 ${station.service === "cashier" && payItems(state, v).length ? `<div class="topay">💳 <b>To pay:</b> ${payItems(state, v).map(esc).join(" · ")}</div>` : ""}
                 <div class="btns"><button class="btn cream" data-act="recall" data-id="${v.id}">📢 Call again</button><button class="btn bare" data-act="miss" data-id="${v.id}">Did not respond</button>${consult ? "" : `<button class="btn gold" data-act="complete" data-id="${v.id}">✓ ${upcoming ? `Complete · next ${esc(upcoming.station)}` : "Complete visit"}</button>`}</div>
@@ -2874,7 +2940,7 @@ function downloadQueueReport(xlsx, state, now) {
         </div>
         <div class="col">
           <section class="panel"><div class="panel-h"><div><h2>Waiting for ${esc(station.name)}</h2><p>Priority lane patients are called first, then in arrival order.${reorder ? " Drag ⠿ to change who is called next." : ""}</p></div></div>
-            <div class="panel-b">${waiting.length ? `<ol class="wlist"${reorder ? ` data-drag-list="line" data-station="${esc(station.code)}"` : ""}>${waiting.map((v, i) => `<li data-id="${v.id}">${reorder && waiting.length > 1 ? `<button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, station.code))}, place ${i + 1} of ${waiting.length}. Use the up and down arrow keys.">⠿</button>` : ""}<span class="pos">${i + 1}</span><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${groupTag(v) ? ` ${groupTag(v)}` : ""}${station.service === "cashier" && payItems(state, v).length ? ` <span class="tag pay">💳 ${payItems(state, v).map(esc).join(", ")}</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span>${vitalsCell(v)}<button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
+            <div class="panel-b">${waiting.length ? `<ol class="wlist"${reorder ? ` data-drag-list="line" data-station="${esc(station.code)}"` : ""}>${waiting.map((v, i) => `<li data-id="${v.id}">${reorder && waiting.length > 1 ? `<button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, station.code))}, place ${i + 1} of ${waiting.length}. Use the up and down arrow keys.">⠿</button>` : ""}<span class="pos">${i + 1}</span><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${v.age !== null && v.age !== undefined ? ` · ${v.age} y` : ""}${groupTag(v) ? ` ${groupTag(v)}` : ""}${station.service === "cashier" && payItems(state, v).length ? ` <span class="tag pay">💳 ${payItems(state, v).map(esc).join(", ")}</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span>${vitalsCell(v)}<button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
           </section>
           ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map((v) => `<li class="missed"><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
           <section class="panel"><div class="panel-h"><div><h2>Served here today</h2><p>Queue numbers stay here. Call again brings the patient back to ${esc(station.name)}.</p></div><span class="count">${served.length}</span></div>

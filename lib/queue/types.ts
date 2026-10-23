@@ -69,6 +69,10 @@ export type Visit = {
   regCalls?: number;
   registeredAt?: number | null;
   createdAt: number;
+  /** Patient details from registration (staff only): birthday "YYYY-MM-DD", age in years on the visit day, and the requesting physician. */
+  birthDate?: string;
+  age?: number | null;
+  requestingPhysician?: string;
   /** When the clinic was cleared for another doctor: the visit no longer holds its number, and if it was still open it ended then. */
   clearedAt?: number | null;
   /** The tag before the number ("HMO-", "CL1-" …), as set in System configuration when the number was given. */
@@ -168,6 +172,11 @@ export type VisitInput = {
   card?: number | null;
   /** Appointment time of a pre-registered patient, e.g. "10:30". */
   appointment?: string;
+  /** Birthday as "YYYY-MM-DD"; the age is worked out from it. */
+  birthDate?: string;
+  /** Age in years, when the birthday is not known. */
+  age?: number | null;
+  requestingPhysician?: string;
 };
 
 export type QueueAction =

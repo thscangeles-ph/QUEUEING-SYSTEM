@@ -11,6 +11,26 @@ export const DEFAULT_CLINIC = "The Heart Specialists Clinic";
 /** The clinic's name as set in System configuration. */
 export const clinicNameOf = (settings?: Partial<Settings>) => clean(settings?.clinicName, 80) || DEFAULT_CLINIC;
 
+/** Age in whole years on a day ("YYYY-MM-DD"), from a birthday ("YYYY-MM-DD"). */
+export function ageOn(birthDate: string, day: string): number {
+  const [by, bm, bd] = birthDate.split("-").map(Number);
+  const [y, m, d] = day.split("-").map(Number);
+  return y - by - (m < bm || (m === bm && d < bd) ? 1 : 0);
+}
+
+/** A birthday from the registration form as "YYYY-MM-DD": "" when none was given, null when it is not a real past date. */
+export function birthDateOf(value: unknown, today: string): string | null {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text);
+  if (!match) return null;
+  const [year, month, day] = match.slice(1).map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (year < 1900 || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return iso > today ? null : iso;
+}
+
 /** A clinic's pre-registered patients who have not arrived yet: in the order staff set, otherwise by appointment time, then number. */
 export function preRegisteredList(state: QueueState, clinic: string | null): Visit[] {
   return state.visits
@@ -264,6 +284,13 @@ function registerVisit(state: QueueState, visit: Visit, input: VisitInput, now: 
   visit.name = name;
   visit.mobile = clean(input.mobile, 20);
   visit.notes = clean(input.notes, 200);
+  const birthDate = birthDateOf(input.birthDate, state.day);
+  if (birthDate === null) return "Check the birthday: choose a real date that is not in the future.";
+  visit.birthDate = birthDate;
+  // The age comes from the birthday; without one, the age staff typed (if any).
+  const typedAge = Math.round(Number(input.age));
+  visit.age = birthDate ? ageOn(birthDate, state.day) : input.age !== null && input.age !== undefined && String(input.age) !== "" && Number.isFinite(typedAge) && typedAge >= 0 && typedAge <= 130 ? typedAge : null;
+  visit.requestingPhysician = clean(input.requestingPhysician, 80);
   visit.priority = Boolean(input.priority) || visit.priority;
   if (input.newPatient !== undefined) visit.newPatient = Boolean(input.newPatient);
   if (visit.kind === "H") {
@@ -751,5 +778,5 @@ export function withoutSecrets(state: QueueState): QueueState {
 }
 
 export function publicView(state: QueueState): QueueState {
-  return { ...withoutSecrets(state), visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", purposes: undefined, steps: visit.steps.map(withoutBilling) })) };
+  return { ...withoutSecrets(state), visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", purposes: undefined, birthDate: undefined, age: undefined, requestingPhysician: undefined, steps: visit.steps.map(withoutBilling) })) };
 }
