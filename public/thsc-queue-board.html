@@ -97,8 +97,8 @@ label.field em, div.field em { font-style: normal; font-weight: 400; color: var(
 .tag.clinic { background: #dff1ef; color: #1d5a56; }
 .drag-handle { flex: none; align-self: stretch; width: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; cursor: grab; touch-action: none; }
 .drag-handle:hover, .drag-handle:focus-visible { background: var(--soft); color: var(--ink); }
-#prereg-list li { transition: box-shadow .1s; } #prereg-list li.dragging { position: relative; z-index: 5; background: var(--card); border-color: var(--gold); box-shadow: 0 10px 24px rgba(31,26,18,.25); cursor: grabbing; transition: none; }
-#prereg-list li.drop-before { box-shadow: inset 0 3px 0 var(--gold); } #prereg-list li.drop-after { box-shadow: inset 0 -3px 0 var(--gold); }
+[data-drag-list] li { transition: box-shadow .1s; } [data-drag-list] li.dragging { position: relative; z-index: 5; background: var(--card); border-color: var(--gold); box-shadow: 0 10px 24px rgba(31,26,18,.25); cursor: grabbing; transition: none; }
+[data-drag-list] li.drop-before { box-shadow: inset 0 3px 0 var(--gold); } [data-drag-list] li.drop-after { box-shadow: inset 0 -3px 0 var(--gold); }
 .tag.pay { background: #fde8d4; color: #8a4a12; } .tag.paid { background: var(--ok-bg); color: var(--ok); }
 .serving .bill { margin-top: 16px; border-top: 1px solid #4a3d27; padding-top: 14px; }
 .serving .bill .k2 { color: #cbbd9d; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; margin: 0 0 8px; }
@@ -784,7 +784,8 @@ function waitingFor(state, station) {
         const step = currentStep(visit);
         return !visit.cancelled && step?.station === station && step.status === "waiting";
     })
-        .sort((a, b) => Number(b.priority) - Number(a.priority) || (currentStep(a).queuedAt ?? 0) - (currentStep(b).queuedAt ?? 0) || a.seq - b.seq);
+        // Patients staff dragged into an order come first, in that order; then priority lane, then arrival order.
+        .sort((a, b) => (currentStep(a).lineOrder ?? Infinity) - (currentStep(b).lineOrder ?? Infinity) || Number(b.priority) - Number(a.priority) || (currentStep(a).queuedAt ?? 0) - (currentStep(b).queuedAt ?? 0) || a.seq - b.seq);
 }
 /**
  * Whether a TV call is still open. Arrival numbers stay up until the desk registers the patient, and station calls
@@ -920,6 +921,24 @@ function run(state, action, now) {
             }
             return { ok: true, visitId: visit.id, label: currentLabel(visit) };
         }
+        case "moveInLine": {
+            const station = findStation(state, action.station);
+            const visit = findVisit(action.visitId);
+            if (!station || !visit)
+                return fail("That patient is not waiting for this station.");
+            const list = waitingFor(state, station.code);
+            const from = list.indexOf(visit);
+            if (from < 0)
+                return fail("That patient is not waiting for this station.");
+            const to = typeof action.to === "number" ? Math.round(action.to) : from + (Number(action.offset) < 0 ? -1 : 1);
+            if (!Number.isFinite(to) || to < 0 || to >= list.length || to === from)
+                return { ok: true };
+            list.splice(from, 1);
+            list.splice(to, 0, visit);
+            // The whole line keeps this order; patients who join later wait after it.
+            list.forEach((item, index) => { currentStep(item).lineOrder = index; });
+            return { ok: true };
+        }
         case "movePreRegistered": {
             const visit = findVisit(action.visitId);
             if (!visit?.expected)
@@ -1025,6 +1044,8 @@ function run(state, action, now) {
             step.status = "called";
             step.calledAt = now;
             step.calls += 1;
+            // A patient returned to the line later takes their place again instead of an old dragged one.
+            delete step.lineOrder;
             const label = ticketLabel(target, station.code);
             announce(state, { at: now, kind: "ticket", label, station: station.code });
             return { ok: true, visitId: target.id, label };
@@ -1819,17 +1840,19 @@ function downloadQueueReport(xlsx, state, now) {
     ["#reg-name", "#reg-mobile", "#reg-notes", "#reg-hmo", "#reg-loa"].forEach((sel) => { const input = $(sel); if (input) input.value = ""; });
   }
   resetForm();
-  // Pre-registered patients: drag the ⠿ handle up or down (mouse or touch), or press ↑ ↓ on it.
+  // Lists in an order staff can change (pre-registered patients, and a clinic's waiting line): drag the ⠿ handle up or
+  // down (mouse or touch), or press ↑ ↓ on it. While dragging, the 2-second refresh leaves the list alone.
   let preregDrag = null;
+  const moveAction = (list, visitId, place) => (list.dataset.dragList === "line" ? { type: "moveInLine", station: list.dataset.station, visitId, ...place } : { type: "movePreRegistered", visitId, ...place });
   document.addEventListener("pointerdown", (event) => {
-    const handle = event.target.closest?.("#prereg-list .drag-handle");
-    if (!handle || view !== "desk" || event.button > 0) return;
+    const handle = event.target.closest?.("[data-drag-list] .drag-handle");
+    if (!handle || event.button > 0) return;
     const li = handle.closest("li");
     const rows = [...li.parentElement.querySelectorAll("li[data-id]")];
     if (rows.length < 2) return;
     event.preventDefault();
     handle.setPointerCapture?.(event.pointerId);
-    preregDrag = { id: li.dataset.id, li, rows, from: rows.indexOf(li), to: rows.indexOf(li), pointer: event.pointerId, startY: event.clientY };
+    preregDrag = { id: li.dataset.id, li, list: li.parentElement, rows, from: rows.indexOf(li), to: rows.indexOf(li), pointer: event.pointerId, startY: event.clientY };
     li.classList.add("dragging");
   });
   document.addEventListener("pointermove", (event) => {
@@ -1845,20 +1868,21 @@ function downloadQueueReport(xlsx, state, now) {
   });
   function endPreregDrag(event) {
     if (!preregDrag || event.pointerId !== preregDrag.pointer) return;
-    const { id, from, to, rows } = preregDrag;
+    const { id, from, to, rows, list } = preregDrag;
     rows.forEach((row) => { row.classList.remove("dragging", "drop-before", "drop-after"); row.style.transform = ""; });
     preregDrag = null;
-    if (event.type === "pointerup" && to !== from) dispatch({ type: "movePreRegistered", visitId: id, to });
-    else updateDesk();
+    if (event.type === "pointerup" && to !== from) dispatch(moveAction(list, id, { to }));
+    else update();
   }
   document.addEventListener("pointerup", endPreregDrag);
   document.addEventListener("pointercancel", endPreregDrag);
   document.addEventListener("keydown", (event) => {
-    const handle = event.target.closest?.("#prereg-list .drag-handle");
+    const handle = event.target.closest?.("[data-drag-list] .drag-handle");
     if (!handle || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
     event.preventDefault();
     const id = handle.dataset.id;
-    void dispatch({ type: "movePreRegistered", visitId: id, offset: event.key === "ArrowUp" ? -1 : 1 }).then(() => document.querySelector(`#prereg-list .drag-handle[data-id="${id}"]`)?.focus());
+    const kind = handle.closest("[data-drag-list]").dataset.dragList;
+    void dispatch(moveAction(handle.closest("[data-drag-list]"), id, { offset: event.key === "ArrowUp" ? -1 : 1 })).then(() => document.querySelector(`[data-drag-list="${kind}"] .drag-handle[data-id="${id}"]`)?.focus());
   });
 
   /** Picks a waiting queue number to register. A number taken with the QR code brings the patient's name and purpose of visit:
@@ -1903,7 +1927,7 @@ function downloadQueueReport(xlsx, state, now) {
               <div id="newnum"></div>
               <p class="sub" id="reg-count"></p>
               <ul class="cards" id="arrivals"></ul>
-              ${isClinicTab() ? `<p class="sub" id="prereg-count"></p><ul class="cards" id="prereg-list"></ul>` : ""}
+              ${isClinicTab() ? `<p class="sub" id="prereg-count"></p><ul class="cards" id="prereg-list" data-drag-list="prereg"></ul>` : ""}
             </div>
           </section>
           <section class="panel">
@@ -2674,6 +2698,8 @@ function downloadQueueReport(xlsx, state, now) {
   }
 
   function updateStation() {
+    // Not while a patient is being dragged in the line, or the drag would be lost.
+    if (preregDrag) return;
     const box = $("#station");
     const stations = state.settings.stations.filter((s) => s.active);
     const code = currentStationCode();
@@ -2683,6 +2709,8 @@ function downloadQueueReport(xlsx, state, now) {
     const now = Date.now();
     const serving = servingAt(state, station.code);
     const waiting = waitingFor(state, station.code);
+    // Clinic (consultation) stations can drag their waiting line into a different order.
+    const reorder = station.service === "consultation";
     const missed = state.visits.filter((v) => { const s = currentStep(v); return !v.cancelled && s?.station === station.code && s.status === "missed"; });
     // Patients this station already served today (latest first), kept so they can be called back.
     const lastDoneHere = (v) => Math.max(...v.steps.filter((s) => s.station === station.code && s.status === "done").map((s) => s.doneAt ?? 0));
@@ -2722,8 +2750,8 @@ function downloadQueueReport(xlsx, state, now) {
           ${serving.length && next ? `<p class="hint">${consult ? `Choose <b>Professional fee</b> or <b>No charge</b> first — calling the next patient completes ${esc(ticketLabel(serving[0], station.code))} with no charges recorded.` : `Calling the next patient marks ${esc(ticketLabel(serving[0], station.code))} as complete.`}</p>` : ""}
         </div>
         <div class="col">
-          <section class="panel"><div class="panel-h"><div><h2>Waiting for ${esc(station.name)}</h2><p>Priority lane patients are called first, then in arrival order.</p></div></div>
-            <div class="panel-b">${waiting.length ? `<ol class="wlist">${waiting.map((v, i) => `<li><span class="pos">${i + 1}</span><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${groupTag(v) ? ` ${groupTag(v)}` : ""}${station.service === "cashier" && payItems(state, v).length ? ` <span class="tag pay">💳 ${payItems(state, v).map(esc).join(", ")}</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
+          <section class="panel"><div class="panel-h"><div><h2>Waiting for ${esc(station.name)}</h2><p>Priority lane patients are called first, then in arrival order.${reorder ? " Drag ⠿ to change who is called next." : ""}</p></div></div>
+            <div class="panel-b">${waiting.length ? `<ol class="wlist"${reorder ? ` data-drag-list="line" data-station="${esc(station.code)}"` : ""}>${waiting.map((v, i) => `<li data-id="${v.id}">${reorder && waiting.length > 1 ? `<button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, station.code))}, place ${i + 1} of ${waiting.length}. Use the up and down arrow keys.">⠿</button>` : ""}<span class="pos">${i + 1}</span><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${groupTag(v) ? ` ${groupTag(v)}` : ""}${station.service === "cashier" && payItems(state, v).length ? ` <span class="tag pay">💳 ${payItems(state, v).map(esc).join(", ")}</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
           </section>
           ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map((v) => `<li class="missed"><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
           <section class="panel"><div class="panel-h"><div><h2>Served here today</h2><p>Queue numbers stay here. Call again brings the patient back to ${esc(station.name)}.</p></div><span class="count">${served.length}</span></div>
