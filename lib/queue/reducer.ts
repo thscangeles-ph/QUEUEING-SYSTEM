@@ -283,7 +283,8 @@ export function waitingFor(state: QueueState, station: string): Visit[] {
       const step = currentStep(visit);
       return !visit.cancelled && step?.station === station && step.status === "waiting";
     })
-    .sort((a, b) => Number(b.priority) - Number(a.priority) || (currentStep(a)!.queuedAt ?? 0) - (currentStep(b)!.queuedAt ?? 0) || a.seq - b.seq);
+    // Patients staff dragged into an order come first, in that order; then priority lane, then arrival order.
+    .sort((a, b) => (currentStep(a)!.lineOrder ?? Infinity) - (currentStep(b)!.lineOrder ?? Infinity) || Number(b.priority) - Number(a.priority) || (currentStep(a)!.queuedAt ?? 0) - (currentStep(b)!.queuedAt ?? 0) || a.seq - b.seq);
 }
 
 export function servingAt(state: QueueState, station: string): Visit[] {
@@ -441,6 +442,21 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       }
       return { ok: true, visitId: visit.id, label: currentLabel(visit) };
     }
+    case "moveInLine": {
+      const station = findStation(state, action.station);
+      const visit = findVisit(action.visitId);
+      if (!station || !visit) return fail("That patient is not waiting for this station.");
+      const list = waitingFor(state, station.code);
+      const from = list.indexOf(visit);
+      if (from < 0) return fail("That patient is not waiting for this station.");
+      const to = typeof action.to === "number" ? Math.round(action.to) : from + (Number(action.offset) < 0 ? -1 : 1);
+      if (!Number.isFinite(to) || to < 0 || to >= list.length || to === from) return { ok: true };
+      list.splice(from, 1);
+      list.splice(to, 0, visit);
+      // The whole line keeps this order; patients who join later wait after it.
+      list.forEach((item, index) => { currentStep(item)!.lineOrder = index; });
+      return { ok: true };
+    }
     case "movePreRegistered": {
       const visit = findVisit(action.visitId);
       if (!visit?.expected) return fail("That patient is not in the pre-registered list.");
@@ -524,6 +540,8 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       step.status = "called";
       step.calledAt = now;
       step.calls += 1;
+      // A patient returned to the line later takes their place again instead of an old dragged one.
+      delete step.lineOrder;
       const label = ticketLabel(target, station.code);
       announce(state, { at: now, kind: "ticket", label, station: station.code });
       return { ok: true, visitId: target.id, label };

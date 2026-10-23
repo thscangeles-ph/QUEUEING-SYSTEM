@@ -32,6 +32,8 @@ export type Step = {
   calledAt: number | null;
   doneAt: number | null;
   calls: number;
+  /** Place in the station's line once staff have dragged patients in it; cleared when the patient is called. */
+  lineOrder?: number;
   /** Set when a consultation is finished: the professional fee (or no charge) and other items to pay at the cashier. */
   billing?: Billing;
 };
@@ -170,6 +172,8 @@ export type QueueAction =
   | { type: "register"; visitId?: string; visit: VisitInput; preRegister?: boolean }
   /** A pre-registered patient has arrived: their first service's line starts now. */
   | { type: "checkIn"; visitId: string }
+  /** Moves a patient in a station's waiting line: to a place (to, from 0, when dragged) or one up (-1) or down (1). */
+  | { type: "moveInLine"; station: string; visitId: string; to?: number; offset?: number }
   /** Moves a pre-registered patient in their clinic's list: to a place (to, from 0, when dragged) or one up (-1) or down (1). */
   | { type: "movePreRegistered"; visitId: string; to?: number; offset?: number }
   /** A patient takes a queue number with the QR code, giving their name and the purpose(s) of the visit. */
