@@ -58,7 +58,7 @@ The queue follows the clinic's arrival flow:
 
 1. **Patient arrives** and goes to the front desk.
 2. **Concierge** gives the patient a plain queue number on arrival (Front desk → *Queue number*: `01`, `02`, …) and calls it when it is their turn to register. The number shows on the TV. A number removed with ✕ before registering (the patient left) is given again to the next arrival, lowest first, so numbers are not skipped; this works the same for `HMO-01` numbers. Walk-in or scheduled is chosen at registration.
-3. **Concierge registers the patient** on the Queue Board (and in the Lab Info System as usual), picks their services in order, and tells the patient their queue number, e.g. `01-C1-W`.
+3. **Concierge registers the patient** on the Queue Board (and in the Lab Info System as usual): name, birthday (day, month, year; the age is filled in from it, or typed when the birthday is not known), requesting physician and mobile number, picks their services in order, and tells the patient their queue number, e.g. `01-C1-W`.
 4. **The patient watches the TV**, which shows every queue number being called and who is next.
 
 ### Queue numbers
