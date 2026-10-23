@@ -69,6 +69,8 @@ export type Visit = {
   expected?: boolean;
   /** Appointment time of a pre-registered patient, e.g. "10:30". */
   appointment?: string;
+  /** Place in the clinic's pre-registered list, once staff have moved patients up or down in it. */
+  order?: number;
   /** When the Concierge pre-registered the patient; createdAt becomes the arrival time when they come. */
   preRegisteredAt?: number | null;
   /** Why the patient came, chosen on the QR check-in page (e.g. "Doctor consultation", "ECG"). Staff only. */
@@ -168,6 +170,8 @@ export type QueueAction =
   | { type: "register"; visitId?: string; visit: VisitInput; preRegister?: boolean }
   /** A pre-registered patient has arrived: their first service's line starts now. */
   | { type: "checkIn"; visitId: string }
+  /** Moves a pre-registered patient in their clinic's list: to a place (to, from 0, when dragged) or one up (-1) or down (1). */
+  | { type: "movePreRegistered"; visitId: string; to?: number; offset?: number }
   /** A patient takes a queue number with the QR code, giving their name and the purpose(s) of the visit. */
   | { type: "qrArrive"; name?: string; purposes?: string[] }
   | { type: "verify"; visitId: string }
