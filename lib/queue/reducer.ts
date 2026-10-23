@@ -11,6 +11,13 @@ export const DEFAULT_CLINIC = "The Heart Specialists Clinic";
 /** The clinic's name as set in System configuration. */
 export const clinicNameOf = (settings?: Partial<Settings>) => clean(settings?.clinicName, 80) || DEFAULT_CLINIC;
 
+/** A clinic's pre-registered patients who have not arrived yet: in the order staff set, otherwise by appointment time, then number. */
+export function preRegisteredList(state: QueueState, clinic: string | null): Visit[] {
+  return state.visits
+    .filter((visit) => visit.expected && !visit.cancelled && clinicOf(visit.kind) === clinic)
+    .sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || (a.appointment || "99:99").localeCompare(b.appointment || "99:99") || a.seq - b.seq);
+}
+
 /** The purposes of a visit a patient can choose on the QR check-in page; each test or procedure brings its station. */
 export function purposeOptions(settings: Settings): { label: string; station?: string }[] {
   const options: { label: string; station?: string }[] = [{ label: "Doctor consultation" }];
@@ -433,6 +440,19 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
         visit.steps.forEach((step) => { step.status = "pending"; step.queuedAt = null; });
       }
       return { ok: true, visitId: visit.id, label: currentLabel(visit) };
+    }
+    case "movePreRegistered": {
+      const visit = findVisit(action.visitId);
+      if (!visit?.expected) return fail("That patient is not in the pre-registered list.");
+      const list = preRegisteredList(state, clinicOf(visit.kind));
+      const from = list.indexOf(visit);
+      const to = typeof action.to === "number" ? Math.round(action.to) : from + (Number(action.offset) < 0 ? -1 : 1);
+      if (!Number.isFinite(to) || to < 0 || to >= list.length || to === from) return { ok: true };
+      list.splice(from, 1);
+      list.splice(to, 0, visit);
+      // From now on the whole list keeps the order staff set; patients pre-registered later go to the end.
+      list.forEach((item, index) => { item.order = index; });
+      return { ok: true };
     }
     case "checkIn": {
       const visit = findVisit(action.visitId);

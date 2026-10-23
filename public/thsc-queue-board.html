@@ -95,6 +95,10 @@ label.field em, div.field em { font-style: normal; font-weight: 400; color: var(
 .tag.qr { background: #e8eef7; color: #2d4a6e; }
 .tag.hmo { background: #ece4f6; color: #4b2f7a; }
 .tag.clinic { background: #dff1ef; color: #1d5a56; }
+.drag-handle { flex: none; align-self: stretch; width: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; cursor: grab; touch-action: none; }
+.drag-handle:hover, .drag-handle:focus-visible { background: var(--soft); color: var(--ink); }
+#prereg-list li { transition: box-shadow .1s; } #prereg-list li.dragging { position: relative; z-index: 5; background: var(--card); border-color: var(--gold); box-shadow: 0 10px 24px rgba(31,26,18,.25); cursor: grabbing; transition: none; }
+#prereg-list li.drop-before { box-shadow: inset 0 3px 0 var(--gold); } #prereg-list li.drop-after { box-shadow: inset 0 -3px 0 var(--gold); }
 .tag.pay { background: #fde8d4; color: #8a4a12; } .tag.paid { background: var(--ok-bg); color: var(--ok); }
 .serving .bill { margin-top: 16px; border-top: 1px solid #4a3d27; padding-top: 14px; }
 .serving .bill .k2 { color: #cbbd9d; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; margin: 0 0 8px; }
@@ -517,6 +521,12 @@ const MAX_STEPS = 8;
 const DEFAULT_CLINIC = "The Heart Specialists Clinic";
 /** The clinic's name as set in System configuration. */
 const clinicNameOf = (settings) => clean(settings?.clinicName, 80) || DEFAULT_CLINIC;
+/** A clinic's pre-registered patients who have not arrived yet: in the order staff set, otherwise by appointment time, then number. */
+function preRegisteredList(state, clinic) {
+    return state.visits
+        .filter((visit) => visit.expected && !visit.cancelled && clinicOf(visit.kind) === clinic)
+        .sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || (a.appointment || "99:99").localeCompare(b.appointment || "99:99") || a.seq - b.seq);
+}
 /** The purposes of a visit a patient can choose on the QR check-in page; each test or procedure brings its station. */
 function purposeOptions(settings) {
     const options = [{ label: "Doctor consultation" }];
@@ -909,6 +919,21 @@ function run(state, action, now) {
                 visit.steps.forEach((step) => { step.status = "pending"; step.queuedAt = null; });
             }
             return { ok: true, visitId: visit.id, label: currentLabel(visit) };
+        }
+        case "movePreRegistered": {
+            const visit = findVisit(action.visitId);
+            if (!visit?.expected)
+                return fail("That patient is not in the pre-registered list.");
+            const list = preRegisteredList(state, clinicOf(visit.kind));
+            const from = list.indexOf(visit);
+            const to = typeof action.to === "number" ? Math.round(action.to) : from + (Number(action.offset) < 0 ? -1 : 1);
+            if (!Number.isFinite(to) || to < 0 || to >= list.length || to === from)
+                return { ok: true };
+            list.splice(from, 1);
+            list.splice(to, 0, visit);
+            // From now on the whole list keeps the order staff set; patients pre-registered later go to the end.
+            list.forEach((item, index) => { item.order = index; });
+            return { ok: true };
         }
         case "checkIn": {
             const visit = findVisit(action.visitId);
@@ -1794,6 +1819,48 @@ function downloadQueueReport(xlsx, state, now) {
     ["#reg-name", "#reg-mobile", "#reg-notes", "#reg-hmo", "#reg-loa"].forEach((sel) => { const input = $(sel); if (input) input.value = ""; });
   }
   resetForm();
+  // Pre-registered patients: drag the ⠿ handle up or down (mouse or touch), or press ↑ ↓ on it.
+  let preregDrag = null;
+  document.addEventListener("pointerdown", (event) => {
+    const handle = event.target.closest?.("#prereg-list .drag-handle");
+    if (!handle || view !== "desk" || event.button > 0) return;
+    const li = handle.closest("li");
+    const rows = [...li.parentElement.querySelectorAll("li[data-id]")];
+    if (rows.length < 2) return;
+    event.preventDefault();
+    handle.setPointerCapture?.(event.pointerId);
+    preregDrag = { id: li.dataset.id, li, rows, from: rows.indexOf(li), to: rows.indexOf(li), pointer: event.pointerId, startY: event.clientY };
+    li.classList.add("dragging");
+  });
+  document.addEventListener("pointermove", (event) => {
+    if (!preregDrag || event.pointerId !== preregDrag.pointer) return;
+    const { li, rows } = preregDrag;
+    li.style.transform = `translateY(${event.clientY - preregDrag.startY}px)`;
+    // The place among the other rows: before the first row whose middle is below the pointer.
+    const others = rows.filter((row) => row !== li);
+    let to = others.findIndex((row) => { const box = row.getBoundingClientRect(); return event.clientY < box.top + box.height / 2; });
+    if (to < 0) to = others.length;
+    preregDrag.to = to;
+    others.forEach((row, index) => { row.classList.toggle("drop-before", index === to && to !== preregDrag.from); row.classList.toggle("drop-after", to === others.length && index === others.length - 1 && to !== preregDrag.from); });
+  });
+  function endPreregDrag(event) {
+    if (!preregDrag || event.pointerId !== preregDrag.pointer) return;
+    const { id, from, to, rows } = preregDrag;
+    rows.forEach((row) => { row.classList.remove("dragging", "drop-before", "drop-after"); row.style.transform = ""; });
+    preregDrag = null;
+    if (event.type === "pointerup" && to !== from) dispatch({ type: "movePreRegistered", visitId: id, to });
+    else updateDesk();
+  }
+  document.addEventListener("pointerup", endPreregDrag);
+  document.addEventListener("pointercancel", endPreregDrag);
+  document.addEventListener("keydown", (event) => {
+    const handle = event.target.closest?.("#prereg-list .drag-handle");
+    if (!handle || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+    event.preventDefault();
+    const id = handle.dataset.id;
+    void dispatch({ type: "movePreRegistered", visitId: id, offset: event.key === "ArrowUp" ? -1 : 1 }).then(() => document.querySelector(`#prereg-list .drag-handle[data-id="${id}"]`)?.focus());
+  });
+
   /** Picks a waiting queue number to register. A number taken with the QR code brings the patient's name and purpose of visit:
    *  the name, "Purpose: …" in the notes, and the tests or procedures chosen as the first services (the Concierge adds the doctor). */
   function pickArrival(v) {
@@ -1968,12 +2035,14 @@ function downloadQueueReport(xlsx, state, now) {
         <button class="btn sm" data-act="registerArrival" data-id="${v.id}">Register</button>
         <button class="btn icon ghost" title="Remove number" aria-label="Remove ${esc(arrivalLabel(v))}" data-act="removeArrival" data-id="${v.id}">✕</button>
       </li>`).join("") : `<li class="empty" style="display:block;border-style:dashed">No one is waiting to register.</li>`;
-    // Clinic 1–3: today's pre-registered (scheduled) patients who have not arrived yet, by appointment time.
-    if ($("#prereg-list")) {
-      const expected = state.visits.filter((v) => v.expected && !v.cancelled && inTab(v)).sort((a, b) => (a.appointment || "99:99").localeCompare(b.appointment || "99:99") || a.seq - b.seq);
+    // Clinic 1–3: today's pre-registered (scheduled) patients who have not arrived yet, by appointment time until staff move them with ↑ ↓.
+    // Not while a patient is being dragged in the list, or the drag would be lost.
+    if ($("#prereg-list") && !preregDrag) {
+      const expected = preRegisteredList(state, clinicOf(deskTab));
       $("#prereg-count").textContent = `Pre-registered, not arrived yet · ${expected.length}`;
-      $("#prereg-list").innerHTML = expected.length ? expected.map((v) => `
-      <li>
+      $("#prereg-list").innerHTML = expected.length ? expected.map((v, i) => `
+      <li data-id="${v.id}">
+        <button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(arrivalLabel(v))}, place ${i + 1} of ${expected.length}. Use the up and down arrow keys.">⠿</button>
         <span class="chip-num wide mono">${esc(arrivalLabel(v))}</span>
         <div class="info"><b>${esc(v.name)}</b><span>${v.appointment ? `🕘 ${esc(v.appointment)} · ` : ""}${esc(v.steps.map((st) => stationName(state, st.station)).join(" → "))}</span></div>
         <button class="btn sm" data-act="checkIn" data-id="${v.id}">✅ Arrived</button>
@@ -3323,6 +3392,7 @@ function downloadQueueReport(xlsx, state, now) {
       case "registerArrival": { const v = state.visits.find((x) => x.id === id); if (v) { pickArrival(v); updateDesk(); $("#reg-name").focus(); } break; }
       case "togArrNew": arr.newPatient = !arr.newPatient; updateDesk(); break;
       case "togPrereg": form.prereg = !form.prereg; updateDesk(); break;
+
       case "checkIn": { const v = state.visits.find((x) => x.id === id); if (v) dispatch({ type: "checkIn", visitId: id }, (r) => `${r.label} has arrived and is now in line${currentStep(v) ? ` for ${stationName(state, currentStep(v).station)}` : ""}.`); break; }
       case "togArrPrio": arr.priority = !arr.priority; updateDesk(); break;
       case "togRegNew": form.newPatient = !form.newPatient; updateDesk(); break;
