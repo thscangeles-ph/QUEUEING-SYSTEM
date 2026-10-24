@@ -39,7 +39,7 @@ set /p "PIN=Staff PIN: "
 if not defined PIN goto ask_pin
 > "local-server\settings.cmd" echo set "QUEUE_STAFF_PIN=%PIN%"
 >> "local-server\settings.cmd" echo set "PORT=3000"
->> "local-server\settings.cmd" echo set "QUEUE_DATA_FILE=%LOCALAPPDATA%\THSC-Queue\queue.json"
+>> "local-server\settings.cmd" echo set "QUEUE_DATA_FILE=%%LOCALAPPDATA%%\THSC-Queue\queue.json"
 echo Saved. To change the PIN later, edit local-server\settings.cmd with Notepad.
 :have_settings
 call "local-server\settings.cmd"

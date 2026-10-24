@@ -26,7 +26,7 @@ if not defined PIN goto ask_pin
 if "%PIN:~3,1%"=="" (echo Use at least 4 characters.& goto ask_pin)
 > "settings.cmd" echo set "QUEUE_STAFF_PIN=%PIN%"
 >> "settings.cmd" echo set "PORT=3000"
->> "settings.cmd" echo set "QUEUE_DATA_FILE=%LOCALAPPDATA%\THSC-Queue\queue.json"
+>> "settings.cmd" echo set "QUEUE_DATA_FILE=%%LOCALAPPDATA%%\THSC-Queue\queue.json"
 echo Saved. To change the PIN later, edit settings.cmd with Notepad.
 :have_settings
 call "settings.cmd"

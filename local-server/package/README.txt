@@ -43,5 +43,13 @@ GOOD TO KNOW
   double-click fix-network.cmd on this computer: it sets the network to Private, removes firewall rules that
   block Node.js and allows the queue port. The phone must be on the same Wi-Fi as this computer.
 - Patients' phones must be on the clinic Wi-Fi to use the QR code.
-- Only one computer should be the server. To move it, stop the old one (close its window and delete
-  "THSC Queue Server.cmd" from its shell:startup folder) and copy queue.json across if you want to keep the data.
+- Only one computer should be the server. To move it to another computer, see MOVE TO ANOTHER SERVER below.
+
+MOVE TO ANOTHER SERVER (or remove it)
+1. On the old server, double-click uninstall-server.cmd. Answer Y to save a backup on the desktop, then type
+   REMOVE. It stops the server, removes it from Windows startup, deletes the desktop icons and the firewall
+   rule (click Yes when Windows asks), deletes the queue data and this folder.
+2. Set up the new server with SETUP.cmd (use the same staff PIN), then follow HOW-TO-RESTORE.txt in the
+   backup folder to bring back the settings, TV pictures and the queue.
+3. Easiest: give the new server the old server's IP address. Otherwise change the QR code address in
+   System configuration, the TV computers' queue-server.txt and the bookmarks on tablets and phones.
