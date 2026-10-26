@@ -334,6 +334,13 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 .kiosk-fs { position: fixed; right: 14px; bottom: 14px; z-index: 50; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; padding: 0; cursor: pointer; border: 1px solid rgba(240,200,100,.45); background: rgba(31,26,18,.72); color: var(--gold-2); opacity: .8; touch-action: manipulation; }
 .kiosk-fs:hover, .kiosk-fs:focus-visible { opacity: 1; } .kiosk-fs:active { transform: scale(.94); }
 .kiosk-fs svg { width: 22px; height: 22px; }
+.bulk { border: 1px dashed var(--line); border-radius: 12px; padding: 12px; margin: 0 0 12px; background: var(--paper, #fffdf8); }
+.bulk textarea { width: 100%; min-height: 120px; font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; resize: vertical; box-sizing: border-box; }
+.bulk-rows { list-style: none; margin: 8px 0; padding: 0; max-height: 260px; overflow: auto; font-size: 13px; }
+.bulk-rows li { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px; border-bottom: 1px solid var(--line); }
+.bulk-rows li.skip { color: var(--muted); text-decoration: line-through; }
+.bulk-rows .mono { font-weight: 800; min-width: 64px; }
+.bulk-rows em { color: #b4233c; font-style: normal; font-weight: 600; text-decoration: none; }
 .yt-hint { font-size: 12px; font-weight: 600; margin: 0; } .yt-hint.ok { color: var(--ok); } .yt-hint.err { color: #b4233c; }
 @media (prefers-reduced-motion: reduce) { .ticker span, .hero.fresh, .vid-over > div { animation: none; } .tabs a.queued:not(.on) { animation: none; background: #f6c6cd; } }
 
@@ -1488,6 +1495,45 @@ function appointmentText(time) {
     const hour = Number(match[1]);
     return `${hour % 12 || 12}:${match[2]} ${hour < 12 ? "AM" : "PM"}`;
 }
+/**
+ * A pasted list of scheduled patients, one per line (typed, or copied from Excel, Word or a chat message):
+ * the name, and optionally an appointment time (9:30, 9:30 AM, 2:30pm, 14:30) and a cellphone number
+ * (09171234567, 0917 123 4567, 0917-123-4567, +63 917 123 4567, 639171234567 or 9171234567) anywhere on the line. Other columns, split by tabs (Excel), semicolons or "|", go to the notes. Commas do not split,
+ * so "DELA CRUZ, JUAN" stays one name.
+ * A time without AM/PM from 1:00 to 6:59 is taken as PM (clinic hours). Numbering ("1." "2)") and a header row are skipped.
+ */
+function parsePatientList(text) {
+    const rows = [];
+    for (const raw of String(text ?? "").split(/\r?\n/)) {
+        let line = raw.trim();
+        if (!line)
+            continue;
+        let mobile = "";
+        // Saved as 09XXXXXXXXX, the way the registration form and the copied message use it.
+        line = line.replace(/(?<![\d+])(?:\+?63[\s-]?)?\(?0?9\d{2}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)/, (match) => { mobile = `0${match.replace(/\D/g, "").replace(/^63/, "").replace(/^0/, "")}`; return " "; });
+        let appointment = "";
+        line = line.replace(/\b(\d{1,2})(?:[:.](\d{2}))?\s*([ap])\.?\s?m\.?(?![a-z])|\b(\d{1,2})[:.](\d{2})\b(?![./-]\d)/i, (match, h1, m1, ap, h2, m2) => {
+            let hour = Number(h1 ?? h2);
+            const minute = Number(m1 ?? m2 ?? 0);
+            if (hour > 23 || minute > 59 || (ap && (hour < 1 || hour > 12)))
+                return match;
+            if (ap)
+                hour = (hour % 12) + (ap.toLowerCase() === "p" ? 12 : 0);
+            else if (hour >= 1 && hour < 7)
+                hour += 12;
+            appointment = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+            return " ";
+        });
+        const fields = line.split(/\t|[;|]/).map((part) => part.replace(/\s+/g, " ").replace(/\s*,(?:\s*,)+/g, ",").replace(/^[\s,]+|[\s,]+$/g, "")).filter((part) => part && !/^[-–—:]+$/.test(part));
+        let name = (fields.shift() ?? "").replace(/^(?:no\.?\s*)?\d{1,3}\s*[.)\]-]\s*|^\d{1,3}\s+(?=\D)/i, "").replace(/^[-–—•*]\s*/, "").replace(/[-–—:]+$/, "").trim();
+        if (!rows.length && !appointment && !mobile && /^(patients?(\s+name)?|names?|full\s+name|#)$/i.test(name))
+            continue;
+        if (!/\p{L}/u.test(name))
+            name = "";
+        rows.push({ line: raw.trim(), name: name.slice(0, 80), appointment, mobile, notes: fields.join(" · ").slice(0, 200) });
+    }
+    return rows;
+}
 /** The extra lines on the slip of a pre-registered (scheduled) clinic patient: clinic, name and appointment, and where to go on arrival. */
 function preRegisteredSlip(visit) {
     return {
@@ -1498,7 +1544,7 @@ function preRegisteredSlip(visit) {
 }
 /** A page listing a clinic's pre-registered patients who have not arrived yet, in their queue order. */
 function preRegisteredListHtml(visits, clinic, clinicName, logoUrl, now) {
-    const rows = visits.map((visit, i) => `<tr><td>${i + 1}</td><td class="n">${escapeHtml(visit.label)}</td><td>${escapeHtml(visit.name)}</td><td>${escapeHtml(appointmentText(visit.appointment))}</td><td>${escapeHtml(visit.services)}</td><td></td></tr>`).join("");
+    const rows = visits.map((visit, i) => `<tr><td>${i + 1}</td><td class="n">${escapeHtml(visit.label)}</td><td>${escapeHtml(visit.name)}</td><td>${escapeHtml(visit.mobile)}</td><td>${escapeHtml(appointmentText(visit.appointment))}</td><td>${escapeHtml(visit.services)}</td><td></td></tr>`).join("");
     return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(clinic)} pre-registered</title><style>
 @page { size: A4; margin: 12mm; }
 body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; color: #000; }
@@ -1513,7 +1559,7 @@ td.n { font: 700 13pt ui-monospace, Consolas, monospace; white-space: nowrap; }
 td:last-child { width: 22mm; }
 </style></head><body>
 <header><img src="${logoUrl}" alt=""><div><h1>${escapeHtml(clinic)} · Pre-registered patients</h1><p>${escapeHtml(clinicName)} · printed ${escapeHtml(slipTime.format(new Date(now)))} · ${visits.length} not arrived yet</p></div></header>
-<table><thead><tr><th>#</th><th>Queue number</th><th>Patient</th><th>Appointment</th><th>Services</th><th>Arrived</th></tr></thead><tbody>${rows || `<tr><td colspan="6">No pre-registered patients.</td></tr>`}</tbody></table>
+<table><thead><tr><th>#</th><th>Queue number</th><th>Patient</th><th>Cellphone</th><th>Appointment</th><th>Services</th><th>Arrived</th></tr></thead><tbody>${rows || `<tr><td colspan="7">No pre-registered patients.</td></tr>`}</tbody></table>
 <script>window.onload = function () { window.focus(); window.print(); };<\/script>
 </body></html>`;
 }
@@ -2130,7 +2176,14 @@ function downloadQueueReport(xlsx, state, now) {
               <form class="reg" id="reg">
                 ${isHmoTab() || isClinicTab() ? "" : `<div class="seg" role="radiogroup" aria-label="Patient type"><button type="button" data-act="kind" data-kind="W" role="radio">Walk-in (W)</button><button type="button" data-act="kind" data-kind="S" role="radio">Scheduled (S)</button></div>`}
                 <label class="field">Queue number<select id="reg-arrival"></select></label>
-                ${isClinicTab() ? `<div class="toggles" style="margin-top:0"><button type="button" class="tog" id="reg-prereg" data-act="togPrereg" aria-pressed="false"><span class="box">✓</span><span><b>📅 Pre-register</b><small>Scheduled, not here yet: the number is ready when they arrive</small></span></button><label class="field" id="reg-appt-wrap" style="margin:0">Appointment time<em>Optional</em><input type="time" id="reg-appt"></label></div>` : ""}
+                ${isClinicTab() ? `<div class="toggles" style="margin-top:0"><button type="button" class="tog" id="reg-prereg" data-act="togPrereg" aria-pressed="false"><span class="box">✓</span><span><b>📅 Pre-register</b><small>Scheduled, not here yet: the number is ready when they arrive</small></span></button><label class="field" id="reg-appt-wrap" style="margin:0">Appointment time<em>Optional</em><input type="time" id="reg-appt"></label></div>
+                <div style="margin:-4px 0 12px"><button type="button" class="btn sm outline" data-act="bulkToggle" id="bulk-open">📋 Paste a list of patients</button></div>
+                <div class="bulk hidden" id="bulk">
+                  <label class="field" style="margin:0">Paste the list of scheduled ${clinicOf(deskTab)} patients<em>One patient per line: the name, and the appointment time and cellphone number if you have them. Copy it from Excel, Word or a message.</em><textarea id="bulk-text" placeholder="Maria Santos, 9:30 AM, 0917 123 4567&#10;DELA CRUZ, JUAN 10:00&#10;Ana Reyes"></textarea></label>
+                  <p class="sub" id="bulk-summary" style="margin:8px 0 0;text-transform:none;letter-spacing:0;font-size:13px"></p>
+                  <ul class="bulk-rows" id="bulk-rows"></ul>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn sm" data-act="bulkSave" id="bulk-save" disabled>📅 Pre-register all</button><button type="button" class="btn sm ghost" data-act="bulkToggle">Cancel</button></div>
+                </div>` : ""}
                 <label class="field">Patient name<input type="text" id="reg-name" placeholder="Full name" autocomplete="off" required></label>
                 <div class="field bday-field">Birthday<em>Optional — the age is filled in from it</em><div class="bday-row">
                   <select id="reg-bday-day" aria-label="Day of birth"><option value="">Day</option>${Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join("")}</select>
@@ -2184,6 +2237,7 @@ function downloadQueueReport(xlsx, state, now) {
     $("#reg-mobile").addEventListener("input", (e) => { form.mobile = e.target.value; });
     $("#reg-notes").addEventListener("input", (e) => { form.notes = e.target.value; });
     $("#reg-appt")?.addEventListener("input", (e) => { form.appointment = e.target.value; });
+    $("#bulk-text")?.addEventListener("input", renderBulk);
     $("#reg-arrival").addEventListener("change", (e) => {
       form.arrival = e.target.value || null;
       const v = form.arrival && state.visits.find((x) => x.id === form.arrival);
@@ -2216,6 +2270,70 @@ function downloadQueueReport(xlsx, state, now) {
 
   let registering = false;
   let arriving = false;
+  // ---- Clinic 1–3: paste a list of scheduled patients; each one is pre-registered with its own number ----
+  let bulkSaving = false;
+  /** The pasted patients, each with the number it will get (worked out on a copy of today's queue), or why it is skipped. */
+  function bulkPlan() {
+    const clinic = clinicOf(deskTab);
+    const stations = form.stations.length ? form.stations : clinicStations();
+    const seen = new Set(state.visits.filter((v) => clinicOf(v.kind) === clinic && !v.cancelled && !v.clearedAt).map((v) => v.name.trim().toLowerCase()));
+    let preview = state;
+    const now = Date.now();
+    return parsePatientList($("#bulk-text")?.value).map((row) => {
+      if (!row.name) return { ...row, skip: "no name" };
+      const key = row.name.toLowerCase();
+      if (seen.has(key)) return { ...row, skip: "already on today's list" };
+      seen.add(key);
+      if (!stations.length) return { ...row, skip: "choose the services in Step 2" };
+      const action = bulkAction(row, stations);
+      const applied = applyAction(preview, action, now);
+      if (!applied.result.ok) return { ...row, skip: applied.result.error };
+      preview = applied.state;
+      return { ...row, action, label: arrivalLabel(preview.visits.find((v) => v.id === applied.result.visitId)) };
+    });
+  }
+  const bulkAction = (row, stations) => ({ type: "register", preRegister: true, visit: { kind: deskTab, name: row.name, mobile: row.mobile, notes: row.notes, hmo: "", loa: "", priority: false, newPatient: false, stations, appointment: row.appointment, birthDate: "", age: null, requestingPhysician: form.physician } });
+  function renderBulk() {
+    const box = $("#bulk");
+    if (!box || box.classList.contains("hidden")) return;
+    const plan = bulkPlan();
+    const ready = plan.filter((row) => !row.skip);
+    const stations = form.stations.length ? form.stations : clinicStations();
+    $("#bulk-rows").innerHTML = plan.map((row) => `<li class="${row.skip ? "skip" : ""}"><span class="mono">${row.skip ? "—" : esc(row.label)}</span><span><b>${esc(row.name || row.line)}</b>${row.appointment ? ` · 🕘 ${esc(appointmentText(row.appointment))}` : ""}${row.mobile ? ` · 📱 ${esc(row.mobile)}` : ""}${row.notes ? ` · ${esc(row.notes)}` : ""}${row.skip ? ` <em>(${esc(row.skip)})</em>` : ""}</span></li>`).join("");
+    $("#bulk-summary").textContent = plan.length
+      ? `${ready.length} of ${plan.length} will be pre-registered${stations.length ? ` · services for everyone: ${stations.map((code) => stationName(state, code)).join(" → ")} (change them in Step 2 below)` : ""}${form.physician ? ` · requested by ${form.physician}` : ""}`
+      : "Paste or type the list above. The queue numbers show here before anything is saved.";
+    const save = $("#bulk-save");
+    save.disabled = bulkSaving || !ready.length;
+    save.textContent = bulkSaving ? "Saving…" : `📅 Pre-register ${ready.length || "all"} patient${ready.length === 1 ? "" : "s"}`;
+  }
+  async function saveBulk() {
+    if (bulkSaving) return;
+    const plan = bulkPlan();
+    const ready = plan.filter((row) => !row.skip);
+    if (!ready.length) return;
+    bulkSaving = true;
+    renderBulk();
+    const done = [];
+    let failed = null;
+    // One at a time, so every patient gets the next number even when other computers add numbers meanwhile.
+    for (const row of ready) {
+      const result = await dispatch(row.action);
+      if (!result.ok) { failed = row; break; }
+      const visit = state.visits.find((v) => v.id === result.visitId);
+      done.push(visit ? arrivalLabel(visit) : result.label);
+    }
+    bulkSaving = false;
+    if (view !== "desk") return;
+    if (done.length) {
+      // What was saved leaves the box; anything not saved stays so it can be fixed and saved again.
+      const saved = new Set(ready.slice(0, done.length));
+      $("#bulk-text").value = plan.filter((row) => !saved.has(row)).map((row) => row.line).join("\n");
+      toast(`${done.length} patient${done.length === 1 ? "" : "s"} pre-registered: ${done.length > 1 ? `${done[0]} to ${done[done.length - 1]}` : done[0]}.${failed ? ` Stopped at ${failed.name}.` : ""}`, Boolean(failed));
+    }
+    if (!failed && !$("#bulk-text").value.trim()) $("#bulk").classList.add("hidden");
+    updateDesk();
+  }
   function syncSubmit() { const btn = $("#reg-submit"); if (btn) btn.disabled = registering || !form.name.trim() || !form.stations.length; }
 
   /** The front desk's TV video sound control, kept in step with the shared settings. */
@@ -2283,12 +2401,13 @@ function downloadQueueReport(xlsx, state, now) {
       <li data-id="${v.id}">
         <button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(arrivalLabel(v))}, place ${i + 1} of ${expected.length}. Use the up and down arrow keys.">⠿</button>
         <span class="chip-num wide mono">${esc(arrivalLabel(v))}</span>
-        <div class="info"><b>${esc(v.name)}</b><span>${v.appointment ? `🕘 ${esc(v.appointment)} · ` : ""}${esc(v.steps.map((st) => stationName(state, st.station)).join(" → "))}</span></div>
+        <div class="info"><b>${esc(v.name)}</b><span>${v.appointment ? `🕘 ${esc(v.appointment)} · ` : ""}${v.mobile ? `📱 ${esc(v.mobile)} · ` : ""}${esc(v.steps.map((st) => stationName(state, st.station)).join(" → "))}</span></div>
         <button class="btn icon ghost" data-act="slip" data-id="${v.id}" title="Print the queue number slip" aria-label="Print slip for ${esc(arrivalLabel(v))}">🖨</button>
         <button class="btn sm" data-act="checkIn" data-id="${v.id}">✅ Arrived</button>
         <button class="btn icon ghost" title="Cancel (did not come)" aria-label="Cancel ${esc(arrivalLabel(v))}" data-act="cancel" data-id="${v.id}">✕</button>
       </li>`).join("") : `<li class="empty" style="display:block;border-style:dashed">No pre-registered patients. Use 📅 Pre-register in Step 2 for scheduled patients before they come.</li>`;
     }
+    if (!bulkSaving) renderBulk();
     // Pre-register is for a new number only; an arrived patient is registered as usual.
     const prereg = $("#reg-prereg");
     if (prereg) {
@@ -3657,7 +3776,7 @@ function downloadQueueReport(xlsx, state, now) {
       }
       case "printPrereg": {
         const clinic = clinicOf(deskTab);
-        const visits = preRegisteredList(state, clinic).map((v) => ({ label: arrivalLabel(v), name: v.name, appointment: v.appointment, services: v.steps.map((st) => stationName(state, st.station)).join(" → ") }));
+        const visits = preRegisteredList(state, clinic).map((v) => ({ label: arrivalLabel(v), name: v.name, mobile: v.mobile, appointment: v.appointment, services: v.steps.map((st) => stationName(state, st.station)).join(" → ") }));
         if (!visits.length) { toast(`${clinic} has no pre-registered patients to print.`, true); break; }
         const win = window.open("", "thsc-prereg-list", "width=900,height=700");
         if (!win) { toast("The browser blocked the print window — allow pop-ups for this page.", true); break; }
@@ -3671,6 +3790,14 @@ function downloadQueueReport(xlsx, state, now) {
       case "registerArrival": { const v = state.visits.find((x) => x.id === id); if (v) { pickArrival(v); updateDesk(); $("#reg-name").focus(); } break; }
       case "togArrNew": arr.newPatient = !arr.newPatient; updateDesk(); break;
       case "togPrereg": form.prereg = !form.prereg; updateDesk(); break;
+      case "bulkToggle": {
+        const box = $("#bulk");
+        if (!box || bulkSaving) break;
+        box.classList.toggle("hidden");
+        if (!box.classList.contains("hidden")) { renderBulk(); $("#bulk-text").focus(); }
+        break;
+      }
+      case "bulkSave": void saveBulk(); break;
       case "clinicReport": {
         const clinic = clinicOf(deskTab);
         if (state.visits.some((v) => clinicOf(v.kind) === clinic && !v.clearedAt)) downloadClinicReport(XLSX, state, deskTab, Date.now(), "");
