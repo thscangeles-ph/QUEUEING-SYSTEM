@@ -1500,10 +1500,21 @@ function appointmentText(time) {
  * the name, and optionally an appointment time (9:30, 9:30 AM, 2:30pm, 14:30) and a cellphone number
  * (09171234567, 0917 123 4567, 0917-123-4567, +63 917 123 4567, 639171234567 or 9171234567) anywhere on the line. Other columns, split by tabs (Excel), semicolons or "|", go to the notes. Commas do not split,
  * so "DELA CRUZ, JUAN" stays one name.
- * A time without AM/PM from 1:00 to 6:59 is taken as PM (clinic hours). Numbering ("1." "2)") and a header row are skipped.
+ * A time without AM/PM from 1:00 to 6:59 is taken as PM (clinic hours). Numbering ("1." "2)") and column headings are skipped.
+ * A table copied from Word, a PDF or a website can put every cell on its own line (name, then cellphone, then the next
+ * row's number): a line with only a cellphone or time joins the patient above it (or, when that patient already has one,
+ * the patient below it), and a line with only a row number is skipped.
  */
 function parsePatientList(text) {
     const rows = [];
+    let pending = null;
+    const merge = (target, detail) => {
+        target.appointment ||= detail.appointment;
+        target.mobile ||= detail.mobile;
+        target.notes = [target.notes, detail.notes].filter(Boolean).join(" · ").slice(0, 200);
+        target.line = `${target.line}\n${detail.line}`;
+        return target;
+    };
     for (const raw of String(text ?? "").split(/\r?\n/)) {
         let line = raw.trim();
         if (!line)
@@ -1526,12 +1537,32 @@ function parsePatientList(text) {
         });
         const fields = line.split(/\t|[;|]/).map((part) => part.replace(/\s+/g, " ").replace(/\s*,(?:\s*,)+/g, ",").replace(/^[\s,]+|[\s,]+$/g, "")).filter((part) => part && !/^[-–—:]+$/.test(part));
         let name = (fields.shift() ?? "").replace(/^(?:no\.?\s*)?\d{1,3}\s*[.)\]-]\s*|^\d{1,3}\s+(?=\D)/i, "").replace(/^[-–—•*]\s*/, "").replace(/[-–—:]+$/, "").trim();
-        if (!rows.length && !appointment && !mobile && /^(patients?(\s+name)?|names?|full\s+name|#)$/i.test(name))
+        // Column headings before the first patient (one line, or one heading per line): "No.", "Name", "Cellphone" …
+        if (!rows.length && !appointment && !mobile && /^(no\.?|#|names?|patients?(\s+names?)?|full\s+names?|((cell(ular)?\s*)?phone|cell|cp|mobile|contact|tel(ephone)?)(\s+(numbers?|nos?\.?|#))?|time|appointment(\s+time)?|schedule|date|remarks|notes|age|birthday|doctor|physician)$/i.test(name))
             continue;
-        if (!/\p{L}/u.test(name))
-            name = "";
-        rows.push({ line: raw.trim(), name: name.slice(0, 80), appointment, mobile, notes: fields.join(" · ").slice(0, 200) });
+        const notes = fields.join(" · ").slice(0, 200);
+        if (!/\p{L}/u.test(name)) {
+            const extra = [name, notes].filter(Boolean).join(" · ");
+            if (!appointment && !mobile && /^[\d\s.)#-]*$/.test(extra))
+                continue;
+            const detail = { line: raw.trim(), name: "", appointment, mobile, notes: extra };
+            const last = rows[rows.length - 1];
+            if (last && !pending && !(mobile && last.mobile) && !(appointment && last.appointment))
+                merge(last, detail);
+            else
+                pending = pending ? merge(pending, detail) : detail;
+            continue;
+        }
+        const row = { line: raw.trim(), name: name.slice(0, 80), appointment, mobile, notes };
+        if (pending) {
+            merge(row, pending);
+            row.line = `${pending.line}\n${raw.trim()}`;
+            pending = null;
+        }
+        rows.push(row);
     }
+    if (pending)
+        rows.push(pending);
     return rows;
 }
 /** The extra lines on the slip of a pre-registered (scheduled) clinic patient: clinic, name and appointment, and where to go on arrival. */
