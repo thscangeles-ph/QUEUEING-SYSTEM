@@ -1,6 +1,7 @@
 import type { ActionResult, AnnounceLanguage, Announcement, Billing, NumberGroup, PatientKind, TaggedGroup, QueueAction, QueueState, Settings, Station, Step, Visit, VisitInput } from "./types";
 import { slipWidthOf } from "./escpos";
 import { configPinOk, hashConfigPin } from "./pin";
+import { smsSettingsOf } from "./sms";
 import { cleanTvMedia } from "./youtube";
 
 export const TIME_ZONE = "Asia/Manila";
@@ -389,9 +390,11 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   const numberTags = numberTagsOf(input.numberTags ?? previous.numberTags);
   if (typeof numberTags === "string") return numberTags;
   const vitalsPlace = clean(input.vitalsPlace ?? previous.vitalsPlace, 60);
+  const sms = smsSettingsOf(input.sms ?? previous.sms, previous.sms);
+  if (typeof sms === "string") return sms;
   // The configuration PIN only changes with setConfigPin, never from the settings form.
   const configPin = previous.configPin ? { configPin: previous.configPin } : {};
-  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, qrAddress, numberTags, vitalsPlace, ...configPin };
+  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, qrAddress, numberTags, vitalsPlace, sms, ...configPin };
 }
 
 export const CONFIG_PIN_NEEDED = "Enter the configuration PIN to change System configuration.";
@@ -586,7 +589,12 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
         if (!name) return fail("Enter the patient's name.");
         visit.name = name;
       }
-      if (action.mobile !== undefined) visit.mobile = clean(action.mobile, 20);
+      if (action.mobile !== undefined && clean(action.mobile, 20) !== visit.mobile) {
+        visit.mobile = clean(action.mobile, 20);
+        // A new cellphone number: the last SMS error was for the old one.
+        visit.smsError = "";
+        visit.smsErrorAt = null;
+      }
       if (action.notes !== undefined) visit.notes = clean(action.notes, 200);
       if (action.priority !== undefined) visit.priority = Boolean(action.priority);
       if (action.newPatient !== undefined) visit.newPatient = Boolean(action.newPatient);
@@ -596,6 +604,20 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       const visit = findVisit(action.visitId);
       if (!visit) return fail("Patient not found.");
       visit.messagedAt = now;
+      return { ok: true };
+    }
+    case "smsResult": {
+      const visit = findVisit(action.visitId);
+      if (!visit) return fail("Patient not found.");
+      if (action.ok) {
+        if (action.kind === "next") visit.smsNextAt = now;
+        else visit.smsAssignedAt = now;
+        visit.smsError = "";
+        visit.smsErrorAt = null;
+      } else {
+        visit.smsError = clean(action.error, 200) || "The SMS could not be sent.";
+        visit.smsErrorAt = now;
+      }
       return { ok: true };
     }
     case "call": {
@@ -773,10 +795,12 @@ function withoutBilling(step: Step): Step {
 /** Removes names, mobile numbers, notes and charges so the TV board and patient phones never receive them. */
 /** The state as screens get it: the configuration PIN's hash is replaced by whether one is set. */
 export function withoutSecrets(state: QueueState): QueueState {
-  const { configPin, ...settings } = state.settings;
-  return { ...state, settings: { ...settings, configPinSet: Boolean(configPin) } };
+  const { configPin, sms, ...settings } = state.settings;
+  const smsView = sms ? (({ password, ...rest }) => ({ ...rest, passwordSet: Boolean(password) }))(sms) : undefined;
+  return { ...state, settings: { ...settings, ...(smsView ? { sms: smsView } : {}), configPinSet: Boolean(configPin) } };
 }
 
 export function publicView(state: QueueState): QueueState {
-  return { ...withoutSecrets(state), visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", purposes: undefined, birthDate: undefined, age: undefined, requestingPhysician: undefined, steps: visit.steps.map(withoutBilling) })) };
+  const view = withoutSecrets(state);
+  return { ...view, settings: { ...view.settings, sms: undefined }, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", smsError: undefined, purposes: undefined, birthDate: undefined, age: undefined, requestingPhysician: undefined, steps: visit.steps.map(withoutBilling) })) };
 }

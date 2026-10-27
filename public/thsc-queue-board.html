@@ -341,6 +341,13 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 .bulk-rows li.skip { color: var(--muted); text-decoration: line-through; }
 .bulk-rows .mono { font-weight: 800; min-width: 64px; }
 .bulk-rows em { color: #b4233c; font-style: normal; font-weight: 600; text-decoration: none; }
+.cfg-text { width: 100%; min-height: 64px; font: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid #d8c79f; border-radius: 8px; resize: vertical; }
+.sms-st { display: inline-block; margin-top: 3px; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 8px; line-height: 1.35; }
+.sms-st.sent { background: var(--ok-bg); color: var(--ok); } .sms-st.next { background: #e8f1ff; color: #23508f; } .sms-st.fail { background: var(--bad-bg); color: var(--bad); } .sms-st.none { background: var(--soft); color: var(--muted); }
+.cards li.prereg-row { flex-wrap: wrap; }
+.prereg-row .info { flex: 1 1 150px; }
+.prereg-row .acts { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.sms-edit { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; } .sms-edit input { min-height: 32px; width: 160px; flex: none; }
 .yt-hint { font-size: 12px; font-weight: 600; margin: 0; } .yt-hint.ok { color: var(--ok); } .yt-hint.err { color: #b4233c; }
 @media (prefers-reduced-motion: reduce) { .ticker span, .hero.fresh, .vid-over > div { animation: none; } .tabs a.queued:not(.on) { animation: none; background: #f6c6cd; } }
 
@@ -917,7 +924,10 @@ function sanitizeSettings(input) {
     const seconds = Math.round(Number(input.slideSeconds ?? 10));
     const slideSeconds = Number.isFinite(seconds) ? Math.min(120, Math.max(3, seconds)) : 10;
     const announceLanguage = input.announceLanguage === "en+fil" || input.announceLanguage === "fil" ? input.announceLanguage : "en";
-    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth), qrAddress, numberTags, vitalsPlace: clean(input.vitalsPlace, 60) };
+    const sms = smsSettingsOf(input.sms, input.sms);
+    if (typeof sms === "string")
+        return sms;
+    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth), qrAddress, numberTags, vitalsPlace: clean(input.vitalsPlace, 60), sms };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -1106,8 +1116,12 @@ function run(state, action, now) {
                     return fail("Enter the patient's name.");
                 visit.name = name;
             }
-            if (action.mobile !== undefined)
+            if (action.mobile !== undefined && clean(action.mobile, 20) !== visit.mobile) {
                 visit.mobile = clean(action.mobile, 20);
+                // A new cellphone number: the last SMS error was for the old one.
+                visit.smsError = "";
+                visit.smsErrorAt = null;
+            }
             if (action.notes !== undefined)
                 visit.notes = clean(action.notes, 200);
             if (action.priority !== undefined)
@@ -1121,6 +1135,24 @@ function run(state, action, now) {
             if (!visit)
                 return fail("Patient not found.");
             visit.messagedAt = now;
+            return { ok: true };
+        }
+        case "smsResult": {
+            const visit = findVisit(action.visitId);
+            if (!visit)
+                return fail("Patient not found.");
+            if (action.ok) {
+                if (action.kind === "next")
+                    visit.smsNextAt = now;
+                else
+                    visit.smsAssignedAt = now;
+                visit.smsError = "";
+                visit.smsErrorAt = null;
+            }
+            else {
+                visit.smsError = clean(action.error, 200) || "The SMS could not be sent.";
+                visit.smsErrorAt = now;
+            }
             return { ok: true };
         }
         case "call": {
@@ -1450,6 +1482,62 @@ function announcementSpeech(item, language = "en") {
 /** Time to leave for each call so two languages never talk over the next call. */
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
+// ---- from lib/queue/sms.ts ----
+const SMS_TEXTS = {
+    assigned: "THSC: Hi {name}, your queue number for {clinic} is {number}{appointment}. Please show this number at the Concierge when you arrive.",
+    next: "THSC: Your queue number {number} ({clinic}) is NEXT IN LINE. Please be ready at the Concierge.",
+};
+const DEFAULT_SMS = { enabled: false, gateway: "", username: "", sim: 0, autoAssigned: true, autoNext: true, assignedText: SMS_TEXTS.assigned, nextText: SMS_TEXTS.next };
+const smsClean = (value, max) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+/** The SMS settings from the settings form; the password is kept when the form leaves it empty (screens never get it). */
+function smsSettingsOf(input, previous) {
+    const raw = { ...DEFAULT_SMS, ...previous, ...input };
+    const gateway = smsClean(raw.gateway, 200).replace(/\/+$/, "");
+    if (gateway && !/^https?:\/\/[^\s/?#]+(\/[^\s?#]*)?$/i.test(gateway))
+        return "SMS gateway phone address: use the address the app shows, like http://172.16.20.50:8080.";
+    const password = String(input?.password ?? "").trim() ? String(input?.password).trim().slice(0, 100) : (previous?.password ?? "");
+    const sim = Number(raw.sim);
+    return {
+        enabled: Boolean(raw.enabled),
+        gateway,
+        username: smsClean(raw.username, 60),
+        ...(password ? { password } : {}),
+        sim: sim === 1 || sim === 2 ? sim : 0,
+        autoAssigned: raw.autoAssigned !== false,
+        autoNext: raw.autoNext !== false,
+        assignedText: smsClean(raw.assignedText, 320) || SMS_TEXTS.assigned,
+        nextText: smsClean(raw.nextText, 320) || SMS_TEXTS.next,
+    };
+}
+/** A Philippine cellphone number in international form (+639171234567), from 0917 123 4567, +63 917…, 63917… or 917…; null if it is not one. */
+function smsPhone(mobile) {
+    const digits = String(mobile ?? "").replace(/\D/g, "");
+    if (/^09\d{9}$/.test(digits))
+        return `+63${digits.slice(1)}`;
+    if (/^639\d{9}$/.test(digits))
+        return `+${digits}`;
+    if (/^9\d{9}$/.test(digits))
+        return `+63${digits}`;
+    return null;
+}
+/** "DELA CRUZ, JUAN MIGUEL" → "Juan", "maria santos" → "Maria". */
+function smsFirstName(name) {
+    const given = name.includes(",") ? name.slice(name.indexOf(",") + 1) : name;
+    const first = given.trim().split(/\s+/)[0] ?? "";
+    return first ? first[0].toUpperCase() + first.slice(1).toLowerCase() : "";
+}
+/** A text with the patient's details filled in. */
+function smsText(template, patient) {
+    const fields = {
+        name: smsFirstName(patient.name) || patient.name,
+        fullname: patient.name,
+        number: patient.label,
+        clinic: patient.clinic,
+        appointment: patient.appointment ? `, appointment ${appointmentText(patient.appointment)}` : "",
+    };
+    return template.replace(/\{(name|fullname|number|clinic|appointment)\}/gi, (_, key) => fields[key.toLowerCase()]).replace(/\s+/g, " ").trim();
+}
+
 // ---- from lib/queue/slip.ts ----
 
 const slipTime = new Intl.DateTimeFormat("en-PH", { timeZone: TIME_ZONE, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
@@ -1535,6 +1623,9 @@ function parsePatientList(text) {
             appointment = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
             return " ";
         });
+        // A cellphone number with a typing mistake (too short or too long) is kept as the cellphone, to fix with ✏️.
+        if (!mobile)
+            line = line.replace(/(?<![\d/:.])\+?\d[\d -]{5,18}\d(?![\d/:.])/, (match) => { const digits = match.replace(/\D/g, ""); if (digits.length < 7 || digits.length > 13) return match; mobile = digits; return " "; });
         const fields = line.split(/\t|[;|]/).map((part) => part.replace(/\s+/g, " ").replace(/\s*,(?:\s*,)+/g, ",").replace(/^[\s,]+|[\s,]+$/g, "")).filter((part) => part && !/^[-–—:]+$/.test(part));
         let name = (fields.shift() ?? "").replace(/^(?:no\.?\s*)?\d{1,3}\s*[.)\]-]\s*|^\d{1,3}\s+(?=\D)/i, "").replace(/^[-–—•*]\s*/, "").replace(/[-–—:]+$/, "").trim();
         // Column headings before the first patient (one line, or one heading per line): "No.", "Name", "Cellphone" …
@@ -1542,9 +1633,14 @@ function parsePatientList(text) {
             continue;
         const notes = fields.join(" · ").slice(0, 200);
         if (!/\p{L}/u.test(name)) {
-            const extra = [name, notes].filter(Boolean).join(" · ");
-            if (!appointment && !mobile && /^[\d\s.)#-]*$/.test(extra))
-                continue;
+            let extra = [name, notes].filter(Boolean).join(" · ");
+            // Digits only: a row number ("3") is skipped, a longer number is a cellphone with a typing mistake (kept, to fix with ✏️).
+            if (!appointment && !mobile && /^[\d\s.()#+-]*$/.test(extra)) {
+                if (extra.replace(/\D/g, "").length < 7)
+                    continue;
+                mobile = extra.replace(/[^\d+]/g, "").slice(0, 20);
+                extra = "";
+            }
             const detail = { line: raw.trim(), name: "", appointment, mobile, notes: extra };
             const last = rows[rows.length - 1];
             if (last && !pending && !(mobile && last.mobile) && !(appointment && last.appointment))
@@ -2196,7 +2292,7 @@ function downloadQueueReport(xlsx, state, now) {
               <div id="newnum"></div>
               <p class="sub" id="reg-count"></p>
               <ul class="cards" id="arrivals"></ul>
-              ${isClinicTab() ? `<p class="sub" id="prereg-count"></p><ul class="cards" id="prereg-list" data-drag-list="prereg"></ul>
+              ${isClinicTab() ? `<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:8px;flex-wrap:wrap"><p class="sub" id="prereg-count"></p><button type="button" class="btn sm hidden" data-act="smsAll" id="sms-all"></button></div><ul class="cards" id="prereg-list" data-drag-list="prereg"></ul>
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)"><button type="button" class="btn sm outline" data-act="printPrereg">🖨 Print pre-registered list</button><button type="button" class="btn sm outline" data-act="clinicReport">📊 ${clinicOf(deskTab)} report</button><button type="button" class="btn sm danger" data-act="clearClinic">🧹 Clear ${clinicOf(deskTab)} for another doctor</button></div>` : ""}
             </div>
           </section>
@@ -2301,6 +2397,46 @@ function downloadQueueReport(xlsx, state, now) {
 
   let registering = false;
   let arriving = false;
+  // ---- SMS to pre-registered patients (sent by the queue server through the clinic's gateway phone) ----
+  const smsReady = () => sync.mode === "server" && Boolean(state.settings.sms?.enabled);
+  /** The line under a pre-registered patient: what was texted and when, or why not. */
+  function smsStatus(v) {
+    if (!state.settings.sms?.enabled && !v.smsAssignedAt && !v.smsNextAt && !v.smsError) return "";
+    const last = Math.max(v.smsAssignedAt ?? 0, v.smsNextAt ?? 0);
+    const line = (kind, text) => `<br><span class="sms-st ${kind}">${text}</span>`;
+    if (v.smsError && (v.smsErrorAt ?? 0) >= last) return line("fail", `⚠ SMS not sent — ${esc(v.smsError)}`);
+    if (v.smsNextAt) return line("next", `✓ Next-in-line SMS sent ${esc(formatTime(v.smsNextAt))}`);
+    if (v.smsAssignedAt) return line("sent", `✓ Number SMS sent ${esc(formatTime(v.smsAssignedAt))}`);
+    if (!v.mobile) return line("none", "No SMS — tap ✏️ to add a cellphone");
+    if (!smsPhone(v.mobile)) return line("fail", "⚠ Check the cellphone number");
+    return line("none", "SMS not sent yet");
+  }
+  /** Sends (or sends again) the texts of these patients; the status under each name shows when they are sent. */
+  async function sendSms(visitIds, kind = "assigned") {
+    const body = await smsRequest({ visitIds, kind });
+    if (body.ok) toast(`Sending ${visitIds.length === 1 ? "the SMS" : `${visitIds.length} SMS, a few seconds apart`}… The line under ${visitIds.length === 1 ? "the name" : "each name"} shows when it is sent.`);
+    else toast(body.error || "The SMS could not be sent.", true);
+  }
+  // The pre-registered patient whose cellphone number is being changed, and what is typed so far.
+  let mobileEdit = null;
+  document.addEventListener("input", (event) => { if (event.target.id === "mobile-edit" && mobileEdit) mobileEdit.value = event.target.value; });
+  document.addEventListener("keydown", (event) => {
+    if (event.target.id !== "mobile-edit" || !mobileEdit) return;
+    if (event.key === "Enter") { event.preventDefault(); void saveMobile(mobileEdit.id); }
+    if (event.key === "Escape") { mobileEdit = null; updateDesk(); }
+  });
+  async function saveMobile(id) {
+    if (!mobileEdit) return;
+    const typed = mobileEdit.value.trim();
+    const phone = smsPhone(typed);
+    if (typed && !phone) { toast("Check the cellphone number, e.g. 0917 123 4567.", true); return; }
+    const mobile = phone ? `0${phone.slice(3)}` : "";
+    const v = state.visits.find((x) => x.id === id);
+    mobileEdit = null;
+    const result = await dispatch({ type: "updateVisit", visitId: id, mobile }, mobile ? `Cellphone of ${v ? arrivalLabel(v) : "the patient"} changed to ${mobile}.` : "Cellphone number removed.");
+    if (result.ok && mobile && smsReady()) await sendSms([id]);
+    updateDesk();
+  }
   // ---- Clinic 1–3: paste a list of scheduled patients; each one is pre-registered with its own number ----
   let bulkSaving = false;
   /** The pasted patients, each with the number it will get (worked out on a copy of today's queue), or why it is skipped. */
@@ -2330,7 +2466,7 @@ function downloadQueueReport(xlsx, state, now) {
     const plan = bulkPlan();
     const ready = plan.filter((row) => !row.skip);
     const stations = form.stations.length ? form.stations : clinicStations();
-    $("#bulk-rows").innerHTML = plan.map((row) => `<li class="${row.skip ? "skip" : ""}"><span class="mono">${row.skip ? "—" : esc(row.label)}</span><span><b>${esc(row.name || row.line)}</b>${row.appointment ? ` · 🕘 ${esc(appointmentText(row.appointment))}` : ""}${row.mobile ? ` · 📱 ${esc(row.mobile)}` : ""}${row.notes ? ` · ${esc(row.notes)}` : ""}${row.skip ? ` <em>(${esc(row.skip)})</em>` : ""}</span></li>`).join("");
+    $("#bulk-rows").innerHTML = plan.map((row) => `<li class="${row.skip ? "skip" : ""}"><span class="mono">${row.skip ? "—" : esc(row.label)}</span><span><b>${esc(row.name || row.line)}</b>${row.appointment ? ` · 🕘 ${esc(appointmentText(row.appointment))}` : ""}${row.mobile ? ` · 📱 ${esc(row.mobile)}${smsPhone(row.mobile) ? "" : " <em>(check this cellphone number)</em>"}` : ""}${row.notes ? ` · ${esc(row.notes)}` : ""}${row.skip ? ` <em>(${esc(row.skip)})</em>` : ""}</span></li>`).join("");
     $("#bulk-summary").textContent = plan.length
       ? `${ready.length} of ${plan.length} will be pre-registered${stations.length ? ` · services for everyone: ${stations.map((code) => stationName(state, code)).join(" → ")} (change them in Step 2 below)` : ""}${form.physician ? ` · requested by ${form.physician}` : ""}`
       : "Paste or type the list above. The queue numbers show here before anything is saved.";
@@ -2425,17 +2561,27 @@ function downloadQueueReport(xlsx, state, now) {
       </li>`).join("") : `<li class="empty" style="display:block;border-style:dashed">No one is waiting to register.</li>`;
     // Clinic 1–3: today's pre-registered (scheduled) patients who have not arrived yet, by appointment time until staff move them with ↑ ↓.
     // Not while a patient is being dragged in the list, or the drag would be lost.
-    if ($("#prereg-list") && !preregDrag) {
+    // Not while a cellphone number is being changed in it either, or the typing would be lost.
+    if ($("#prereg-list") && !preregDrag && !mobileEdit?.shown) {
+      if (mobileEdit) mobileEdit.shown = true;
       const expected = preRegisteredList(state, clinicOf(deskTab));
       $("#prereg-count").textContent = `Pre-registered, not arrived yet · ${expected.length}`;
+      const untexted = expected.filter((v) => !v.smsAssignedAt && smsPhone(v.mobile));
+      const smsAll = $("#sms-all");
+      smsAll.classList.toggle("hidden", !smsReady() || !untexted.length);
+      smsAll.textContent = `📱 SMS all · ${untexted.length} not texted`;
       $("#prereg-list").innerHTML = expected.length ? expected.map((v, i) => `
-      <li data-id="${v.id}">
+      <li data-id="${v.id}" class="prereg-row">
         <button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(arrivalLabel(v))}, place ${i + 1} of ${expected.length}. Use the up and down arrow keys.">⠿</button>
         <span class="chip-num wide mono">${esc(arrivalLabel(v))}</span>
-        <div class="info"><b>${esc(v.name)}</b><span>${v.appointment ? `🕘 ${esc(v.appointment)} · ` : ""}${v.mobile ? `📱 ${esc(v.mobile)} · ` : ""}${esc(v.steps.map((st) => stationName(state, st.station)).join(" → "))}</span></div>
+        <div class="info"><b>${esc(v.name)}</b><span>${v.appointment ? `🕘 ${esc(v.appointment)} · ` : ""}${v.mobile ? `📱 ${esc(v.mobile)} · ` : ""}${esc(v.steps.map((st) => stationName(state, st.station)).join(" → "))}</span>${smsStatus(v)}${mobileEdit?.id === v.id ? `<div class="sms-edit"><input type="tel" id="mobile-edit" inputmode="tel" maxlength="20" placeholder="0917 123 4567" aria-label="Cellphone number of ${esc(v.name)}" value="${esc(mobileEdit.value)}"><button type="button" class="btn sm" data-act="mobileSave" data-id="${v.id}">${smsReady() ? "Save &amp; send" : "Save"}</button><button type="button" class="btn sm ghost" data-act="mobileCancel">Cancel</button></div>` : ""}</div>
+        <div class="acts">
+        ${smsReady() ? `<button class="btn icon ghost" data-act="smsSend" data-id="${v.id}" title="${smsPhone(v.mobile) ? "Send the queue number SMS" : "Add a cellphone number first (✏️)"}" aria-label="Send SMS to ${esc(arrivalLabel(v))}" ${smsPhone(v.mobile) ? "" : "disabled"}>📱</button>` : ""}
+        <button class="btn icon ghost" data-act="mobileEdit" data-id="${v.id}" title="Change the cellphone number (same queue number)" aria-label="Change the cellphone number of ${esc(arrivalLabel(v))}">✏️</button>
         <button class="btn icon ghost" data-act="slip" data-id="${v.id}" title="Print the queue number slip" aria-label="Print slip for ${esc(arrivalLabel(v))}">🖨</button>
         <button class="btn sm" data-act="checkIn" data-id="${v.id}">✅ Arrived</button>
         <button class="btn icon ghost" title="Cancel (did not come)" aria-label="Cancel ${esc(arrivalLabel(v))}" data-act="cancel" data-id="${v.id}">✕</button>
+        </div>
       </li>`).join("") : `<li class="empty" style="display:block;border-style:dashed">No pre-registered patients. Use 📅 Pre-register in Step 2 for scheduled patients before they come.</li>`;
     }
     if (!bulkSaving) renderBulk();
@@ -2537,6 +2683,7 @@ function downloadQueueReport(xlsx, state, now) {
     draft.qrAddress ??= "";
     draft.vitalsPlace ??= "";
     draft.numberTags = { ...draft.numberTags };
+    draft.sms = { ...DEFAULT_SMS, ...draft.sms };
     draftBase = JSON.stringify(draft);
   }
   // ---- Configuration PIN: needed to open System configuration (the staff PIN is not enough) ----
@@ -2656,6 +2803,25 @@ function downloadQueueReport(xlsx, state, now) {
             <p class="yt-hint" id="printer-hint"></p>
             <div id="cfg-kiosk"></div>
           </div></section>
+        <section class="panel"><div class="panel-h"><div><h2>📱 SMS to patients</h2><p>Texts to pre-registered patients, sent by an Android phone with the clinic SIM. On the phone, install <b>SMS Gateway for Android</b> and turn on its <b>Local Server</b>; keep it plugged in and on the clinic Wi-Fi.</p></div></div>
+          <div class="panel-b" style="display:grid;gap:10px">
+            <p class="yt-hint err" id="sms-avail"></p>
+            <label class="check"><input type="checkbox" data-sms="enabled" ${draft.sms.enabled ? "checked" : ""}><span><b>Send SMS to patients</b><small>Turn off to stop all texts</small></span></label>
+            <label class="field">Gateway phone address<em>Shown in the app under Local Server, e.g. http://172.16.20.50:8080. Give the phone a fixed address in the router (pfSense: DHCP static mapping).</em><input type="text" maxlength="200" spellcheck="false" class="mono" data-sms="gateway" value="${esc(draft.sms.gateway)}" placeholder="http://172.16.20.50:8080"></label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><label class="field">Username<input type="text" maxlength="60" spellcheck="false" autocomplete="off" data-sms="username" value="${esc(draft.sms.username)}"></label><label class="field">Password<input type="password" maxlength="100" autocomplete="new-password" data-sms="password" value="" placeholder="${draft.sms.passwordSet ? "Saved — type to change" : ""}"></label></div>
+            <label class="field">Send from<em>For a dual-SIM phone: the SIM whose number the patients see.</em><select data-sms="sim">${[[0, "The phone's default SIM"], [1, "SIM 1"], [2, "SIM 2"]].map(([v, l]) => `<option value="${v}" ${Number(draft.sms.sim) === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+            <div class="field">Send automatically
+              <label class="check"><input type="checkbox" data-sms="autoAssigned" ${draft.sms.autoAssigned ? "checked" : ""}><span><b>When the number is assigned</b><small>📅 Pre-register or 📋 Paste a list on a Clinic tab, for patients with a cellphone number</small></span></label>
+              <label class="check"><input type="checkbox" data-sms="autoNext" ${draft.sms.autoNext ? "checked" : ""}><span><b>When they are next in line</b><small>Right after the clinic calls the patient before them</small></span></label>
+            </div>
+            <label class="field">Text: number assigned<textarea class="cfg-text" maxlength="320" data-sms="assignedText">${esc(draft.sms.assignedText)}</textarea></label>
+            <p class="yt-hint" id="sms-ex-assigned" style="font-weight:400;color:var(--muted)"></p>
+            <label class="field">Text: next in line<textarea class="cfg-text" maxlength="320" data-sms="nextText">${esc(draft.sms.nextText)}</textarea></label>
+            <p class="yt-hint" id="sms-ex-next" style="font-weight:400;color:var(--muted)"></p>
+            <p style="margin:0;font-size:12px;color:var(--muted)">Filled in for each patient: <b>{name}</b> (first name), <b>{fullname}</b>, <b>{number}</b>, <b>{clinic}</b> and <b>{appointment}</b> (", appointment 9:30 AM" when there is one). A text over 160 characters is sent as 2 SMS.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><label class="field" style="flex:1 1 180px">Test cellphone number<input type="tel" id="sms-test-phone" placeholder="0917 123 4567" inputmode="tel"></label><button type="button" class="btn sm outline" data-act="testSms" style="min-height:40px">📱 Send test SMS</button></div>
+            <p class="yt-hint" id="sms-hint"></p>
+          </div></section>
         <section class="panel"><div class="panel-h"><div><h2>Configuration PIN</h2><p>Needed every time System configuration is opened. Staff with only the staff PIN still use the front desk, stations and the TV sound control.</p></div></div>
           <div class="panel-b" style="display:grid;gap:10px">
             <label class="field">New configuration PIN<em>4 to 8 digits.</em><input type="password" id="cfg-pin-new" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="new-password"></label>
@@ -2693,6 +2859,15 @@ function downloadQueueReport(xlsx, state, now) {
     $("#picture-file").addEventListener("change", (event) => { void addPictures([...event.target.files]); event.target.value = ""; });
     renderMediaList();
     renderPrinterList();
+    box.querySelectorAll("[data-sms]").forEach((input) => input.addEventListener(input.type === "checkbox" || input.tagName === "SELECT" ? "change" : "input", () => {
+      const field = input.dataset.sms;
+      draft.sms[field] = input.type === "checkbox" ? input.checked : field === "sim" ? Number(input.value) : input.value;
+      if (field === "password" && !input.value) delete draft.sms.password;
+      showSmsExamples();
+      refreshDirty();
+    }));
+    showSmsExamples();
+    checkSmsAvailable();
     showPaperHint();
     showQrHint();
     box.querySelectorAll("[data-tag]").forEach((input) => input.addEventListener("input", () => {
@@ -2744,6 +2919,34 @@ function downloadQueueReport(xlsx, state, now) {
       <p class="note" style="margin:10px 0 0">${want === "lan" ? "Plug the TV computer into the clinic router or network switch with a LAN cable." : "Connect the TV computer to the clinic Wi-Fi."} On it, put the startup file in the Startup folder (Windows+R, type <b>shell:startup</b>): the TV then opens full screen with sound when it turns on.${others ? `<br>Other addresses of the server: ${others}` : ""}</p>`;
   }
   // ---- Kiosk & slip printer ----
+  // ---- SMS to patients (System configuration → SMS) ----
+  /** The two texts as a patient would get them, under their boxes. */
+  function showSmsExamples() {
+    if (!draft || !$("#sms-ex-assigned")) return;
+    const patient = { name: "DELA CRUZ, JUAN", label: `${prefixOf(draft, "S1")}02`, clinic: "Clinic 1", appointment: "09:30" };
+    for (const [id, field] of [["#sms-ex-assigned", "assignedText"], ["#sms-ex-next", "nextText"]]) {
+      const text = smsText(draft.sms[field] || SMS_TEXTS[field === "nextText" ? "next" : "assigned"], patient);
+      $(id).textContent = `Example (${text.length} characters${text.length > 160 ? ", 2 SMS" : ""}): ${text}`;
+    }
+  }
+  /** Whether the queue server can send SMS (only the clinic's own server, near the gateway phone). */
+  let smsServer = null;
+  function checkSmsAvailable() {
+    const show = () => { const hint = $("#sms-avail"); if (hint) hint.textContent = smsServer === false ? "SMS works only with the clinic's own queue server (local-server), on the same network as the gateway phone." : ""; };
+    if (sync.mode !== "server") { smsServer = false; show(); return; }
+    if (smsServer !== null) { show(); return; }
+    fetch(`${syncServer()}/api/sms`, { cache: "no-store" }).then((r) => r.json()).then((body) => { smsServer = Boolean(body.available); }).catch(() => { smsServer = false; }).finally(show);
+  }
+  /** Asks the queue server to send texts; resolves to its answer. */
+  async function smsRequest(body) {
+    const pin = readSetting(PIN_KEY);
+    try {
+      const response = await fetch(`${syncServer()}/api/sms`, { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json", ...(pin ? { "x-queue-pin": pin } : {}) }, body: JSON.stringify(body) });
+      return await response.json().catch(() => ({ ok: false, error: "The queue server did not answer." }));
+    } catch {
+      return { ok: false, error: "The queue server could not be reached." };
+    }
+  }
   // The server computer's printers and COM ports: null until asked, then { available, printers } or { error }.
   let serverPrinters = null;
   function renderPrinterList() {
@@ -3767,6 +3970,18 @@ function downloadQueueReport(xlsx, state, now) {
           .catch(() => toast("The queue server could not be reached.", true));
         break;
       }
+      case "testSms": {
+        const hint = $("#sms-hint");
+        const phone = $("#sms-test-phone").value;
+        if (sync.mode !== "server") { toast("SMS needs the clinic's queue server.", true); break; }
+        if (!smsPhone(phone)) { toast("Type the cellphone number for the test, e.g. 0917 123 4567.", true); break; }
+        hint.className = "yt-hint"; hint.textContent = "Sending the test SMS…";
+        void smsRequest({ test: true, phone, gateway: draft.sms.gateway, username: draft.sms.username, password: draft.sms.password ?? "", sim: draft.sms.sim }).then((body) => {
+          hint.className = `yt-hint ${body.ok ? "ok" : "err"}`;
+          hint.textContent = body.ok ? `✓ The gateway phone took the test SMS for ${phone}. It should arrive in a few seconds. Click Save configuration to keep these settings.` : body.error || "The test SMS could not be sent.";
+        });
+        break;
+      }
       case "addYouTube": draft.tvMedia.push({ type: "youtube", link: "" }); renderMediaList(); refreshDirty(); $(`#media-list [data-index="${draft.tvMedia.length - 1}"][data-media]`)?.focus(); break;
       case "addPictureLink": draft.tvMedia.push({ type: "picture", src: "" }); renderMediaList(); refreshDirty(); $(`#media-list [data-index="${draft.tvMedia.length - 1}"][data-media]`)?.focus(); break;
       case "addPicture": $("#picture-file").click(); break;
@@ -3829,6 +4044,29 @@ function downloadQueueReport(xlsx, state, now) {
         break;
       }
       case "bulkSave": void saveBulk(); break;
+      case "smsSend": {
+        const v = state.visits.find((x) => x.id === id);
+        if (!v) break;
+        if (v.smsAssignedAt && !confirm(`${arrivalLabel(v)} was already texted at ${formatTime(v.smsAssignedAt)}. Send the number SMS to ${v.mobile} again?`)) break;
+        void sendSms([id]);
+        break;
+      }
+      case "smsAll": {
+        const ids = preRegisteredList(state, clinicOf(deskTab)).filter((v) => !v.smsAssignedAt && smsPhone(v.mobile)).map((v) => v.id);
+        if (ids.length && confirm(`Send the queue number SMS to ${ids.length} pre-registered patient${ids.length === 1 ? "" : "s"} who were not texted yet? They go out a few seconds apart.`)) void sendSms(ids);
+        break;
+      }
+      case "mobileEdit": {
+        const v = state.visits.find((x) => x.id === id);
+        if (!v) break;
+        mobileEdit = { id, value: v.mobile || "" };
+        updateDesk();
+        const input = $("#mobile-edit");
+        input?.focus(); input?.select();
+        break;
+      }
+      case "mobileSave": void saveMobile(id); break;
+      case "mobileCancel": mobileEdit = null; updateDesk(); break;
       case "clinicReport": {
         const clinic = clinicOf(deskTab);
         if (state.visits.some((v) => clinicOf(v.kind) === clinic && !v.clearedAt)) downloadClinicReport(XLSX, state, deskTab, Date.now(), "");
