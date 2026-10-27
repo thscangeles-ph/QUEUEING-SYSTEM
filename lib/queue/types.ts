@@ -89,6 +89,12 @@ export type Visit = {
   purposes?: string[];
   /** When the one-time queue message was sent to the patient. */
   messagedAt: number | null;
+  /** SMS to a pre-registered patient through the clinic's gateway phone: when the "number assigned" and "next in line" texts were sent. */
+  smsAssignedAt?: number | null;
+  smsNextAt?: number | null;
+  /** Why the last SMS could not be sent, and when (cleared by the next one that is sent, or a new cellphone number). */
+  smsError?: string;
+  smsErrorAt?: number | null;
   steps: Step[];
 };
 
@@ -140,6 +146,26 @@ export type Settings = {
   configPinSet?: boolean;
   /** Language of the TV's spoken announcements; missing means English only. */
   announceLanguage?: AnnounceLanguage;
+  /** SMS to pre-registered patients, sent by an Android phone with the clinic SIM (SMS Gateway app, Local Server). */
+  sms?: SmsSettings;
+};
+
+export type SmsSettings = {
+  enabled: boolean;
+  /** The gateway phone's Local Server address, e.g. http://172.16.20.50:8080. */
+  gateway: string;
+  username: string;
+  /** Never sent to any screen; screens get passwordSet instead. */
+  password?: string;
+  passwordSet?: boolean;
+  /** The phone's SIM that sends: 1 or 2; 0 means the phone's default SIM. */
+  sim: 0 | 1 | 2;
+  /** Send automatically: when a pre-registered patient's number is assigned, and when they become next in line. */
+  autoAssigned: boolean;
+  autoNext: boolean;
+  /** The texts, with {name} {fullname} {number} {clinic} {appointment} filled in. */
+  assignedText: string;
+  nextText: string;
 };
 
 export type AnnounceLanguage = "en" | "en+fil" | "fil";
@@ -205,6 +231,8 @@ export type QueueAction =
   | { type: "verify"; visitId: string }
   | { type: "updateVisit"; visitId: string; name?: string; mobile?: string; notes?: string; priority?: boolean; newPatient?: boolean }
   | { type: "markMessaged"; visitId: string }
+  /** Records an SMS sent (or not sent, with why) to a patient by the clinic server. */
+  | { type: "smsResult"; visitId: string; kind: "assigned" | "next"; ok: boolean; error?: string }
   | { type: "call"; station: string; visitId?: string }
   | { type: "recall"; visitId: string }
   | { type: "complete"; visitId: string; sendTo?: string; billing?: Billing }

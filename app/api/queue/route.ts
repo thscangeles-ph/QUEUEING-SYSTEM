@@ -1,5 +1,6 @@
 import { applyAction, ensureDay, publicView, withoutSecrets } from "@/lib/queue/reducer";
 import { getBackend, isStaff, staffPinConfigured } from "@/lib/queue/server-store";
+import { queueSms, smsAvailable, smsJobsAfter } from "@/lib/queue/sms-sender";
 import { PUBLIC_ACTIONS, READ_ONLY_ACTIONS, type QueueAction, type QueueState } from "@/lib/queue/types";
 
 export const dynamic = "force-dynamic";
@@ -50,7 +51,11 @@ export async function POST(request: Request) {
     const { state, result } = applyAction(stored.state, action, now);
     if (!result.ok) return json({ mode: "server", staff, version: stored.version, result, state: view(state, staff) }, 422);
     if (READ_ONLY_ACTIONS.includes(action.type)) return json({ mode: "server", staff, version: stored.version, result });
-    if (await backend.save(state, stored.version)) return json({ mode: "server", staff, version: stored.version + 1, result, state: view(state, staff) });
+    if (await backend.save(state, stored.version)) {
+      // Texts for pre-registered patients (System configuration → SMS) go out after the change is saved.
+      if (smsAvailable()) queueSms(smsJobsAfter(state, action, result));
+      return json({ mode: "server", staff, version: stored.version + 1, result, state: view(state, staff) });
+    }
     await new Promise((resolve) => setTimeout(resolve, 40 + Math.random() * 80));
   }
   return json({ error: "The queue is busy. Please try again." }, 409);
