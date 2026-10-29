@@ -2,19 +2,18 @@ import { applyAction, arrivalLabel, clinicNameOf, clinicOf, ensureDay, preRegist
 import { getBackend } from "./server-store";
 import { smsPhone, smsText } from "./sms";
 import { saveTelegramMessage, sendTelegram, startTelegram, telegramChatOf, unlinkTelegramChat } from "./telegram";
-import type { ActionResult, QueueAction, QueueState, SmsSettings } from "./types";
+import type { ActionResult, QueueAction, QueueState } from "./types";
 
-// Sends reminders to pre-registered patients, by the clinic's Telegram bot (lib/queue/telegram.ts) or as SMS through
-// the clinic's Android gateway phone ("SMS Gateway for Android", Local Server mode: POST http://<phone>:8080/message
-// with basic auth). Only on the clinic server (QUEUE_STORE=file). Texts go one at a time (SMS a few seconds apart,
-// so Android does not stop a long list), and each result is saved on the patient (smsResult) for the front desk to see.
+// Sends reminders to pre-registered patients by the clinic's Telegram bot (lib/queue/telegram.ts). Only on the clinic
+// server (QUEUE_STORE=file). Reminders go one at a time, and each result is saved on the patient (smsResult) for the
+// front desk to see.
 
 export type SmsJob = { visitId: string; kind: "assigned" | "next"; force?: boolean };
 
-const GAP_MS = { sms: 4000, telegram: 300 };
+const GAP_MS = 300;
 export const NOT_ON_TELEGRAM = "Not on Telegram yet — it is sent when the patient opens the bot link and shares their number.";
 
-/** Whether this server can send: the clinic's own server, on the same network as the gateway phone. */
+/** Whether this server can send: the clinic's own server. */
 export const smsAvailable = () => getBackend()?.name === "file";
 
 /** The texts an action calls for: the number when a patient is pre-registered, and "next in line" when a clinic calls the one before them. */
@@ -37,8 +36,8 @@ export function smsJobsAfter(state: QueueState, action: QueueAction, result: Act
 }
 
 // One queue for the whole server process (route bundles may each load this file).
-const shared = globalThis as typeof globalThis & { __thscSms?: { jobs: SmsJob[]; keys: Set<string>; running: boolean; lastSent: number; gap: number } };
-const queue = (shared.__thscSms ??= { jobs: [], keys: new Set(), running: false, lastSent: 0, gap: 0 });
+const shared = globalThis as typeof globalThis & { __thscSms?: { jobs: SmsJob[]; keys: Set<string>; running: boolean; lastSent: number } };
+const queue = (shared.__thscSms ??= { jobs: [], keys: new Set(), running: false, lastSent: 0 });
 
 /** Adds texts to send; a patient's text that is already waiting is not added twice. */
 export function queueSms(jobs: SmsJob[]) {
@@ -55,13 +54,12 @@ async function run() {
   queue.running = true;
   try {
     while (queue.jobs.length) {
-      // A few seconds after the last text, also when the texts were asked for one by one (a pasted list).
-      const wait = queue.lastSent + queue.gap - Date.now();
+      // A moment after the last reminder, also when they were asked for one by one (a pasted list).
+      const wait = queue.lastSent + GAP_MS - Date.now();
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
       const job = queue.jobs.shift()!;
       try {
-        const channel = await sendJob(job);
-        if (channel) { queue.lastSent = Date.now(); queue.gap = GAP_MS[channel]; }
+        if (await sendJob(job)) queue.lastSent = Date.now();
       } catch {
         // A failure to save the result must not stop the other texts.
       } finally {
@@ -73,44 +71,33 @@ async function run() {
   }
 }
 
-/** Sends one patient's reminder and saves the result; the channel used, or null when nothing was tried (already sent, cancelled …). */
-async function sendJob(job: SmsJob): Promise<"sms" | "telegram" | null> {
+/** Sends one patient's reminder and saves the result; false when nothing was tried (already sent, cancelled …). */
+async function sendJob(job: SmsJob): Promise<boolean> {
   const backend = getBackend();
-  if (!backend) return null;
+  if (!backend) return false;
   const { state } = await backend.load();
   const visit = state?.visits.find((item) => item.id === job.visitId);
-  if (!state || !visit || visit.cancelled) return null;
-  if (!job.force && (job.kind === "next" ? visit.smsNextAt : visit.smsAssignedAt)) return null;
+  if (!state || !visit || visit.cancelled) return false;
+  if (!job.force && (job.kind === "next" ? visit.smsNextAt : visit.smsAssignedAt)) return false;
   const sms = state.settings.sms;
-  const channel = sms?.channel === "telegram" ? "telegram" : "sms";
-  const fail = (error: string) => record({ type: "smsResult", visitId: visit.id, kind: job.kind, ok: false, error }).then(() => channel);
-  if (!sms?.enabled) return job.force ? fail("Reminders are turned off in System configuration.") : null;
-  if (channel === "sms" && !sms.gateway) return fail("Set up the SMS gateway phone in System configuration → Patient reminders.");
-  if (channel === "telegram" && !sms.telegramToken) return fail("Set up the Telegram bot in System configuration → Patient reminders.");
-  const phone = smsPhone(visit.mobile);
-  if (!phone) return fail(visit.mobile ? "Check the cellphone number." : "No cellphone number.");
+  const fail = (error: string) => record({ type: "smsResult", visitId: visit.id, kind: job.kind, ok: false, error }).then(() => true);
+  if (!sms?.enabled) return job.force ? fail("Reminders are turned off in System configuration.") : false;
+  if (!sms.telegramToken) return fail("Set up the Telegram bot in System configuration → Patient reminders.");
+  if (!smsPhone(visit.mobile)) return fail(visit.mobile ? "Check the cellphone number." : "No cellphone number.");
+  const chat = await telegramChatOf(visit.mobile);
+  if (!chat) return fail(NOT_ON_TELEGRAM);
   const message = smsText(job.kind === "next" ? sms.nextText : sms.assignedText, { name: visit.name, label: arrivalLabel(visit), clinic: clinicOf(visit.kind) ?? clinicNameOf(state.settings), appointment: visit.appointment });
   try {
-    if (channel === "telegram") {
-      const chat = await telegramChatOf(visit.mobile);
-      if (!chat) return fail(NOT_ON_TELEGRAM);
-      try {
-        await sendTelegram(sms.telegramToken!, chat, message);
-        // Shown in the patient's chat on the front desk (💬 Messages), with what they write back.
-        await saveTelegramMessage({ chatId: chat, from: "bot", text: message, read: true }).catch(() => undefined);
-      } catch (error) {
-        // The patient stopped the bot: forget the link, so they can link again with /start.
-        if ((error as { blocked?: boolean }).blocked) await unlinkTelegramChat(chat);
-        throw error;
-      }
-    } else {
-      await sendSms(sms, phone, message);
-    }
+    await sendTelegram(sms.telegramToken, chat, message);
   } catch (error) {
+    // The patient stopped the bot: forget the link, so they can link again with /start.
+    if ((error as { blocked?: boolean }).blocked) await unlinkTelegramChat(chat);
     return fail((error as Error).message);
   }
+  // Shown in the patient's chat on the front desk (💬 Messages), with what they write back.
+  await saveTelegramMessage({ chatId: chat, from: "bot", text: message, read: true }).catch(() => undefined);
   await record({ type: "smsResult", visitId: visit.id, kind: job.kind, ok: true });
-  return channel;
+  return true;
 }
 
 /** On the clinic server: answers the Telegram bot, and when a patient links their number, sends today's reminder they are still owed. */
@@ -140,25 +127,4 @@ async function record(action: QueueAction) {
     if (!result.ok || (await backend.save(state, stored.version))) return;
     await new Promise((resolve) => setTimeout(resolve, 40 + Math.random() * 80));
   }
-}
-
-/** Sends one text through the gateway phone; throws with a message staff can act on. */
-export async function sendSms(sms: Pick<SmsSettings, "gateway" | "username" | "password" | "sim">, phone: string, message: string): Promise<void> {
-  const base = sms.gateway.replace(/\/+$/, "");
-  const url = /\/message$/i.test(base) ? base : `${base}/message`;
-  const headers = { "Content-Type": "application/json", Authorization: `Basic ${Buffer.from(`${sms.username}:${sms.password ?? ""}`).toString("base64")}` };
-  const sim = sms.sim ? { simNumber: sms.sim } : {};
-  const post = (body: Record<string, unknown>) => fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
-  let response: Response;
-  try {
-    response = await post({ textMessage: { text: message }, phoneNumbers: [phone], ...sim });
-    // Older versions of the app take the text as "message".
-    if (response.status === 400) response = await post({ message, phoneNumbers: [phone], ...sim });
-  } catch {
-    throw new Error(`The gateway phone did not answer at ${base}. Check that it is on the clinic Wi-Fi and the app's Local Server is on.`);
-  }
-  if (response.ok) return;
-  if (response.status === 401 || response.status === 403) throw new Error("The gateway phone refused the username or password (System configuration → SMS).");
-  const detail = (await response.text().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 120);
-  throw new Error(`The gateway phone answered ${response.status}${detail ? `: ${detail}` : ""}.`);
 }
