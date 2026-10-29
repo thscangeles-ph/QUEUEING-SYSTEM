@@ -11,6 +11,11 @@ import type { QueueState } from "./types";
 export type TelegramContact = { chatId: number; name: string; linkedAt: number };
 type Contacts = Record<string, TelegramContact>;
 const CONTACTS = "telegram-contacts";
+/** A message in a patient's chat with the bot: theirs, a staff reply, or an automatic reminder. */
+export type ChatMessage = { id: string; chatId: number; from: "patient" | "staff" | "bot"; text: string; at: number; name?: string; read?: boolean };
+const MESSAGES = "telegram-messages";
+const KEEP_DAYS = 30;
+const KEEP_MESSAGES = 1000;
 
 type TelegramAnswer<T> = { ok: boolean; result?: T; description?: string; error_code?: number };
 // TELEGRAM_API_URL is only for testing with a stand-in for Telegram.
@@ -38,8 +43,33 @@ export async function telegramContacts(): Promise<Contacts> {
   return (await getBackend()?.loadData<Contacts>(CONTACTS)) ?? {};
 }
 
-async function saveContacts(contacts: Contacts) {
-  await getBackend()?.saveData(CONTACTS, contacts);
+// Changes to the contacts and messages one at a time, so two at the same moment never undo each other.
+const changing = globalThis as typeof globalThis & { __thscTelegramData?: Promise<unknown> };
+function changeData<T>(name: string, empty: T, change: (value: T) => T): Promise<void> {
+  const task = (changing.__thscTelegramData ?? Promise.resolve()).then(async () => {
+    const backend = getBackend();
+    if (!backend) return;
+    await backend.saveData(name, change((await backend.loadData<T>(name)) ?? empty));
+  });
+  changing.__thscTelegramData = task.catch(() => undefined);
+  return task;
+}
+
+/** The chats' messages of the last 30 days, oldest first. */
+export async function telegramMessages(): Promise<ChatMessage[]> {
+  return (await getBackend()?.loadData<ChatMessage[]>(MESSAGES)) ?? [];
+}
+
+/** Keeps a message of a patient's chat, for the front desk's 💬 Messages. */
+export function saveTelegramMessage(message: Omit<ChatMessage, "id" | "at">) {
+  const now = Date.now();
+  const entry: ChatMessage = { ...message, text: message.text.slice(0, 1000), id: `${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`, at: now };
+  return changeData<ChatMessage[]>(MESSAGES, [], (list) => [...list.filter((item) => item.at > now - KEEP_DAYS * 86400000), entry].slice(-KEEP_MESSAGES));
+}
+
+/** Marks a chat's patient messages as read by staff. */
+export function markTelegramRead(chatId: number) {
+  return changeData<ChatMessage[]>(MESSAGES, [], (list) => list.map((item) => (item.chatId === chatId && item.from === "patient" && !item.read ? { ...item, read: true } : item)));
 }
 
 /** The Telegram chat of a patient's cellphone number, if they linked it. */
@@ -49,19 +79,17 @@ export async function telegramChatOf(mobile: string | undefined): Promise<number
 }
 
 /** Forgets a chat (the patient stopped the bot). */
-export async function unlinkTelegramChat(chatId: number) {
-  const contacts = await telegramContacts();
-  const kept = Object.fromEntries(Object.entries(contacts).filter(([, contact]) => contact.chatId !== chatId));
-  if (Object.keys(kept).length !== Object.keys(contacts).length) await saveContacts(kept);
+export function unlinkTelegramChat(chatId: number) {
+  return changeData<Contacts>(CONTACTS, {}, (contacts) => Object.fromEntries(Object.entries(contacts).filter(([, contact]) => contact.chatId !== chatId)));
 }
 
 export const sendTelegram = (token: string, chatId: number, text: string) => telegram(token, "sendMessage", { chat_id: chatId, text });
 
-type Update = { update_id: number; message?: { chat: { id: number }; from?: { id: number; first_name?: string }; text?: string; contact?: { phone_number: string; user_id?: number } } };
+type Update = { update_id: number; message?: { chat: { id: number }; from?: { id: number; first_name?: string; last_name?: string }; text?: string; caption?: string; contact?: { phone_number: string; user_id?: number } } };
 
 const SHARE_KEYBOARD = { keyboard: [[{ text: "📱 Share my phone number", request_contact: true }]], resize_keyboard: true, one_time_keyboard: true };
 
-/** Answers what patients send the bot: /start asks for their number, a shared number links it, /stop unlinks. */
+/** Answers what patients send the bot: /start asks for their number, a shared number links it, /stop unlinks, and anything else is kept for the front desk's 💬 Messages. */
 async function handle(token: string, update: Update, clinic: string, onLinked: (phone: string) => void) {
   const message = update.message;
   if (!message) return;
@@ -72,20 +100,28 @@ async function handle(token: string, update: Update, clinic: string, onLinked: (
     if (message.contact.user_id !== message.from?.id) return reply("Please share your own number with the button below.", SHARE_KEYBOARD);
     const phone = smsPhone(message.contact.phone_number);
     if (!phone) return reply("Sorry, only Philippine cellphone numbers (09…) can get queue reminders.", { remove_keyboard: true });
-    const contacts = await telegramContacts();
-    contacts[phone] = { chatId, name: String(message.from?.first_name ?? "").slice(0, 60), linkedAt: Date.now() };
-    await saveContacts(contacts);
+    await changeData<Contacts>(CONTACTS, {}, (contacts) => ({ ...contacts, [phone]: { chatId, name: String(message.from?.first_name ?? "").slice(0, 60), linkedAt: Date.now() } }));
     const shown = `0${phone.slice(3, 6)} *** ${phone.slice(-4)}`;
     await reply(`✅ Linked! ${clinic} queue reminders for ${shown} will come here: your queue number, and when you are next in line.\n\nSend /stop to stop them.`, { remove_keyboard: true });
     onLinked(phone);
     return;
   }
-  const text = String(message.text ?? "").trim().toLowerCase();
-  if (text === "/stop") {
+  const command = String(message.text ?? "").trim().toLowerCase();
+  if (command === "/stop") {
     await unlinkTelegramChat(chatId);
     return reply("You will not get queue reminders here anymore. Send /start to link your number again.", { remove_keyboard: true });
   }
-  return reply(`Hi! This is ${clinic}. Tap the button below to share your phone number, then your queue reminders come here.`, SHARE_KEYBOARD);
+  if (command.startsWith("/start")) return reply(`Hi! This is ${clinic}. Tap the button below to share your phone number, then your queue reminders come here.`, SHARE_KEYBOARD);
+  // A message for the clinic: kept for the front desk, where staff read it and reply.
+  const name = [message.from?.first_name, message.from?.last_name].filter(Boolean).join(" ").slice(0, 60);
+  const text = String(message.text ?? message.caption ?? "").trim() || "(sent a photo, sticker or file — only typed messages can be shown)";
+  const before = (await telegramMessages()).filter((item) => item.chatId === chatId && item.from === "patient").at(-1);
+  await saveTelegramMessage({ chatId, from: "patient", text, name, read: false });
+  // Say it was received, but not after every line of a conversation.
+  if (before && before.at > Date.now() - 30 * 60000) return;
+  const linked = Object.values(await telegramContacts()).some((contact) => contact.chatId === chatId);
+  if (linked) return reply("✉️ Thank you! Your message was sent to the clinic staff. They will reply here.");
+  return reply(`✉️ Thank you! Your message was sent to the staff of ${clinic}. They will reply here. To get your queue reminders here too, tap the button below to share your phone number.`, SHARE_KEYBOARD);
 }
 
 // One loop for the whole server process.
