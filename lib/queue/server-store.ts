@@ -13,11 +13,15 @@ type Backend = {
   saveMedia(id: string, media: Media): Promise<void>;
   loadMedia(id: string): Promise<Media | null>;
   deleteMedia(id: string): Promise<void>;
+  /** Other saved data that is kept from day to day (e.g. the patients linked to the Telegram bot). */
+  loadData<T>(name: string): Promise<T | null>;
+  saveData(name: string, value: unknown): Promise<void>;
 };
 
 const STATE_KEY = "thsc:queue:state";
 const VERSION_KEY = "thsc:queue:version";
 const MEDIA_KEY = (id: string) => `thsc:queue:media:${id}`;
+const DATA_KEY = (name: string) => `thsc:queue:data:${name}`;
 // Compare-and-set so two staff screens acting at the same moment never overwrite each other.
 const CAS_SCRIPT = `local v = tonumber(redis.call('GET', KEYS[2]) or '0')
 if v ~= tonumber(ARGV[1]) then return 0 end
@@ -50,6 +54,13 @@ function redisBackend(url: string, token: string): Backend {
     },
     async deleteMedia(id) {
       await command(["DEL", MEDIA_KEY(id)]);
+    },
+    async loadData<T>(name: string) {
+      const value = (await command(["GET", DATA_KEY(name)])) as string | null;
+      return value ? (JSON.parse(value) as T) : null;
+    },
+    async saveData(name, value) {
+      await command(["SET", DATA_KEY(name), JSON.stringify(value)]);
     },
   };
 }
@@ -96,6 +107,21 @@ function fileBackend(file: string): Backend {
     },
     async deleteMedia(id) {
       await unlink(path.join(mediaDir, `${id}.json`)).catch(() => undefined);
+    },
+    // Beside the queue file, e.g. telegram-contacts.json.
+    async loadData<T>(name: string) {
+      try {
+        return JSON.parse(await readFile(path.join(path.dirname(file), `${name}.json`), "utf8")) as T;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+      }
+    },
+    async saveData(name, value) {
+      await mkdir(path.dirname(file), { recursive: true });
+      const target = path.join(path.dirname(file), `${name}.json`);
+      await writeFile(`${target}.tmp`, JSON.stringify(value));
+      await rename(`${target}.tmp`, target);
     },
   };
 }

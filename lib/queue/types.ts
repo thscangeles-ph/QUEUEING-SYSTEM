@@ -146,12 +146,19 @@ export type Settings = {
   configPinSet?: boolean;
   /** Language of the TV's spoken announcements; missing means English only. */
   announceLanguage?: AnnounceLanguage;
-  /** SMS to pre-registered patients, sent by an Android phone with the clinic SIM (SMS Gateway app, Local Server). */
+  /** Reminders to pre-registered patients: by Telegram (the clinic's bot), or by SMS through an Android phone with the clinic SIM. */
   sms?: SmsSettings;
 };
 
 export type SmsSettings = {
   enabled: boolean;
+  /** How reminders are sent: the clinic's Telegram bot, or SMS through the gateway phone. Missing means SMS. */
+  channel?: "telegram" | "sms";
+  /** The Telegram bot's token from @BotFather. Never sent to any screen; screens get telegramTokenSet instead. */
+  telegramToken?: string;
+  telegramTokenSet?: boolean;
+  /** The bot's username (without @), for its t.me link; found from the token. */
+  telegramBot?: string;
   /** The gateway phone's Local Server address, e.g. http://172.16.20.50:8080. */
   gateway: string;
   username: string;

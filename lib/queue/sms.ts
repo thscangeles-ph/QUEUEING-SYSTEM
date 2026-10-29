@@ -1,26 +1,34 @@
 import type { SmsSettings } from "./types";
 
-// SMS to pre-registered patients: the settings, the cellphone number format and the texts.
-// Sent by the clinic server through an Android phone with the clinic SIM (lib/queue/sms-sender.ts).
+// Reminders to pre-registered patients: the settings, the cellphone number format and the texts.
+// Sent by the clinic server (lib/queue/sms-sender.ts) through the clinic's Telegram bot, or as SMS
+// through an Android phone with the clinic SIM.
 
 export const SMS_TEXTS = {
   assigned: "THSC: Hi {name}, your queue number for {clinic} is {number}{appointment}. Please show this number at the Concierge when you arrive.",
   next: "THSC: Your queue number {number} ({clinic}) is NEXT IN LINE. Please be ready at the Concierge.",
 } as const;
 
-export const DEFAULT_SMS: SmsSettings = { enabled: false, gateway: "", username: "", sim: 0, autoAssigned: true, autoNext: true, assignedText: SMS_TEXTS.assigned, nextText: SMS_TEXTS.next };
+export const DEFAULT_SMS: SmsSettings = { enabled: false, channel: "sms", telegramBot: "", gateway: "", username: "", sim: 0, autoAssigned: true, autoNext: true, assignedText: SMS_TEXTS.assigned, nextText: SMS_TEXTS.next };
 
 const text = (value: unknown, max: number) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
-/** The SMS settings from the settings form; the password is kept when the form leaves it empty (screens never get it). */
+/** The reminder settings from the settings form; the password and bot token are kept when the form leaves them empty (screens never get them). */
 export function smsSettingsOf(input: Partial<SmsSettings> | undefined, previous?: SmsSettings): SmsSettings | string {
   const raw = { ...DEFAULT_SMS, ...previous, ...input };
   const gateway = text(raw.gateway, 200).replace(/\/+$/, "");
   if (gateway && !/^https?:\/\/[^\s/?#]+(\/[^\s?#]*)?$/i.test(gateway)) return "SMS gateway phone address: use the address the app shows, like http://172.16.20.50:8080.";
   const password = String(input?.password ?? "").trim() ? String(input?.password).trim().slice(0, 100) : (previous?.password ?? "");
+  const typedToken = String(input?.telegramToken ?? "").replace(/\s+/g, "");
+  if (typedToken && !/^\d{5,15}:[A-Za-z0-9_-]{30,60}$/.test(typedToken)) return "Telegram bot token: copy the whole token @BotFather gave, like 123456789:AAH…";
+  const telegramToken = typedToken || (previous?.telegramToken ?? "");
+  const telegramBot = String(raw.telegramBot ?? "").replace(/^@/, "").trim();
   const sim = Number(raw.sim);
   return {
     enabled: Boolean(raw.enabled),
+    channel: raw.channel === "telegram" ? "telegram" : "sms",
+    ...(telegramToken ? { telegramToken } : {}),
+    telegramBot: /^[A-Za-z0-9_]{5,32}$/.test(telegramBot) ? telegramBot : "",
     gateway,
     username: text(raw.username, 60),
     ...(password ? { password } : {}),

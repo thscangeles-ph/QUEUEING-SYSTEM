@@ -60,7 +60,10 @@ export async function POST(request: Request) {
   const expected = Boolean(visit?.expected);
   const issuedAt = (expected ? visit?.preRegisteredAt : undefined) ?? visit?.createdAt ?? Date.now();
   const heading = expected && visit ? `Pre-registered - ${clinicOf(visit.kind) ?? "Scheduled"}` : hmo ? "Your HMO queue number" : "Your queue number";
-  const details = expected && visit ? [visit.name, visit.appointment ? `Appointment ${appointmentText(visit.appointment)}` : ""].filter(Boolean) : [];
+  // With Telegram reminders on, the slip shows the clinic bot's link, so the patient can link their number.
+  const sms = state.settings.sms;
+  const bot = sms?.enabled && sms.channel === "telegram" ? sms.telegramBot : "";
+  const details = expected && visit ? [visit.name, visit.appointment ? `Appointment ${appointmentText(visit.appointment)}` : "", bot ? `Reminders on Telegram: t.me/${bot}` : ""].filter(Boolean) : [];
   const message = expected ? PREREG_SLIP_MESSAGE : SLIP_MESSAGE;
   try {
     // A4 and Letter go through the office printer's driver; receipt rolls get ESC/POS commands.

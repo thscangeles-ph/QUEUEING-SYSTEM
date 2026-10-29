@@ -1,16 +1,18 @@
-import { applyAction, arrivalLabel, clinicNameOf, clinicOf, preRegisteredList, waitingFor } from "./reducer";
+import { applyAction, arrivalLabel, clinicNameOf, clinicOf, ensureDay, preRegisteredList, waitingFor } from "./reducer";
 import { getBackend } from "./server-store";
 import { smsPhone, smsText } from "./sms";
+import { sendTelegram, startTelegram, telegramChatOf, unlinkTelegramChat } from "./telegram";
 import type { ActionResult, QueueAction, QueueState, SmsSettings } from "./types";
 
-// Sends SMS to pre-registered patients through the clinic's Android gateway phone ("SMS Gateway for Android",
-// Local Server mode: POST http://<phone>:8080/message with basic auth). Only on the clinic server (QUEUE_STORE=file),
-// which is on the same network as the phone. Texts go one at a time, a few seconds apart, so Android does not
-// stop a long list, and each result is saved on the patient (smsResult) for the front desk to see.
+// Sends reminders to pre-registered patients, by the clinic's Telegram bot (lib/queue/telegram.ts) or as SMS through
+// the clinic's Android gateway phone ("SMS Gateway for Android", Local Server mode: POST http://<phone>:8080/message
+// with basic auth). Only on the clinic server (QUEUE_STORE=file). Texts go one at a time (SMS a few seconds apart,
+// so Android does not stop a long list), and each result is saved on the patient (smsResult) for the front desk to see.
 
 export type SmsJob = { visitId: string; kind: "assigned" | "next"; force?: boolean };
 
-const GAP_MS = 4000;
+const GAP_MS = { sms: 4000, telegram: 300 };
+export const NOT_ON_TELEGRAM = "Not on Telegram yet — it is sent when the patient opens the bot link and shares their number.";
 
 /** Whether this server can send: the clinic's own server, on the same network as the gateway phone. */
 export const smsAvailable = () => getBackend()?.name === "file";
@@ -35,8 +37,8 @@ export function smsJobsAfter(state: QueueState, action: QueueAction, result: Act
 }
 
 // One queue for the whole server process (route bundles may each load this file).
-const shared = globalThis as typeof globalThis & { __thscSms?: { jobs: SmsJob[]; keys: Set<string>; running: boolean; lastSent: number } };
-const queue = (shared.__thscSms ??= { jobs: [], keys: new Set(), running: false, lastSent: 0 });
+const shared = globalThis as typeof globalThis & { __thscSms?: { jobs: SmsJob[]; keys: Set<string>; running: boolean; lastSent: number; gap: number } };
+const queue = (shared.__thscSms ??= { jobs: [], keys: new Set(), running: false, lastSent: 0, gap: 0 });
 
 /** Adds texts to send; a patient's text that is already waiting is not added twice. */
 export function queueSms(jobs: SmsJob[]) {
@@ -54,11 +56,12 @@ async function run() {
   try {
     while (queue.jobs.length) {
       // A few seconds after the last text, also when the texts were asked for one by one (a pasted list).
-      const wait = queue.lastSent + GAP_MS - Date.now();
+      const wait = queue.lastSent + queue.gap - Date.now();
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
       const job = queue.jobs.shift()!;
       try {
-        if (await sendJob(job)) queue.lastSent = Date.now();
+        const channel = await sendJob(job);
+        if (channel) { queue.lastSent = Date.now(); queue.gap = GAP_MS[channel]; }
       } catch {
         // A failure to save the result must not stop the other texts.
       } finally {
@@ -70,28 +73,59 @@ async function run() {
   }
 }
 
-/** Sends one patient's text and saves the result; false when nothing was sent (already sent, cancelled …). */
-async function sendJob(job: SmsJob): Promise<boolean> {
+/** Sends one patient's reminder and saves the result; the channel used, or null when nothing was tried (already sent, cancelled …). */
+async function sendJob(job: SmsJob): Promise<"sms" | "telegram" | null> {
   const backend = getBackend();
-  if (!backend) return false;
+  if (!backend) return null;
   const { state } = await backend.load();
   const visit = state?.visits.find((item) => item.id === job.visitId);
-  if (!state || !visit || visit.cancelled) return false;
-  if (!job.force && (job.kind === "next" ? visit.smsNextAt : visit.smsAssignedAt)) return false;
+  if (!state || !visit || visit.cancelled) return null;
+  if (!job.force && (job.kind === "next" ? visit.smsNextAt : visit.smsAssignedAt)) return null;
   const sms = state.settings.sms;
-  const fail = (error: string) => record({ type: "smsResult", visitId: visit.id, kind: job.kind, ok: false, error }).then(() => true);
-  if (!sms?.enabled) return job.force ? fail("SMS is turned off in System configuration.") : false;
-  if (!sms.gateway) return fail("Set up the SMS gateway phone in System configuration → SMS.");
+  const channel = sms?.channel === "telegram" ? "telegram" : "sms";
+  const fail = (error: string) => record({ type: "smsResult", visitId: visit.id, kind: job.kind, ok: false, error }).then(() => channel);
+  if (!sms?.enabled) return job.force ? fail("Reminders are turned off in System configuration.") : null;
+  if (channel === "sms" && !sms.gateway) return fail("Set up the SMS gateway phone in System configuration → Patient reminders.");
+  if (channel === "telegram" && !sms.telegramToken) return fail("Set up the Telegram bot in System configuration → Patient reminders.");
   const phone = smsPhone(visit.mobile);
   if (!phone) return fail(visit.mobile ? "Check the cellphone number." : "No cellphone number.");
   const message = smsText(job.kind === "next" ? sms.nextText : sms.assignedText, { name: visit.name, label: arrivalLabel(visit), clinic: clinicOf(visit.kind) ?? clinicNameOf(state.settings), appointment: visit.appointment });
   try {
-    await sendSms(sms, phone, message);
+    if (channel === "telegram") {
+      const chat = await telegramChatOf(visit.mobile);
+      if (!chat) return fail(NOT_ON_TELEGRAM);
+      try {
+        await sendTelegram(sms.telegramToken!, chat, message);
+      } catch (error) {
+        // The patient stopped the bot: forget the link, so they can link again with /start.
+        if ((error as { blocked?: boolean }).blocked) await unlinkTelegramChat(chat);
+        throw error;
+      }
+    } else {
+      await sendSms(sms, phone, message);
+    }
   } catch (error) {
     return fail((error as Error).message);
   }
   await record({ type: "smsResult", visitId: visit.id, kind: job.kind, ok: true });
-  return true;
+  return channel;
+}
+
+/** On the clinic server: answers the Telegram bot, and when a patient links their number, sends today's reminder they are still owed. */
+export function startTelegramReminders() {
+  const backend = getBackend();
+  if (!smsAvailable() || !backend) return;
+  startTelegram(
+    async () => (await backend.load()).state?.settings ?? null,
+    (settings) => clinicNameOf(settings),
+    (phone) => {
+      void backend.load().then(({ state }) => {
+        if (!state) return;
+        const today = ensureDay(state, Date.now());
+        queueSms(today.visits.filter((visit) => visit.expected && !visit.cancelled && !visit.smsAssignedAt && smsPhone(visit.mobile) === phone).map((visit) => ({ visitId: visit.id, kind: "assigned" })));
+      });
+    },
+  );
 }
 
 /** Saves an action on the server's queue, trying again when another computer saved at the same moment. */

@@ -117,6 +117,7 @@ if errorlevel 1 echo     The firewall rule is still there. Remove "THSC Queue Bo
 rem ---- 5. The queue data and TV pictures: only the queue server's own files ----
 echo  5. Deleting the queue data and TV pictures...
 del /q "%QUEUE_DATA_FILE%" "%QUEUE_DATA_FILE%.*.tmp" >nul 2>nul
+del /q "%DATA_DIR%\telegram-contacts.json" >nul 2>nul
 if exist "%DATA_DIR%\media" rd /s /q "%DATA_DIR%\media"
 rd "%DATA_DIR%" >nul 2>nul
 
