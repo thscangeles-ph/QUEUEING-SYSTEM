@@ -1,14 +1,17 @@
 import type { SmsSettings } from "./types";
 
-// Reminders to pre-registered patients: the settings, the cellphone number format and the texts.
+// Reminders to patients: the settings, the cellphone number format and the texts.
 // Sent by the clinic server (lib/queue/sms-sender.ts) through the clinic's Telegram bot.
 
 export const SMS_TEXTS = {
   assigned: "THSC: Hi {name}, your queue number for {clinic} is {number}{appointment}. Please show this number at the Concierge when you arrive.",
-  next: "THSC: Your queue number {number} ({clinic}) is NEXT IN LINE. Please be ready at the Concierge.",
+  next: "THSC: Your queue number {number} is NEXT IN LINE at {service}. Please be ready.",
+  turn: "THSC: It's your turn! Queue number {number}, please proceed to {service} now.",
 } as const;
+/** The "next in line" text before it named the service; a saved copy of it becomes the new one. */
+const OLD_NEXT = "THSC: Your queue number {number} ({clinic}) is NEXT IN LINE. Please be ready at the Concierge.";
 
-export const DEFAULT_SMS: SmsSettings = { enabled: false, telegramBot: "", autoAssigned: true, autoNext: true, assignedText: SMS_TEXTS.assigned, nextText: SMS_TEXTS.next };
+export const DEFAULT_SMS: SmsSettings = { enabled: false, telegramBot: "", autoAssigned: true, autoNext: true, autoTurn: true, assignedText: SMS_TEXTS.assigned, nextText: SMS_TEXTS.next, turnText: SMS_TEXTS.turn };
 
 const text = (value: unknown, max: number) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -25,8 +28,10 @@ export function smsSettingsOf(input: Partial<SmsSettings> | undefined, previous?
     telegramBot: /^[A-Za-z0-9_]{5,32}$/.test(telegramBot) ? telegramBot : "",
     autoAssigned: raw.autoAssigned !== false,
     autoNext: raw.autoNext !== false,
+    autoTurn: raw.autoTurn !== false,
     assignedText: text(raw.assignedText, 320) || SMS_TEXTS.assigned,
-    nextText: text(raw.nextText, 320) || SMS_TEXTS.next,
+    nextText: (text(raw.nextText, 320) === OLD_NEXT ? "" : text(raw.nextText, 320)) || SMS_TEXTS.next,
+    turnText: text(raw.turnText, 320) || SMS_TEXTS.turn,
   };
 }
 
@@ -55,13 +60,14 @@ export function appointmentText(time: string | undefined): string {
 }
 
 /** A text with the patient's details filled in. */
-export function smsText(template: string, patient: { name: string; label: string; clinic: string; appointment?: string }): string {
+export function smsText(template: string, patient: { name: string; label: string; clinic: string; appointment?: string; service?: string }): string {
   const fields: Record<string, string> = {
     name: smsFirstName(patient.name) || patient.name,
     fullname: patient.name,
     number: patient.label,
     clinic: patient.clinic,
     appointment: patient.appointment ? `, appointment ${appointmentText(patient.appointment)}` : "",
+    service: patient.service || patient.clinic,
   };
-  return template.replace(/\{(name|fullname|number|clinic|appointment)\}/gi, (_, key: string) => fields[key.toLowerCase()]).replace(/\s+/g, " ").trim();
+  return template.replace(/\{(name|fullname|number|clinic|appointment|service)\}/gi, (_, key: string) => fields[key.toLowerCase()]).replace(/\s+/g, " ").trim();
 }

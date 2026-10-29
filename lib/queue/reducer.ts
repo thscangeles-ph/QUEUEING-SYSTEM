@@ -610,8 +610,12 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       const visit = findVisit(action.visitId);
       if (!visit) return fail("Patient not found.");
       if (action.ok) {
-        if (action.kind === "next") visit.smsNextAt = now;
-        else visit.smsAssignedAt = now;
+        // Next in line, your turn and the vital signs call are kept on the service's step, so each is sent once per service.
+        const step = action.station ? visit.steps.find((item) => item.station === action.station && item.status !== "done") : undefined;
+        if (action.kind === "assigned") visit.smsAssignedAt = now;
+        else if (action.kind === "next") { visit.smsNextAt = now; if (step) step.smsNextAt = now; }
+        else { visit.smsTurnAt = now; if (step) step[action.kind === "vitals" ? "smsVitalsAt" : "smsTurnAt"] = now; }
+        if (action.station) visit.smsLastStation = action.station;
         visit.smsError = "";
         visit.smsErrorAt = null;
       } else {
@@ -797,7 +801,7 @@ function withoutBilling(step: Step): Step {
 export function withoutSecrets(state: QueueState): QueueState {
   const { configPin, sms, ...settings } = state.settings;
   // Only the known fields: settings saved before (e.g. an old SMS gateway password) never reach a screen.
-  const smsView: SmsSettings | undefined = sms ? { enabled: sms.enabled, telegramBot: sms.telegramBot, autoAssigned: sms.autoAssigned, autoNext: sms.autoNext, assignedText: sms.assignedText, nextText: sms.nextText, telegramTokenSet: Boolean(sms.telegramToken) } : undefined;
+  const smsView: SmsSettings | undefined = sms ? { enabled: sms.enabled, telegramBot: sms.telegramBot, autoAssigned: sms.autoAssigned, autoNext: sms.autoNext, autoTurn: sms.autoTurn, assignedText: sms.assignedText, nextText: sms.nextText, turnText: sms.turnText, telegramTokenSet: Boolean(sms.telegramToken) } : undefined;
   return { ...state, settings: { ...settings, ...(smsView ? { sms: smsView } : {}), configPinSet: Boolean(configPin) } };
 }
 

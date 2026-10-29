@@ -1,14 +1,16 @@
-import { applyAction, arrivalLabel, clinicNameOf, clinicOf, ensureDay, preRegisteredList, waitingFor } from "./reducer";
+import { applyAction, arrivalLabel, clinicNameOf, clinicOf, ensureDay, findStation, preRegisteredList, vitalsPlaceOf, waitingFor } from "./reducer";
 import { getBackend } from "./server-store";
 import { smsPhone, smsText } from "./sms";
 import { saveTelegramMessage, sendTelegram, startTelegram, telegramChatOf, unlinkTelegramChat } from "./telegram";
-import type { ActionResult, QueueAction, QueueState } from "./types";
+import type { ActionResult, QueueAction, QueueState, Visit } from "./types";
 
-// Sends reminders to pre-registered patients by the clinic's Telegram bot (lib/queue/telegram.ts). Only on the clinic
-// server (QUEUE_STORE=file). Reminders go one at a time, and each result is saved on the patient (smsResult) for the
-// front desk to see.
+// Sends reminders to patients by the clinic's Telegram bot (lib/queue/telegram.ts): a pre-registered patient's number,
+// and for every patient who linked their cellphone, "next in line" and "your turn" at each of their services.
+// Only on the clinic server (QUEUE_STORE=file). Reminders go one at a time, and each result is saved on the patient
+// (smsResult) for the front desk to see.
 
-export type SmsJob = { visitId: string; kind: "assigned" | "next"; force?: boolean };
+/** station: the service a "next in line", "your turn" or vital signs reminder is about. */
+export type SmsJob = { visitId: string; kind: "assigned" | "next" | "turn" | "vitals"; station?: string; force?: boolean };
 
 const GAP_MS = 300;
 export const NOT_ON_TELEGRAM = "Not on Telegram yet — it is sent when the patient opens the bot link and shares their number.";
@@ -16,23 +18,34 @@ export const NOT_ON_TELEGRAM = "Not on Telegram yet — it is sent when the pati
 /** Whether this server can send: the clinic's own server. */
 export const smsAvailable = () => getBackend()?.name === "file";
 
-/** The texts an action calls for: the number when a patient is pre-registered, and "next in line" when a clinic calls the one before them. */
+/** A patient's open step at a station (being called, waiting, or still to come). */
+const stepAt = (visit: Visit, station: string) => visit.steps.find((step) => step.station === station && step.status !== "done");
+
+/**
+ * The reminders an action calls for: the number when a patient is pre-registered; and when a station calls a patient,
+ * "your turn" to that patient and "next in line" to the one after them (at a clinic, the first pre-registered patient
+ * not arrived yet when no one is waiting). A vital signs call sends "your turn" to the vital signs place.
+ * Patients without a cellphone are left out here; one not linked to Telegram is skipped when sending.
+ */
 export function smsJobsAfter(state: QueueState, action: QueueAction, result: ActionResult): SmsJob[] {
   const sms = state.settings.sms;
   if (!sms?.enabled || !result.ok) return [];
-  if (action.type === "register" && action.preRegister && !action.visitId && sms.autoAssigned && result.visitId) {
-    const visit = state.visits.find((item) => item.id === result.visitId);
-    return visit?.expected && smsPhone(visit.mobile) ? [{ visitId: visit.id, kind: "assigned" }] : [];
+  const find = (id?: string) => state.visits.find((item) => item.id === id && !item.cancelled && smsPhone(item.mobile));
+  if (action.type === "register" && action.preRegister && !action.visitId && sms.autoAssigned) {
+    const visit = find(result.visitId);
+    return visit?.expected ? [{ visitId: visit.id, kind: "assigned" }] : [];
   }
+  if (action.type !== "call" && action.type !== "callVitals") return [];
+  const code = String(action.station).toUpperCase();
+  const jobs: SmsJob[] = [];
+  const called = find(result.visitId);
+  if (called && sms.autoTurn !== false) jobs.push({ visitId: called.id, kind: action.type === "callVitals" ? "vitals" : "turn", station: code });
   if (action.type === "call" && sms.autoNext) {
-    const code = String(action.station).toUpperCase();
     const clinic = /^C([123])$/.exec(code);
-    if (!clinic) return [];
-    // Next in line: the first one waiting at the clinic, or else the first pre-registered patient who has not arrived yet.
-    const next = [...waitingFor(state, code), ...preRegisteredList(state, `Clinic ${clinic[1]}`)][0];
-    return next?.preRegisteredAt && !next.smsNextAt && smsPhone(next.mobile) ? [{ visitId: next.id, kind: "next" }] : [];
+    const next = [...waitingFor(state, code), ...(clinic ? preRegisteredList(state, `Clinic ${clinic[1]}`) : [])][0];
+    if (next && find(next.id) && !stepAt(next, code)?.smsNextAt) jobs.push({ visitId: next.id, kind: "next", station: code });
   }
-  return [];
+  return jobs;
 }
 
 // One queue for the whole server process (route bundles may each load this file).
@@ -42,7 +55,7 @@ const queue = (shared.__thscSms ??= { jobs: [], keys: new Set(), running: false,
 /** Adds texts to send; a patient's text that is already waiting is not added twice. */
 export function queueSms(jobs: SmsJob[]) {
   for (const job of jobs) {
-    const key = `${job.visitId}:${job.kind}`;
+    const key = `${job.visitId}:${job.kind}:${job.station ?? ""}`;
     if (queue.keys.has(key)) continue;
     queue.keys.add(key);
     queue.jobs.push(job);
@@ -63,7 +76,7 @@ async function run() {
       } catch {
         // A failure to save the result must not stop the other texts.
       } finally {
-        queue.keys.delete(`${job.visitId}:${job.kind}`);
+        queue.keys.delete(`${job.visitId}:${job.kind}:${job.station ?? ""}`);
       }
     }
   } finally {
@@ -78,25 +91,34 @@ async function sendJob(job: SmsJob): Promise<boolean> {
   const { state } = await backend.load();
   const visit = state?.visits.find((item) => item.id === job.visitId);
   if (!state || !visit || visit.cancelled) return false;
-  if (!job.force && (job.kind === "next" ? visit.smsNextAt : visit.smsAssignedAt)) return false;
+  const step = job.station ? stepAt(visit, job.station) : undefined;
+  const sentBefore = { assigned: visit.smsAssignedAt, next: step?.smsNextAt, turn: step?.smsTurnAt, vitals: step?.smsVitalsAt }[job.kind];
+  if (!job.force && (sentBefore || (job.station && !step))) return false;
   const sms = state.settings.sms;
-  const fail = (error: string) => record({ type: "smsResult", visitId: visit.id, kind: job.kind, ok: false, error }).then(() => true);
+  // A service reminder for a patient who is not on Telegram (most walk-ins) is simply not sent, without a warning on the screen.
+  const quiet = (job.kind !== "assigned" && !job.force);
+  const fail = (error: string) => (quiet ? Promise.resolve(false) : record({ type: "smsResult", visitId: visit.id, kind: job.kind, station: job.station, ok: false, error }).then(() => true));
   if (!sms?.enabled) return job.force ? fail("Reminders are turned off in System configuration.") : false;
   if (!sms.telegramToken) return fail("Set up the Telegram bot in System configuration → Patient reminders.");
   if (!smsPhone(visit.mobile)) return fail(visit.mobile ? "Check the cellphone number." : "No cellphone number.");
   const chat = await telegramChatOf(visit.mobile);
   if (!chat) return fail(NOT_ON_TELEGRAM);
-  const message = smsText(job.kind === "next" ? sms.nextText : sms.assignedText, { name: visit.name, label: arrivalLabel(visit), clinic: clinicOf(visit.kind) ?? clinicNameOf(state.settings), appointment: visit.appointment });
+  // The service by its name and where it is, e.g. "Laboratory (2nd floor)"; a vital signs call names the vital signs place.
+  const station = job.station ? findStation(state, job.station) : undefined;
+  const where = station?.location && station.location.toLowerCase() !== station.name.toLowerCase() ? ` (${station.location})` : "";
+  const service = job.kind === "vitals" ? vitalsPlaceOf(state.settings) : station ? `${station.name}${where}` : undefined;
+  const template = { assigned: sms.assignedText, next: sms.nextText, turn: sms.turnText, vitals: sms.turnText }[job.kind] || sms.nextText;
+  const message = smsText(template, { name: visit.name, label: arrivalLabel(visit), clinic: clinicOf(visit.kind) ?? clinicNameOf(state.settings), appointment: visit.appointment, service });
   try {
     await sendTelegram(sms.telegramToken, chat, message);
   } catch (error) {
     // The patient stopped the bot: forget the link, so they can link again with /start.
     if ((error as { blocked?: boolean }).blocked) await unlinkTelegramChat(chat);
-    return fail((error as Error).message);
+    return record({ type: "smsResult", visitId: visit.id, kind: job.kind, station: job.station, ok: false, error: (error as Error).message }).then(() => true);
   }
   // Shown in the patient's chat on the front desk (💬 Messages), with what they write back.
   await saveTelegramMessage({ chatId: chat, from: "bot", text: message, read: true }).catch(() => undefined);
-  await record({ type: "smsResult", visitId: visit.id, kind: job.kind, ok: true });
+  await record({ type: "smsResult", visitId: visit.id, kind: job.kind, station: job.station, ok: true });
   return true;
 }
 

@@ -38,6 +38,10 @@ export type Step = {
   vitalsCalledAt?: number | null;
   vitalsCalls?: number;
   vitalsDoneAt?: number | null;
+  /** Telegram reminders for this service: when "next in line", "your turn" and the vital signs call were sent. */
+  smsNextAt?: number | null;
+  smsTurnAt?: number | null;
+  smsVitalsAt?: number | null;
   /** Set when a consultation is finished: the professional fee (or no charge) and other items to pay at the cashier. */
   billing?: Billing;
 };
@@ -89,9 +93,11 @@ export type Visit = {
   purposes?: string[];
   /** When the one-time queue message was sent to the patient. */
   messagedAt: number | null;
-  /** Telegram reminders to a pre-registered patient: when the "number assigned" and "next in line" reminders were sent. */
+  /** Telegram reminders to the patient: when the "number assigned", the last "next in line" and the last "your turn" reminders were sent, and for which station. */
   smsAssignedAt?: number | null;
   smsNextAt?: number | null;
+  smsTurnAt?: number | null;
+  smsLastStation?: string;
   /** Why the last reminder could not be sent, and when (cleared by the next one that is sent, or a new cellphone number). */
   smsError?: string;
   smsErrorAt?: number | null;
@@ -157,12 +163,14 @@ export type SmsSettings = {
   telegramTokenSet?: boolean;
   /** The bot's username (without @), for its t.me link; found from the token. */
   telegramBot?: string;
-  /** Send automatically: when a pre-registered patient's number is assigned, and when they become next in line. */
+  /** Send automatically: when a pre-registered patient's number is assigned, when a patient becomes next in line at a service, and when it is their turn. */
   autoAssigned: boolean;
   autoNext: boolean;
-  /** The texts, with {name} {fullname} {number} {clinic} {appointment} filled in. */
+  autoTurn?: boolean;
+  /** The texts, with {name} {fullname} {number} {clinic} {appointment} {service} filled in. */
   assignedText: string;
   nextText: string;
+  turnText?: string;
 };
 
 export type AnnounceLanguage = "en" | "en+fil" | "fil";
@@ -229,7 +237,7 @@ export type QueueAction =
   | { type: "updateVisit"; visitId: string; name?: string; mobile?: string; notes?: string; priority?: boolean; newPatient?: boolean }
   | { type: "markMessaged"; visitId: string }
   /** Records an SMS sent (or not sent, with why) to a patient by the clinic server. */
-  | { type: "smsResult"; visitId: string; kind: "assigned" | "next"; ok: boolean; error?: string }
+  | { type: "smsResult"; visitId: string; kind: "assigned" | "next" | "turn" | "vitals"; station?: string; ok: boolean; error?: string }
   | { type: "call"; station: string; visitId?: string }
   | { type: "recall"; visitId: string }
   | { type: "complete"; visitId: string; sendTo?: string; billing?: Billing }
