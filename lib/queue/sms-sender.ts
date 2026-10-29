@@ -10,7 +10,7 @@ import type { ActionResult, QueueAction, QueueState, Visit } from "./types";
 // (smsResult) for the front desk to see.
 
 /** station: the service a "next in line", "your turn" or vital signs reminder is about. */
-export type SmsJob = { visitId: string; kind: "assigned" | "issued" | "next" | "turn" | "vitals"; station?: string; force?: boolean };
+export type SmsJob = { visitId: string; kind: "assigned" | "issued" | "next" | "turn" | "vitals" | "thanks"; station?: string; force?: boolean };
 
 const GAP_MS = 300;
 export const NOT_ON_TELEGRAM = "Not on Telegram yet — it is sent when the patient opens the bot link and shares their number.";
@@ -40,6 +40,11 @@ export function smsJobsAfter(state: QueueState, action: QueueAction, result: Act
   if (action.type === "register" && !action.preRegister && sms.autoIssued !== false) {
     const visit = find(result.visitId);
     return visit ? [{ visitId: visit.id, kind: "issued" }] : [];
+  }
+  // Complete visit: the patient's last service is done, so they get "thank you for visiting" (once a visit).
+  if (action.type === "complete") {
+    const visit = find(result.visitId);
+    return visit && !currentStep(visit) && !visit.smsThanksAt && sms.autoThanks !== false ? [{ visitId: visit.id, kind: "thanks" }] : [];
   }
   // Call back (a station calling a patient it served back to it): "your turn" again, for the new step.
   if (action.type === "callBack") {
@@ -103,7 +108,7 @@ async function sendJob(job: SmsJob): Promise<boolean> {
   const visit = state?.visits.find((item) => item.id === job.visitId);
   if (!state || !visit || visit.cancelled) return false;
   const step = job.station ? stepAt(visit, job.station) : undefined;
-  const sentBefore = { assigned: visit.smsAssignedAt, issued: visit.smsAssignedAt, next: step?.smsNextAt, turn: step?.smsTurnAt, vitals: step?.smsVitalsAt }[job.kind];
+  const sentBefore = { assigned: visit.smsAssignedAt, issued: visit.smsAssignedAt, thanks: visit.smsThanksAt, next: step?.smsNextAt, turn: step?.smsTurnAt, vitals: step?.smsVitalsAt }[job.kind];
   if (!job.force && (sentBefore || (job.station && !step))) return false;
   const sms = state.settings.sms;
   // A service reminder for a patient who is not on Telegram (most walk-ins) is simply not sent, without a warning on the screen.
@@ -118,7 +123,7 @@ async function sendJob(job: SmsJob): Promise<boolean> {
   const station = job.station ? findStation(state, job.station) : undefined;
   const where = station?.location && station.location.toLowerCase() !== station.name.toLowerCase() ? ` (${station.location})` : "";
   const service = job.kind === "vitals" ? vitalsPlaceOf(state.settings) : station ? `${station.name}${where}` : undefined;
-  const template = { assigned: sms.assignedText, issued: sms.issuedText, next: sms.nextText, turn: sms.turnText, vitals: sms.turnText }[job.kind] || sms.nextText;
+  const template = { assigned: sms.assignedText, issued: sms.issuedText, thanks: sms.thanksText, next: sms.nextText, turn: sms.turnText, vitals: sms.turnText }[job.kind] || sms.nextText;
   const message = smsText(template, { name: visit.name, label: arrivalLabel(visit), clinic: clinicOf(visit.kind) ?? clinicNameOf(state.settings), appointment: visit.appointment, service });
   try {
     await sendTelegram(sms.telegramToken, chat, message);

@@ -98,6 +98,8 @@ export type Visit = {
   smsNextAt?: number | null;
   smsTurnAt?: number | null;
   smsLastStation?: string;
+  /** When the "thank you for visiting" message was sent, after the last service (Complete visit). */
+  smsThanksAt?: number | null;
   /** Why the last reminder could not be sent, and when (cleared by the next one that is sent, or a new cellphone number). */
   smsError?: string;
   smsErrorAt?: number | null;
@@ -169,11 +171,14 @@ export type SmsSettings = {
   autoIssued?: boolean;
   autoNext: boolean;
   autoTurn?: boolean;
+  /** Send "thank you for visiting" when the patient's visit is complete. */
+  autoThanks?: boolean;
   /** The texts, with {name} {fullname} {number} {clinic} {appointment} {service} filled in. */
   assignedText: string;
   issuedText?: string;
   nextText: string;
   turnText?: string;
+  thanksText?: string;
 };
 
 export type AnnounceLanguage = "en" | "en+fil" | "fil";
@@ -240,7 +245,7 @@ export type QueueAction =
   | { type: "updateVisit"; visitId: string; name?: string; mobile?: string; notes?: string; priority?: boolean; newPatient?: boolean }
   | { type: "markMessaged"; visitId: string }
   /** Records an SMS sent (or not sent, with why) to a patient by the clinic server. */
-  | { type: "smsResult"; visitId: string; kind: "assigned" | "issued" | "next" | "turn" | "vitals"; station?: string; ok: boolean; error?: string }
+  | { type: "smsResult"; visitId: string; kind: "assigned" | "issued" | "next" | "turn" | "vitals" | "thanks"; station?: string; ok: boolean; error?: string }
   | { type: "call"; station: string; visitId?: string }
   | { type: "recall"; visitId: string }
   | { type: "complete"; visitId: string; sendTo?: string; billing?: Billing }
