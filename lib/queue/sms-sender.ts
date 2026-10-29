@@ -1,4 +1,4 @@
-import { applyAction, arrivalLabel, clinicNameOf, clinicOf, ensureDay, findStation, preRegisteredList, vitalsPlaceOf, waitingFor } from "./reducer";
+import { applyAction, arrivalLabel, clinicNameOf, clinicOf, currentStep, ensureDay, findStation, preRegisteredList, vitalsPlaceOf, waitingFor } from "./reducer";
 import { getBackend } from "./server-store";
 import { smsPhone, smsText } from "./sms";
 import { saveTelegramMessage, sendTelegram, startTelegram, telegramChatOf, unlinkTelegramChat } from "./telegram";
@@ -10,7 +10,7 @@ import type { ActionResult, QueueAction, QueueState, Visit } from "./types";
 // (smsResult) for the front desk to see.
 
 /** station: the service a "next in line", "your turn" or vital signs reminder is about. */
-export type SmsJob = { visitId: string; kind: "assigned" | "next" | "turn" | "vitals"; station?: string; force?: boolean };
+export type SmsJob = { visitId: string; kind: "assigned" | "issued" | "next" | "turn" | "vitals"; station?: string; force?: boolean };
 
 const GAP_MS = 300;
 export const NOT_ON_TELEGRAM = "Not on Telegram yet — it is sent when the patient opens the bot link and shares their number.";
@@ -34,6 +34,11 @@ export function smsJobsAfter(state: QueueState, action: QueueAction, result: Act
   if (action.type === "register" && action.preRegister && !action.visitId && sms.autoAssigned) {
     const visit = find(result.visitId);
     return visit?.expected ? [{ visitId: visit.id, kind: "assigned" }] : [];
+  }
+  // Issue queue number (regular, HMO, clinic walk-in): the number goes to the patient's Telegram at once.
+  if (action.type === "register" && !action.preRegister && sms.autoIssued !== false) {
+    const visit = find(result.visitId);
+    return visit ? [{ visitId: visit.id, kind: "issued" }] : [];
   }
   if (action.type !== "call" && action.type !== "callVitals") return [];
   const code = String(action.station).toUpperCase();
@@ -92,7 +97,7 @@ async function sendJob(job: SmsJob): Promise<boolean> {
   const visit = state?.visits.find((item) => item.id === job.visitId);
   if (!state || !visit || visit.cancelled) return false;
   const step = job.station ? stepAt(visit, job.station) : undefined;
-  const sentBefore = { assigned: visit.smsAssignedAt, next: step?.smsNextAt, turn: step?.smsTurnAt, vitals: step?.smsVitalsAt }[job.kind];
+  const sentBefore = { assigned: visit.smsAssignedAt, issued: visit.smsAssignedAt, next: step?.smsNextAt, turn: step?.smsTurnAt, vitals: step?.smsVitalsAt }[job.kind];
   if (!job.force && (sentBefore || (job.station && !step))) return false;
   const sms = state.settings.sms;
   // A service reminder for a patient who is not on Telegram (most walk-ins) is simply not sent, without a warning on the screen.
@@ -107,7 +112,7 @@ async function sendJob(job: SmsJob): Promise<boolean> {
   const station = job.station ? findStation(state, job.station) : undefined;
   const where = station?.location && station.location.toLowerCase() !== station.name.toLowerCase() ? ` (${station.location})` : "";
   const service = job.kind === "vitals" ? vitalsPlaceOf(state.settings) : station ? `${station.name}${where}` : undefined;
-  const template = { assigned: sms.assignedText, next: sms.nextText, turn: sms.turnText, vitals: sms.turnText }[job.kind] || sms.nextText;
+  const template = { assigned: sms.assignedText, issued: sms.issuedText, next: sms.nextText, turn: sms.turnText, vitals: sms.turnText }[job.kind] || sms.nextText;
   const message = smsText(template, { name: visit.name, label: arrivalLabel(visit), clinic: clinicOf(visit.kind) ?? clinicNameOf(state.settings), appointment: visit.appointment, service });
   try {
     await sendTelegram(sms.telegramToken, chat, message);
@@ -133,7 +138,9 @@ export function startTelegramReminders() {
       void backend.load().then(({ state }) => {
         if (!state) return;
         const today = ensureDay(state, Date.now());
-        queueSms(today.visits.filter((visit) => visit.expected && !visit.cancelled && !visit.smsAssignedAt && smsPhone(visit.mobile) === phone).map((visit) => ({ visitId: visit.id, kind: "assigned" })));
+        // A pre-registered patient gets their number; one already registered today and still in the queue gets theirs too.
+        const owed = today.visits.filter((visit) => !visit.cancelled && !visit.smsAssignedAt && smsPhone(visit.mobile) === phone && (visit.expected || currentStep(visit)));
+        queueSms(owed.map((visit) => ({ visitId: visit.id, kind: visit.expected ? "assigned" : "issued" })));
       });
     },
   );
