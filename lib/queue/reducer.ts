@@ -796,7 +796,8 @@ function withoutBilling(step: Step): Step {
 /** The state as screens get it: the configuration PIN's hash is replaced by whether one is set. */
 export function withoutSecrets(state: QueueState): QueueState {
   const { configPin, sms, ...settings } = state.settings;
-  const smsView = sms ? (({ password, telegramToken, ...rest }) => ({ ...rest, passwordSet: Boolean(password), telegramTokenSet: Boolean(telegramToken) }))(sms) : undefined;
+  // Only the known fields: settings saved before (e.g. an old SMS gateway password) never reach a screen.
+  const smsView: SmsSettings | undefined = sms ? { enabled: sms.enabled, telegramBot: sms.telegramBot, autoAssigned: sms.autoAssigned, autoNext: sms.autoNext, assignedText: sms.assignedText, nextText: sms.nextText, telegramTokenSet: Boolean(sms.telegramToken) } : undefined;
   return { ...state, settings: { ...settings, ...(smsView ? { sms: smsView } : {}), configPinSet: Boolean(configPin) } };
 }
 
@@ -804,6 +805,6 @@ export function publicView(state: QueueState): QueueState {
   const view = withoutSecrets(state);
   // Only the Telegram bot's name, for the Telegram poster's QR code.
   const sms = view.settings.sms;
-  const telegram = sms?.enabled && sms.channel === "telegram" && sms.telegramBot ? { enabled: true, channel: "telegram" as const, telegramBot: sms.telegramBot } : undefined;
+  const telegram = sms?.enabled && sms.telegramBot ? { enabled: true, telegramBot: sms.telegramBot } : undefined;
   return { ...view, settings: { ...view.settings, sms: telegram as SmsSettings | undefined }, visits: state.visits.map((visit) => ({ ...visit, name: "", mobile: "", notes: "", hmo: "", loa: "", smsError: undefined, purposes: undefined, birthDate: undefined, age: undefined, requestingPhysician: undefined, steps: visit.steps.map(withoutBilling) })) };
 }

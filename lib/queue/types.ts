@@ -89,10 +89,10 @@ export type Visit = {
   purposes?: string[];
   /** When the one-time queue message was sent to the patient. */
   messagedAt: number | null;
-  /** SMS to a pre-registered patient through the clinic's gateway phone: when the "number assigned" and "next in line" texts were sent. */
+  /** Telegram reminders to a pre-registered patient: when the "number assigned" and "next in line" reminders were sent. */
   smsAssignedAt?: number | null;
   smsNextAt?: number | null;
-  /** Why the last SMS could not be sent, and when (cleared by the next one that is sent, or a new cellphone number). */
+  /** Why the last reminder could not be sent, and when (cleared by the next one that is sent, or a new cellphone number). */
   smsError?: string;
   smsErrorAt?: number | null;
   steps: Step[];
@@ -146,27 +146,17 @@ export type Settings = {
   configPinSet?: boolean;
   /** Language of the TV's spoken announcements; missing means English only. */
   announceLanguage?: AnnounceLanguage;
-  /** Reminders to pre-registered patients: by Telegram (the clinic's bot), or by SMS through an Android phone with the clinic SIM. */
+  /** Reminders and messages to pre-registered patients, by the clinic's Telegram bot. */
   sms?: SmsSettings;
 };
 
 export type SmsSettings = {
   enabled: boolean;
-  /** How reminders are sent: the clinic's Telegram bot, or SMS through the gateway phone. Missing means SMS. */
-  channel?: "telegram" | "sms";
   /** The Telegram bot's token from @BotFather. Never sent to any screen; screens get telegramTokenSet instead. */
   telegramToken?: string;
   telegramTokenSet?: boolean;
   /** The bot's username (without @), for its t.me link; found from the token. */
   telegramBot?: string;
-  /** The gateway phone's Local Server address, e.g. http://172.16.20.50:8080. */
-  gateway: string;
-  username: string;
-  /** Never sent to any screen; screens get passwordSet instead. */
-  password?: string;
-  passwordSet?: boolean;
-  /** The phone's SIM that sends: 1 or 2; 0 means the phone's default SIM. */
-  sim: 0 | 1 | 2;
   /** Send automatically: when a pre-registered patient's number is assigned, and when they become next in line. */
   autoAssigned: boolean;
   autoNext: boolean;

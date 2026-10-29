@@ -129,7 +129,7 @@ const shared = globalThis as typeof globalThis & { __thscTelegram?: { running: b
 
 /**
  * Starts asking Telegram for new messages to the bot (on the clinic server only). It waits while reminders are
- * not set to Telegram. onLinked runs when a patient links a number (to send them today's reminder at once).
+ * turned off. onLinked runs when a patient links a number (to send them today's reminder at once).
  */
 export function startTelegram(settingsOf: () => Promise<QueueState["settings"] | null>, clinicOf: (settings: QueueState["settings"]) => string, onLinked: (phone: string) => void) {
   const loop = (shared.__thscTelegram ??= { running: false, offset: 0, token: "" });
@@ -141,7 +141,7 @@ export function startTelegram(settingsOf: () => Promise<QueueState["settings"] |
       try {
         const settings = await settingsOf();
         const sms = settings?.sms;
-        const token = sms?.enabled && sms.channel === "telegram" ? (sms.telegramToken ?? "") : "";
+        const token = sms?.enabled ? (sms.telegramToken ?? "") : "";
         if (!settings || !token) { await pause(5000); continue; }
         if (token !== loop.token) {
           // A new bot: start from its newest messages, and stop a webhook from an earlier setup (Telegram allows only one way).

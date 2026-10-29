@@ -1137,7 +1137,7 @@ function run(state, action, now) {
             }
             if (action.mobile !== undefined && clean(action.mobile, 20) !== visit.mobile) {
                 visit.mobile = clean(action.mobile, 20);
-                // A new cellphone number: the last SMS error was for the old one.
+                // A new cellphone number: the last reminder error was for the old one.
                 visit.smsError = "";
                 visit.smsErrorAt = null;
             }
@@ -1169,7 +1169,7 @@ function run(state, action, now) {
                 visit.smsErrorAt = null;
             }
             else {
-                visit.smsError = clean(action.error, 200) || "The SMS could not be sent.";
+                visit.smsError = clean(action.error, 200) || "The reminder could not be sent.";
                 visit.smsErrorAt = now;
             }
             return { ok: true };
@@ -1506,30 +1506,20 @@ const SMS_TEXTS = {
     assigned: "THSC: Hi {name}, your queue number for {clinic} is {number}{appointment}. Please show this number at the Concierge when you arrive.",
     next: "THSC: Your queue number {number} ({clinic}) is NEXT IN LINE. Please be ready at the Concierge.",
 };
-const DEFAULT_SMS = { enabled: false, channel: "sms", telegramBot: "", gateway: "", username: "", sim: 0, autoAssigned: true, autoNext: true, assignedText: SMS_TEXTS.assigned, nextText: SMS_TEXTS.next };
+const DEFAULT_SMS = { enabled: false, telegramBot: "", autoAssigned: true, autoNext: true, assignedText: SMS_TEXTS.assigned, nextText: SMS_TEXTS.next };
 const smsClean = (value, max) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
-/** The reminder settings from the settings form; the password and bot token are kept when the form leaves them empty (screens never get them). */
+/** The reminder settings from the settings form; the bot token is kept when the form leaves it empty (screens never get it). */
 function smsSettingsOf(input, previous) {
     const raw = { ...DEFAULT_SMS, ...previous, ...input };
-    const gateway = smsClean(raw.gateway, 200).replace(/\/+$/, "");
-    if (gateway && !/^https?:\/\/[^\s/?#]+(\/[^\s?#]*)?$/i.test(gateway))
-        return "SMS gateway phone address: use the address the app shows, like http://172.16.20.50:8080.";
-    const password = String(input?.password ?? "").trim() ? String(input?.password).trim().slice(0, 100) : (previous?.password ?? "");
     const typedToken = String(input?.telegramToken ?? "").replace(/\s+/g, "");
     if (typedToken && !/^\d{5,15}:[A-Za-z0-9_-]{30,60}$/.test(typedToken))
         return "Telegram bot token: copy the whole token @BotFather gave, like 123456789:AAH…";
     const telegramToken = typedToken || (previous?.telegramToken ?? "");
     const telegramBot = String(raw.telegramBot ?? "").replace(/^@/, "").trim();
-    const sim = Number(raw.sim);
     return {
         enabled: Boolean(raw.enabled),
-        channel: raw.channel === "telegram" ? "telegram" : "sms",
         ...(telegramToken ? { telegramToken } : {}),
         telegramBot: /^[A-Za-z0-9_]{5,32}$/.test(telegramBot) ? telegramBot : "",
-        gateway,
-        username: smsClean(raw.username, 60),
-        ...(password ? { password } : {}),
-        sim: sim === 1 || sim === 2 ? sim : 0,
         autoAssigned: raw.autoAssigned !== false,
         autoNext: raw.autoNext !== false,
         assignedText: smsClean(raw.assignedText, 320) || SMS_TEXTS.assigned,
@@ -2072,7 +2062,7 @@ function downloadQueueReport(xlsx, state, now) {
   let msgOpen = false;
   let msgChat = null;
   let msgDraft = "";
-  const inboxOn = () => sync.mode === "server" && Boolean(state?.settings.sms?.enabled) && state.settings.sms.channel === "telegram" && ["desk", "station", "config"].includes(view);
+  const inboxOn = () => sync.mode === "server" && Boolean(state?.settings.sms?.enabled) && ["desk", "station", "config"].includes(view);
   async function messagesRequest(method, body) {
     const pin = readSetting(PIN_KEY);
     try {
@@ -2516,12 +2506,11 @@ function downloadQueueReport(xlsx, state, now) {
 
   let registering = false;
   let arriving = false;
-  // ---- SMS to pre-registered patients (sent by the queue server through the clinic's gateway phone) ----
+  // ---- Telegram reminders to pre-registered patients (sent by the queue server through the clinic's bot) ----
   const smsReady = () => sync.mode === "server" && Boolean(state.settings.sms?.enabled);
-  const byTelegram = () => state.settings.sms?.channel === "telegram";
   /** What the reminders are called on the screen, and their button's icon. */
-  const reminderName = () => (byTelegram() ? "Telegram reminder" : "SMS");
-  const reminderIcon = () => (byTelegram() ? "✈️" : "📱");
+  const reminderName = () => "Telegram reminder";
+  const reminderIcon = () => "✈️";
   /** The line under a pre-registered patient: what was sent and when, or why not. */
   function smsStatus(v) {
     if (!state.settings.sms?.enabled && !v.smsAssignedAt && !v.smsNextAt && !v.smsError) return "";
@@ -2539,7 +2528,7 @@ function downloadQueueReport(xlsx, state, now) {
   async function sendSms(visitIds, kind = "assigned") {
     const body = await smsRequest({ visitIds, kind });
     const name = reminderName();
-    if (body.ok) toast(`Sending ${visitIds.length === 1 ? `the ${name}` : `${visitIds.length} ${name}s${byTelegram() ? "" : ", a few seconds apart"}`}… The line under ${visitIds.length === 1 ? "the name" : "each name"} shows when it is sent.`);
+    if (body.ok) toast(`Sending ${visitIds.length === 1 ? `the ${name}` : `${visitIds.length} ${name}s`}… The line under ${visitIds.length === 1 ? "the name" : "each name"} shows when it is sent.`);
     else toast(body.error || `The ${name} could not be sent.`, true);
   }
   // The pre-registered patient whose cellphone number is being changed, and what is typed so far.
@@ -2696,7 +2685,7 @@ function downloadQueueReport(xlsx, state, now) {
       smsAll.classList.toggle("hidden", !smsReady() || !untexted.length);
       smsAll.textContent = `${reminderIcon()} Send all · ${untexted.length} not sent`;
       const bot = state.settings.sms?.telegramBot;
-      $("#tg-invite").classList.toggle("hidden", !smsReady() || !byTelegram() || !bot);
+      $("#tg-invite").classList.toggle("hidden", !smsReady() || !bot);
       $("#prereg-list").innerHTML = expected.length ? expected.map((v, i) => `
       <li data-id="${v.id}" class="prereg-row">
         <button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(arrivalLabel(v))}, place ${i + 1} of ${expected.length}. Use the up and down arrow keys.">⠿</button>
@@ -2930,23 +2919,14 @@ function downloadQueueReport(xlsx, state, now) {
             <p class="yt-hint" id="printer-hint"></p>
             <div id="cfg-kiosk"></div>
           </div></section>
-        <section class="panel"><div class="panel-h"><div><h2>🔔 Patient reminders</h2><p>Texts to pre-registered patients: their queue number, and when they are next in line. Sent by the clinic's Telegram bot (free), or as SMS by an Android phone with the clinic SIM.</p></div></div>
+        <section class="panel"><div class="panel-h"><div><h2>🔔 Patient reminders · ✈️ Telegram</h2><p>Messages to pre-registered patients by the clinic's Telegram bot (free): their queue number, and when they are next in line. Each patient links once: they open the bot, tap Start and share their number. Patients' replies show in 💬 Messages. The server needs internet.</p></div></div>
           <div class="panel-b" style="display:grid;gap:10px">
             <p class="yt-hint err" id="sms-avail"></p>
             <label class="check"><input type="checkbox" data-sms="enabled" ${draft.sms.enabled ? "checked" : ""}><span><b>Send reminders to patients</b><small>Turn off to stop all reminders</small></span></label>
-            <div class="field">Send reminders by
-              <label class="check"><input type="radio" name="sms-channel" value="telegram" data-sms="channel" ${draft.sms.channel === "telegram" ? "checked" : ""}><span><b>✈️ Telegram</b><small>Free. Each patient links once: they open the clinic's bot, tap Start and share their number. The server needs internet.</small></span></label>
-              <label class="check"><input type="radio" name="sms-channel" value="sms" data-sms="channel" ${draft.sms.channel === "telegram" ? "" : "checked"}><span><b>📱 SMS</b><small>Any phone. Sent by an Android phone with the clinic SIM (SMS Gateway for Android, Local Server).</small></span></label>
-            </div>
             <div id="sms-tg" style="display:grid;gap:10px">
               <p class="note" style="margin:0">Make the clinic's bot once: in Telegram, open <b>@BotFather</b>, send <b>/newbot</b>, give it a name (e.g. THSC Queue) and a username ending in "bot" (e.g. THSCQueueBot). Copy the token it gives you here, then click <b>Check bot</b>.</p>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><label class="field" style="flex:1 1 220px">Bot token<input type="password" maxlength="100" autocomplete="off" spellcheck="false" data-sms="telegramToken" value="" placeholder="${draft.sms.telegramTokenSet ? "Saved — paste to change" : "123456789:AAH…"}"></label><button type="button" class="btn sm outline" data-act="checkBot" style="min-height:40px">✓ Check bot</button></div>
               <div id="sms-bot"></div>
-            </div>
-            <div id="sms-gw" style="display:grid;gap:10px">
-            <label class="field">Gateway phone address<em>Shown in the app under Local Server, e.g. http://172.16.20.50:8080. Give the phone a fixed address in the router (pfSense: DHCP static mapping).</em><input type="text" maxlength="200" spellcheck="false" class="mono" data-sms="gateway" value="${esc(draft.sms.gateway)}" placeholder="http://172.16.20.50:8080"></label>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><label class="field">Username<input type="text" maxlength="60" spellcheck="false" autocomplete="off" data-sms="username" value="${esc(draft.sms.username)}"></label><label class="field">Password<input type="password" maxlength="100" autocomplete="new-password" data-sms="password" value="" placeholder="${draft.sms.passwordSet ? "Saved — type to change" : ""}"></label></div>
-            <label class="field">Send from<em>For a dual-SIM phone: the SIM whose number the patients see.</em><select data-sms="sim">${[[0, "The phone's default SIM"], [1, "SIM 1"], [2, "SIM 2"]].map(([v, l]) => `<option value="${v}" ${Number(draft.sms.sim) === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
             </div>
             <div class="field">Send automatically
               <label class="check"><input type="checkbox" data-sms="autoAssigned" ${draft.sms.autoAssigned ? "checked" : ""}><span><b>When the number is assigned</b><small>📅 Pre-register or 📋 Paste a list on a Clinic tab, for patients with a cellphone number</small></span></label>
@@ -2956,8 +2936,8 @@ function downloadQueueReport(xlsx, state, now) {
             <p class="yt-hint" id="sms-ex-assigned" style="font-weight:400;color:var(--muted)"></p>
             <label class="field">Text: next in line<textarea class="cfg-text" maxlength="320" data-sms="nextText">${esc(draft.sms.nextText)}</textarea></label>
             <p class="yt-hint" id="sms-ex-next" style="font-weight:400;color:var(--muted)"></p>
-            <p style="margin:0;font-size:12px;color:var(--muted)">Filled in for each patient: <b>{name}</b> (first name), <b>{fullname}</b>, <b>{number}</b>, <b>{clinic}</b> and <b>{appointment}</b> (", appointment 9:30 AM" when there is one). By SMS, a text over 160 characters is sent as 2 SMS.</p>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><label class="field" style="flex:1 1 180px">Test cellphone number<em id="sms-test-note"></em><input type="tel" id="sms-test-phone" placeholder="0917 123 4567" inputmode="tel"></label><button type="button" class="btn sm outline" data-act="testSms" id="sms-test-btn" style="min-height:40px">Send test</button></div>
+            <p style="margin:0;font-size:12px;color:var(--muted)">Filled in for each patient: <b>{name}</b> (first name), <b>{fullname}</b>, <b>{number}</b>, <b>{clinic}</b> and <b>{appointment}</b> (", appointment 9:30 AM" when there is one).</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><label class="field" style="flex:1 1 180px">Test cellphone number<em>The number must have linked the bot first (open its link, Start, Share my phone number).</em><input type="tel" id="sms-test-phone" placeholder="0917 123 4567" inputmode="tel"></label><button type="button" class="btn sm outline" data-act="testSms" id="sms-test-btn" style="min-height:40px">✈️ Send test</button></div>
             <p class="yt-hint" id="sms-hint"></p>
           </div></section>
         <section class="panel"><div class="panel-h"><div><h2>Configuration PIN</h2><p>Needed every time System configuration is opened. Staff with only the staff PIN still use the front desk, stations and the TV sound control.</p></div></div>
@@ -3000,12 +2980,12 @@ function downloadQueueReport(xlsx, state, now) {
     box.querySelectorAll("[data-sms]").forEach((input) => input.addEventListener(input.type === "checkbox" || input.tagName === "SELECT" ? "change" : "input", () => {
       const field = input.dataset.sms;
       draft.sms[field] = input.type === "checkbox" ? input.checked : field === "sim" ? Number(input.value) : input.value;
-      if ((field === "password" || field === "telegramToken") && !input.value.trim()) delete draft.sms[field];
-      showSmsChannel();
+      if (field === "telegramToken" && !input.value.trim()) delete draft.sms[field];
+      showTelegramBot();
       showSmsExamples();
       refreshDirty();
     }));
-    showSmsChannel();
+    showTelegramBot();
     showSmsExamples();
     checkSmsAvailable();
     showPaperHint();
@@ -3059,32 +3039,26 @@ function downloadQueueReport(xlsx, state, now) {
       <p class="note" style="margin:10px 0 0">${want === "lan" ? "Plug the TV computer into the clinic router or network switch with a LAN cable." : "Connect the TV computer to the clinic Wi-Fi."} On it, put the startup file in the Startup folder (Windows+R, type <b>shell:startup</b>): the TV then opens full screen with sound when it turns on.${others ? `<br>Other addresses of the server: ${others}` : ""}</p>`;
   }
   // ---- Kiosk & slip printer ----
-  // ---- Patient reminders (System configuration → Patient reminders): Telegram or SMS ----
+  // ---- Patient reminders (System configuration → Patient reminders): the clinic's Telegram bot ----
   const telegramLink = (bot) => `https://t.me/${bot}`;
   /** The message staff send a patient (by Viber, Messenger, SMS …) so they link the clinic's Telegram bot. */
   const telegramInvite = (bot) => `${clinicNameOf(state.settings)}: get your queue number reminders on Telegram. Open ${telegramLink(bot)} , tap Start, then tap "Share my phone number". You only do this once.`;
-  /** Shows the Telegram or the SMS settings, and the bot's link. */
-  function showSmsChannel() {
-    if (!draft || !$("#sms-tg")) return;
-    const telegram = draft.sms.channel === "telegram";
-    $("#sms-tg").classList.toggle("hidden", !telegram);
-    $("#sms-gw").classList.toggle("hidden", telegram);
-    $("#sms-test-btn").textContent = telegram ? "✈️ Send test" : "📱 Send test SMS";
-    $("#sms-test-note").textContent = telegram ? "The number must have linked the bot first (open its link, Start, Share my phone number)." : "";
+  /** Shows the bot's link, once its token is checked. */
+  function showTelegramBot() {
+    if (!draft || !$("#sms-bot")) return;
     const bot = draft.sms.telegramBot;
     $("#sms-bot").innerHTML = bot ? `<div class="note" style="margin:0;display:grid;gap:6px"><span>✓ Bot <b>@${esc(bot)}</b> · patients open <a href="${esc(telegramLink(bot))}" target="_blank" rel="noopener" class="mono">${esc(telegramLink(bot).replace("https://", ""))}</a></span><span style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn sm outline" data-act="copyInvite">📋 Copy invite message</button><button type="button" class="btn sm outline" data-act="openTelegramPoster">🖨 Telegram QR poster ↗</button></span></div>` : `<p class="yt-hint" style="margin:0;color:var(--muted);font-weight:400">After the token, click Check bot to find the bot's link.</p>`;
   }
-  // ---- SMS to patients (System configuration → SMS) ----
   /** The two texts as a patient would get them, under their boxes. */
   function showSmsExamples() {
     if (!draft || !$("#sms-ex-assigned")) return;
     const patient = { name: "DELA CRUZ, JUAN", label: `${prefixOf(draft, "S1")}02`, clinic: "Clinic 1", appointment: "09:30" };
     for (const [id, field] of [["#sms-ex-assigned", "assignedText"], ["#sms-ex-next", "nextText"]]) {
       const text = smsText(draft.sms[field] || SMS_TEXTS[field === "nextText" ? "next" : "assigned"], patient);
-      $(id).textContent = `Example (${text.length} characters${text.length > 160 ? ", 2 SMS" : ""}): ${text}`;
+      $(id).textContent = `Example: ${text}`;
     }
   }
-  /** Whether the queue server can send SMS (only the clinic's own server, near the gateway phone). */
+  /** Whether the queue server can send reminders (only the clinic's own server). */
   let smsServer = null;
   function checkSmsAvailable() {
     const show = () => { const hint = $("#sms-avail"); if (hint) hint.textContent = smsServer === false ? "Reminders work only with the clinic's own queue server (local-server)." : ""; };
@@ -4138,7 +4112,7 @@ function downloadQueueReport(xlsx, state, now) {
         void smsRequest({ telegramCheck: true, token: draft.sms.telegramToken ?? "" }).then((body) => {
           if (!body.ok) { box.innerHTML = `<p class="yt-hint err" style="margin:0">${esc(body.error || "The bot could not be checked.")}</p>`; return; }
           draft.sms.telegramBot = body.bot;
-          showSmsChannel(); refreshDirty();
+          showTelegramBot(); refreshDirty();
           toast(`Bot @${body.bot} (${body.name}) found. Click Save configuration to use it.`);
         });
         break;
@@ -4156,18 +4130,10 @@ function downloadQueueReport(xlsx, state, now) {
         const phone = $("#sms-test-phone").value;
         if (sync.mode !== "server") { toast("Reminders need the clinic's queue server.", true); break; }
         if (!smsPhone(phone)) { toast("Type the cellphone number for the test, e.g. 0917 123 4567.", true); break; }
-        if (draft.sms.channel === "telegram") {
-          hint.className = "yt-hint"; hint.textContent = "Sending the test reminder on Telegram…";
-          void smsRequest({ test: true, channel: "telegram", phone, token: draft.sms.telegramToken ?? "" }).then((body) => {
-            hint.className = `yt-hint ${body.ok ? "ok" : "err"}`;
-            hint.textContent = body.ok ? `✓ Test reminder sent on Telegram to ${phone}. Click Save configuration to keep these settings.` : body.error || "The test reminder could not be sent.";
-          });
-          break;
-        }
-        hint.className = "yt-hint"; hint.textContent = "Sending the test SMS…";
-        void smsRequest({ test: true, phone, gateway: draft.sms.gateway, username: draft.sms.username, password: draft.sms.password ?? "", sim: draft.sms.sim }).then((body) => {
+        hint.className = "yt-hint"; hint.textContent = "Sending the test reminder on Telegram…";
+        void smsRequest({ test: true, phone, token: draft.sms.telegramToken ?? "" }).then((body) => {
           hint.className = `yt-hint ${body.ok ? "ok" : "err"}`;
-          hint.textContent = body.ok ? `✓ The gateway phone took the test SMS for ${phone}. It should arrive in a few seconds. Click Save configuration to keep these settings.` : body.error || "The test SMS could not be sent.";
+          hint.textContent = body.ok ? `✓ Test reminder sent on Telegram to ${phone}. Click Save configuration to keep these settings.` : body.error || "The test reminder could not be sent.";
         });
         break;
       }
@@ -4200,7 +4166,7 @@ function downloadQueueReport(xlsx, state, now) {
       case "slip": {
         const v = state.visits.find((x) => x.id === id);
         if (!v) break;
-        const browserPrint = () => { if (!printSlip(arrivalLabel(v), v.expected ? v.preRegisteredAt ?? v.createdAt : v.createdAt, LOGO, clinicNameOf(state.settings), v.expected ? preRegisteredSlip(v, smsReady() && byTelegram() ? state.settings.sms.telegramBot : "") : null)) toast("The browser blocked the print window — allow pop-ups for this page.", true); };
+        const browserPrint = () => { if (!printSlip(arrivalLabel(v), v.expected ? v.preRegisteredAt ?? v.createdAt : v.createdAt, LOGO, clinicNameOf(state.settings), v.expected ? preRegisteredSlip(v, smsReady() ? state.settings.sms.telegramBot : "") : null)) toast("The browser blocked the print window — allow pop-ups for this page.", true); };
         // A pre-registered slip goes to the clinic server's slip printer when one is set (System configuration → Kiosk & slip printer).
         if (!v.expected || sync.mode !== "server" || !state.settings.slipPrinter) { browserPrint(); break; }
         printOnServer(v.id).then((printed) => {
@@ -4242,7 +4208,7 @@ function downloadQueueReport(xlsx, state, now) {
       }
       case "smsAll": {
         const ids = preRegisteredList(state, clinicOf(deskTab)).filter((v) => !v.smsAssignedAt && smsPhone(v.mobile)).map((v) => v.id);
-        if (ids.length && confirm(`Send the queue number ${reminderName()} to ${ids.length} pre-registered patient${ids.length === 1 ? "" : "s"} who were not sent one yet?${byTelegram() ? "" : " They go out a few seconds apart."}`)) void sendSms(ids);
+        if (ids.length && confirm(`Send the queue number ${reminderName()} to ${ids.length} pre-registered patient${ids.length === 1 ? "" : "s"} who were not sent one yet?`)) void sendSms(ids);
         break;
       }
       case "mobileEdit": {
