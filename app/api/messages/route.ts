@@ -3,6 +3,7 @@ import { getBackend, isStaff } from "@/lib/queue/server-store";
 import { smsPhone } from "@/lib/queue/sms";
 import { smsAvailable } from "@/lib/queue/sms-sender";
 import { markTelegramRead, saveTelegramMessage, sendTelegram, telegramContacts, telegramMessages } from "@/lib/queue/telegram";
+import type { QueueState } from "@/lib/queue/types";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,17 @@ export const dynamic = "force-dynamic";
 // Staff PIN needed; only on the clinic server (QUEUE_STORE=file), with reminders set to Telegram.
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, x-queue-pin", "Access-Control-Max-Age": "86400" };
 const json = (body: Record<string, unknown>, status = 200) => Response.json(body, { status, headers: { ...CORS, "Cache-Control": "no-store" } });
+
+/** Today's visit of a chat's patient, by their linked cellphone: the one still open, else the latest. */
+function visitOfPhone(state: QueueState, phone: string | null) {
+  if (!phone) return undefined;
+  return state.visits.filter((visit) => smsPhone(visit.mobile) === phone).sort((a, b) => Number(a.cancelled) - Number(b.cancelled) || b.createdAt - a.createdAt)[0];
+}
+
+/** A staff reply as the patient gets it: with their queue number on the first line, so every message says which number it is about. */
+function withQueueNumber(text: string, label: string | null) {
+  return label && !text.includes(label) ? `🎫 Queue number ${label}\n${text}` : text;
+}
 
 export function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS });
@@ -27,9 +39,7 @@ export async function GET(request: Request) {
   for (const message of messages) chats.set(message.chatId, [...(chats.get(message.chatId) ?? []), message]);
   const list = [...chats.entries()].map(([chatId, items]) => {
     const phone = phoneOf.get(chatId) ?? null;
-    // Today's visit with this cellphone: the one still open, else the latest.
-    const visits = phone ? state.visits.filter((visit) => smsPhone(visit.mobile) === phone).sort((a, b) => Number(a.cancelled) - Number(b.cancelled) || b.createdAt - a.createdAt) : [];
-    const visit = visits[0];
+    const visit = visitOfPhone(state, phone);
     return {
       chatId,
       name: items.findLast((item) => item.from === "patient")?.name || "",
@@ -43,7 +53,7 @@ export async function GET(request: Request) {
   return json({ available: true, chats: list, unread: list.reduce((sum, chat) => sum + chat.unread, 0) });
 }
 
-/** { chatId, text }: replies to a patient through the bot. { read: chatId }: marks a chat as read. */
+/** { chatId, text }: replies to a patient through the bot, with their queue number. { read: chatId }: marks a chat as read. */
 export async function POST(request: Request) {
   const backend = getBackend();
   if (!smsAvailable() || !backend) return json({ ok: false, error: "Messages work only on the clinic's own queue server." });
@@ -62,15 +72,19 @@ export async function POST(request: Request) {
   const text = String(body.text ?? "").trim().slice(0, 1000);
   if (!text) return json({ ok: false, error: "Type the reply first." });
   if (!(await telegramMessages()).some((message) => message.chatId === chatId)) return json({ ok: false, error: "That chat was not found." }, 404);
-  const { state } = await backend.load();
-  const token = state?.settings.sms?.telegramToken;
+  const state = ensureDay((await backend.load()).state, Date.now());
+  const token = state.settings.sms?.telegramToken;
   if (!token) return json({ ok: false, error: "The Telegram bot is not set up (System configuration → Patient reminders)." });
+  // The patient's queue number in today's queue goes with the reply.
+  const phone = Object.entries(await telegramContacts()).find(([, contact]) => contact.chatId === chatId)?.[0] ?? null;
+  const visit = visitOfPhone(state, phone);
+  const sent = withQueueNumber(text, visit && !visit.cancelled ? arrivalLabel(visit) : null);
   try {
-    await sendTelegram(token, chatId, text);
+    await sendTelegram(token, chatId, sent);
   } catch (error) {
     return json({ ok: false, error: (error as Error).message });
   }
-  await saveTelegramMessage({ chatId, from: "staff", text, read: true });
+  await saveTelegramMessage({ chatId, from: "staff", text: sent, read: true });
   await markTelegramRead(chatId);
   return json({ ok: true });
 }

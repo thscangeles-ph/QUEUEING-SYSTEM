@@ -2109,7 +2109,7 @@ function downloadQueueReport(xlsx, state, now) {
           <div class="msg-main"><div class="msg-who" id="msg-who"></div><div class="msg-thread" id="msg-thread" aria-live="polite"></div>
             <div class="msg-compose" id="msg-compose"><div class="msg-quick">${["Please proceed to the Concierge.", "Your number will be called soon. Please stay near the waiting area.", "The doctor is running late. Thank you for waiting.", "Please call the clinic for this concern."].map((text) => `<button type="button" data-act="msgQuick" data-text="${esc(text)}">${esc(text)}</button>`).join("")}</div>
               <textarea id="msg-text" maxlength="1000" placeholder="Type your reply…"></textarea>
-              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><small style="color:var(--muted)">Ctrl + Enter sends.</small><button type="button" class="btn sm" data-act="msgSend" id="msg-send">✈️ Send reply</button></div></div></div></div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><small style="color:var(--muted)" id="msg-note">Ctrl + Enter sends.</small><button type="button" class="btn sm" data-act="msgSend" id="msg-send">✈️ Send reply</button></div></div></div></div>
       </section></div>`;
       const input = $("#msg-text");
       input.value = msgDraft;
@@ -2118,6 +2118,9 @@ function downloadQueueReport(xlsx, state, now) {
     }
     $("#msg-list").innerHTML = chats.length ? chats.map((item) => `<button type="button" class="${item.chatId === msgChat ? "on" : ""}" data-act="msgChat" data-chat="${item.chatId}"><b>${esc(chatTitle(item))}${item.unread ? `<span class="dot">${item.unread}</span>` : ""}</b><small>${esc(item.phone || item.name || "")} · ${esc(msgTime(item.last))}</small><small>${esc((item.messages.at(-1)?.text ?? "").slice(0, 60))}</small></button>`).join("") : `<p class="empty" style="margin:14px">No messages yet. When a patient writes to the clinic's Telegram bot, it shows here.</p>`;
     $("#msg-who").innerHTML = chat ? `<b>${esc(chatTitle(chat))}</b><br>${esc(chatDetails(chat))}` : "";
+    // The server puts the patient's queue number on the first line of every reply.
+    const number = chat?.patient && !chat.patient.cancelled ? chat.patient.label : "";
+    $("#msg-note").textContent = number ? `Sent with the queue number: "🎫 Queue number ${number}" on the first line. Ctrl + Enter sends.` : "Ctrl + Enter sends.";
     const thread = $("#msg-thread");
     const atBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 40;
     const shown = chat ? chat.messages.map((m) => `<div class="msg-b ${m.from}">${esc(m.text)}<small>${m.from === "bot" ? "🤖 Automatic reminder · " : m.from === "staff" ? "Staff · " : ""}${esc(msgTime(m.at))}</small></div>`).join("") : "";
