@@ -286,3 +286,47 @@ export function CheckInPoster() {
     </main>
   );
 }
+
+/** A printable poster with the QR code of the clinic's Telegram bot, so patients link their number for queue reminders. */
+export function TelegramPoster() {
+  const [bot, setBot] = useState<string | null>(null);
+  const [clinic, setClinic] = useState(DEFAULT_CLINIC);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/queue", { cache: "no-store" })
+      .then((response) => response.json() as Promise<{ state?: QueueState }>)
+      .then(({ state }) => {
+        if (cancelled) return;
+        setBot(state?.settings.sms?.telegramBot || "");
+        setClinic(clinicNameOf(state?.settings));
+      })
+      .catch(() => { if (!cancelled) setBot(""); });
+    return () => { cancelled = true; };
+  }, []);
+  const link = bot ? `https://t.me/${bot}` : "";
+
+  return (
+    <main className="min-h-screen bg-[#f7f4ed] py-8 text-[#2e291f] print:bg-white print:py-0">
+      <div className="mx-auto mb-5 flex max-w-[680px] justify-between gap-3 px-5 print:hidden">
+        <Link href="/queue" className="font-semibold text-[#8b6512] underline">← Front desk</Link>
+        <Button onClick={() => window.print()} disabled={!link} className="bg-[#8b6512] text-white hover:bg-[#6f4e0a]"><Printer size={16} /> Print poster</Button>
+      </div>
+      {bot === "" && <p role="alert" className="mx-auto mb-4 max-w-[680px] rounded-xl bg-[#fde8eb] px-5 py-3 text-sm font-semibold text-[#9b1f35] print:hidden">Telegram reminders are not set up yet. In System configuration → Patient reminders, choose Telegram, paste the bot token, click Check bot and Save configuration.</p>}
+      <article className="mx-auto max-w-[680px] rounded-3xl border border-[#e2d7c2] bg-white p-10 text-center shadow-sm print:border-0 print:shadow-none">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/theheartspecialists.png" alt="The Heart Specialists Clinic logo" width="104" height="80" className="mx-auto h-20 w-auto object-contain" />
+        <p className="mt-3 text-sm font-semibold tracking-[0.12em] text-[#8b6512]">{clinic.toUpperCase()}</p>
+        <h1 className="mt-4 text-4xl font-extrabold tracking-tight">Queue reminders on Telegram</h1>
+        <p className="mt-2 text-xl text-[#5e5443]">Get your queue number and a message when you are next in line.</p>
+        <div className="mx-auto mt-8 w-72 rounded-2xl border-4 border-[#229ED9] p-3">{link && <QrCode value={link} />}</div>
+        {link && <p className="mt-3 font-mono text-lg font-semibold text-[#229ED9]">t.me/{bot}</p>}
+        <ol className="mx-auto mt-8 grid max-w-md gap-3 text-left text-lg">
+          <li><strong>1.</strong> Scan the code with your phone camera. Telegram opens.</li>
+          <li><strong>2.</strong> Tap <em>Start</em>.</li>
+          <li><strong>3.</strong> Tap <em>📱 Share my phone number</em>. Use the cellphone number you gave the clinic.</li>
+        </ol>
+        <p className="mt-6 text-base text-[#756b59]">You only do this once. Send /stop to the bot anytime to stop the reminders.</p>
+      </article>
+    </main>
+  );
+}

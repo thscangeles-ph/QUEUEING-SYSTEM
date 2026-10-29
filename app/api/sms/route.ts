@@ -2,14 +2,15 @@ import { ensureDay } from "@/lib/queue/reducer";
 import { getBackend, isStaff } from "@/lib/queue/server-store";
 import { smsPhone, smsSettingsOf } from "@/lib/queue/sms";
 import { queueSms, sendSms, smsAvailable } from "@/lib/queue/sms-sender";
+import { sendTelegram, telegramBotOf, telegramChatOf } from "@/lib/queue/telegram";
 
 export const dynamic = "force-dynamic";
 
-// SMS to pre-registered patients through the clinic's Android gateway phone (System configuration → SMS).
-// Staff PIN needed; only on the clinic server (QUEUE_STORE=file), which is on the same network as the phone.
+// Reminders to pre-registered patients (System configuration → Patient reminders): by the clinic's Telegram bot,
+// or SMS through the clinic's Android gateway phone. Staff PIN needed; only on the clinic server (QUEUE_STORE=file).
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, x-queue-pin", "Access-Control-Max-Age": "86400" };
 const json = (body: Record<string, unknown>, status = 200) => Response.json(body, { status, headers: { ...CORS, "Cache-Control": "no-store" } });
-const UNAVAILABLE = "SMS works only on the clinic's own queue server (local-server), on the same network as the gateway phone.";
+const UNAVAILABLE = "Reminders work only on the clinic's own queue server (local-server).";
 
 export function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS });
@@ -21,14 +22,16 @@ export function GET() {
 }
 
 /**
- * { test: true, phone, gateway?, username?, password?, sim? }: sends a test text now, with the settings being edited.
- * { visitIds: [...], kind: "assigned" | "next" }: sends those patients' texts (again), one after another.
+ * { telegramCheck: true, token? }: the Telegram bot's name for a token (typed, or the saved one).
+ * { test: true, channel: "telegram", phone, token? }: sends a test reminder to a cellphone number that linked the bot.
+ * { test: true, phone, gateway?, username?, password?, sim? }: sends a test SMS now, with the settings being edited.
+ * { visitIds: [...], kind: "assigned" | "next" }: sends those patients' reminders (again), one after another.
  */
 export async function POST(request: Request) {
   const backend = getBackend();
   if (!smsAvailable() || !backend) return json({ ok: false, reason: "unavailable", error: UNAVAILABLE });
   if (!isStaff(request)) return json({ ok: false, error: "Staff PIN required." }, 401);
-  let body: { test?: unknown; phone?: unknown; gateway?: unknown; username?: unknown; password?: unknown; sim?: unknown; visitIds?: unknown; kind?: unknown };
+  let body: { telegramCheck?: unknown; channel?: unknown; token?: unknown; test?: unknown; phone?: unknown; gateway?: unknown; username?: unknown; password?: unknown; sim?: unknown; visitIds?: unknown; kind?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -36,6 +39,31 @@ export async function POST(request: Request) {
   }
   const state = ensureDay((await backend.load()).state, Date.now());
   const saved = state.settings.sms;
+
+  const token = String(body.token ?? "").replace(/\s+/g, "") || saved?.telegramToken || "";
+  if (body.telegramCheck) {
+    if (!token) return json({ ok: false, error: "Paste the bot token from @BotFather first." });
+    try {
+      const bot = await telegramBotOf(token);
+      return json({ ok: true, bot: bot.username, name: bot.first_name });
+    } catch (error) {
+      return json({ ok: false, error: (error as Error).message });
+    }
+  }
+
+  if (body.test && body.channel === "telegram") {
+    const phone = String(body.phone ?? "");
+    if (!smsPhone(phone)) return json({ ok: false, error: "Type the cellphone number for the test, e.g. 0917 123 4567." });
+    if (!token) return json({ ok: false, error: "Paste the bot token from @BotFather first." });
+    const chat = await telegramChatOf(phone);
+    if (!chat) return json({ ok: false, error: `${phone} has not linked the bot yet. On that phone open ${saved?.telegramBot ? `t.me/${saved.telegramBot}` : "the bot's link"}, tap Start and Share my phone number, then test again.` });
+    try {
+      await sendTelegram(token, chat, "THSC Queue Board: test reminder. It works! ✅");
+      return json({ ok: true });
+    } catch (error) {
+      return json({ ok: false, error: (error as Error).message });
+    }
+  }
 
   if (body.test) {
     const phone = smsPhone(String(body.phone ?? ""));
@@ -55,7 +83,7 @@ export async function POST(request: Request) {
     }
   }
 
-  if (!saved?.enabled) return json({ ok: false, error: "Turn on SMS in System configuration → SMS first." });
+  if (!saved?.enabled) return json({ ok: false, error: "Turn on reminders in System configuration → Patient reminders first." });
   const kind = body.kind === "next" ? "next" : "assigned";
   const ids = Array.isArray(body.visitIds) ? body.visitIds.map(String).slice(0, 300) : [];
   const visits = state.visits.filter((visit) => ids.includes(visit.id) && !visit.cancelled);
