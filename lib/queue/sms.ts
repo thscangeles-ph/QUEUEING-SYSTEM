@@ -17,6 +17,19 @@ export const DEFAULT_SMS: SmsSettings = { enabled: false, telegramBot: "", autoA
 
 const text = (value: unknown, max: number) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
+type TextKind = keyof typeof SMS_TEXTS;
+const TEXT_FIELDS: Record<TextKind, "assignedText" | "issuedText" | "nextText" | "turnText" | "thanksText"> = { assigned: "assignedText", issued: "issuedText", next: "nextText", turn: "turnText", thanks: "thanksText" };
+
+/**
+ * A reminder's text as saved, or its default when it is empty, the old "next in line" text, or another reminder's
+ * default text put in the wrong box (e.g. the thank-you message in "next in line"), so a patient never gets the wrong one.
+ */
+export function smsTextOf(sms: Partial<SmsSettings> | undefined, kind: TextKind): string {
+  const value = text(sms?.[TEXT_FIELDS[kind]], 320);
+  const wrong = !value || (kind === "next" && value === OLD_NEXT) || Object.entries(SMS_TEXTS).some(([other, preset]) => other !== kind && preset === value);
+  return wrong ? SMS_TEXTS[kind] : value;
+}
+
 /** The reminder settings from the settings form; the bot token is kept when the form leaves it empty (screens never get it). */
 export function smsSettingsOf(input: Partial<SmsSettings> | undefined, previous?: SmsSettings): SmsSettings | string {
   const raw = { ...DEFAULT_SMS, ...previous, ...input };
@@ -33,11 +46,11 @@ export function smsSettingsOf(input: Partial<SmsSettings> | undefined, previous?
     autoNext: raw.autoNext !== false,
     autoTurn: raw.autoTurn !== false,
     autoThanks: raw.autoThanks !== false,
-    assignedText: text(raw.assignedText, 320) || SMS_TEXTS.assigned,
-    issuedText: text(raw.issuedText, 320) || SMS_TEXTS.issued,
-    nextText: (text(raw.nextText, 320) === OLD_NEXT ? "" : text(raw.nextText, 320)) || SMS_TEXTS.next,
-    turnText: text(raw.turnText, 320) || SMS_TEXTS.turn,
-    thanksText: text(raw.thanksText, 320) || SMS_TEXTS.thanks,
+    assignedText: smsTextOf(raw, "assigned"),
+    issuedText: smsTextOf(raw, "issued"),
+    nextText: smsTextOf(raw, "next"),
+    turnText: smsTextOf(raw, "turn"),
+    thanksText: smsTextOf(raw, "thanks"),
   };
 }
 
