@@ -5,13 +5,14 @@ import type { SmsSettings } from "./types";
 
 export const SMS_TEXTS = {
   assigned: "THSC: Hi {name}, your queue number for {clinic} is {number}{appointment}. Please show this number at the Concierge when you arrive.",
+  issued: "THSC: Hi {name}, your queue number is {number}. Please take a seat and watch the TV screen. We will message you here when you are next in line.",
   next: "THSC: Your queue number {number} is NEXT IN LINE at {service}. Please be ready.",
   turn: "THSC: It's your turn! Queue number {number}, please proceed to {service} now.",
 } as const;
 /** The "next in line" text before it named the service; a saved copy of it becomes the new one. */
 const OLD_NEXT = "THSC: Your queue number {number} ({clinic}) is NEXT IN LINE. Please be ready at the Concierge.";
 
-export const DEFAULT_SMS: SmsSettings = { enabled: false, telegramBot: "", autoAssigned: true, autoNext: true, autoTurn: true, assignedText: SMS_TEXTS.assigned, nextText: SMS_TEXTS.next, turnText: SMS_TEXTS.turn };
+export const DEFAULT_SMS: SmsSettings = { enabled: false, telegramBot: "", autoAssigned: true, autoIssued: true, autoNext: true, autoTurn: true, assignedText: SMS_TEXTS.assigned, issuedText: SMS_TEXTS.issued, nextText: SMS_TEXTS.next, turnText: SMS_TEXTS.turn };
 
 const text = (value: unknown, max: number) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -27,9 +28,11 @@ export function smsSettingsOf(input: Partial<SmsSettings> | undefined, previous?
     ...(telegramToken ? { telegramToken } : {}),
     telegramBot: /^[A-Za-z0-9_]{5,32}$/.test(telegramBot) ? telegramBot : "",
     autoAssigned: raw.autoAssigned !== false,
+    autoIssued: raw.autoIssued !== false,
     autoNext: raw.autoNext !== false,
     autoTurn: raw.autoTurn !== false,
     assignedText: text(raw.assignedText, 320) || SMS_TEXTS.assigned,
+    issuedText: text(raw.issuedText, 320) || SMS_TEXTS.issued,
     nextText: (text(raw.nextText, 320) === OLD_NEXT ? "" : text(raw.nextText, 320)) || SMS_TEXTS.next,
     turnText: text(raw.turnText, 320) || SMS_TEXTS.turn,
   };

@@ -1163,7 +1163,7 @@ function run(state, action, now) {
             if (action.ok) {
                 // Next in line, your turn and the vital signs call are kept on the service's step, so each is sent once per service.
                 const step = action.station ? visit.steps.find((item) => item.station === action.station && item.status !== "done") : undefined;
-                if (action.kind === "assigned")
+                if (action.kind === "assigned" || action.kind === "issued")
                     visit.smsAssignedAt = now;
                 else if (action.kind === "next") {
                     visit.smsNextAt = now;
@@ -1516,12 +1516,13 @@ const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 60
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
     assigned: "THSC: Hi {name}, your queue number for {clinic} is {number}{appointment}. Please show this number at the Concierge when you arrive.",
+    issued: "THSC: Hi {name}, your queue number is {number}. Please take a seat and watch the TV screen. We will message you here when you are next in line.",
     next: "THSC: Your queue number {number} is NEXT IN LINE at {service}. Please be ready.",
     turn: "THSC: It's your turn! Queue number {number}, please proceed to {service} now.",
 };
 /** The "next in line" text before it named the service; a saved copy of it becomes the new one. */
 const OLD_NEXT = "THSC: Your queue number {number} ({clinic}) is NEXT IN LINE. Please be ready at the Concierge.";
-const DEFAULT_SMS = { enabled: false, telegramBot: "", autoAssigned: true, autoNext: true, autoTurn: true, assignedText: SMS_TEXTS.assigned, nextText: SMS_TEXTS.next, turnText: SMS_TEXTS.turn };
+const DEFAULT_SMS = { enabled: false, telegramBot: "", autoAssigned: true, autoIssued: true, autoNext: true, autoTurn: true, assignedText: SMS_TEXTS.assigned, issuedText: SMS_TEXTS.issued, nextText: SMS_TEXTS.next, turnText: SMS_TEXTS.turn };
 const smsClean = (value, max) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 /** The reminder settings from the settings form; the bot token is kept when the form leaves it empty (screens never get it). */
 function smsSettingsOf(input, previous) {
@@ -1536,9 +1537,11 @@ function smsSettingsOf(input, previous) {
         ...(telegramToken ? { telegramToken } : {}),
         telegramBot: /^[A-Za-z0-9_]{5,32}$/.test(telegramBot) ? telegramBot : "",
         autoAssigned: raw.autoAssigned !== false,
+        autoIssued: raw.autoIssued !== false,
         autoNext: raw.autoNext !== false,
         autoTurn: raw.autoTurn !== false,
         assignedText: smsClean(raw.assignedText, 320) || SMS_TEXTS.assigned,
+        issuedText: smsClean(raw.issuedText, 320) || SMS_TEXTS.issued,
         nextText: (smsClean(raw.nextText, 320) === OLD_NEXT ? "" : smsClean(raw.nextText, 320)) || SMS_TEXTS.next,
         turnText: smsClean(raw.turnText, 320) || SMS_TEXTS.turn,
     };
@@ -2449,7 +2452,7 @@ function downloadQueueReport(xlsx, state, now) {
                   <label class="age-box">Age<input type="number" id="reg-age" inputmode="numeric" min="0" max="130" placeholder="—" aria-label="Age"></label>
                 </div><p class="yt-hint" id="reg-bday-hint"></p></div>
                 <label class="field">Requesting physician<em>Optional</em><input type="text" id="reg-physician" list="physician-list" maxlength="80" placeholder="e.g. Dr. Santos" autocomplete="off"><datalist id="physician-list">${[...new Set(state.visits.map((v) => v.requestingPhysician).filter(Boolean))].sort().map((name) => `<option value="${esc(name)}">`).join("")}</datalist></label>
-                <label class="field">Mobile number<em>Optional — for the one-time queue message</em><input type="tel" id="reg-mobile" placeholder="09XX XXX XXXX" autocomplete="off"></label>
+                <label class="field">Mobile number<em>Optional — for Telegram reminders (when linked to the clinic's bot) and the one-time queue message</em><input type="tel" id="reg-mobile" placeholder="09XX XXX XXXX" autocomplete="off"></label>
                 ${isHmoTab() ? `<label class="field">HMO company<input type="text" id="reg-hmo" list="hmo-list" placeholder="e.g. Maxicare" autocomplete="off"><datalist id="hmo-list">${HMO_COMPANIES.map((name) => `<option value="${esc(name)}">`).join("")}</datalist></label>
                 <label class="field">LOA / approval number<em>Optional</em><input type="text" id="reg-loa" autocomplete="off"></label>` : ""}
                 <div class="field" style="display:grid;gap:6px;font-size:13px;font-weight:600;color:#514838">Services today, in order<ol class="steps" id="reg-steps"></ol><div class="chips" id="reg-chips"></div></div>
@@ -2755,7 +2758,7 @@ function downloadQueueReport(xlsx, state, now) {
     syncSubmit();
 
     const visit = issued && state.visits.find((v) => v.id === issued);
-    $("#issued").innerHTML = visit ? `<div class="issued"><p class="k">${visit.expected ? `Pre-registered${visit.appointment ? ` for ${esc(visit.appointment)}` : ""} — the number is ready; tap ✅ Arrived when the patient comes` : "Queue number issued — tell the patient"}</p><p class="num mono">${esc(currentLabel(visit))}</p><p class="d">They keep the same number (${esc(arrivalLabel(visit))}) for every service today.</p><button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="message" data-id="${visit.id}">${visit.messagedAt ? "✓ Message copied" : "Copy message"}</button> <button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="slip" data-id="${visit.id}">🖨 Print slip</button> <button class="btn sm ghost" style="color:#e8dec7" data-act="closeIssued">Done</button></div>` : "";
+    $("#issued").innerHTML = visit ? `<div class="issued"><p class="k">${visit.expected ? `Pre-registered${visit.appointment ? ` for ${esc(visit.appointment)}` : ""} — the number is ready; tap ✅ Arrived when the patient comes` : "Queue number issued — tell the patient"}</p><p class="num mono">${esc(currentLabel(visit))}</p><p class="d">They keep the same number (${esc(arrivalLabel(visit))}) for every service today.</p>${smsReady() && smsPhone(visit.mobile) && (visit.expected ? state.settings.sms.autoAssigned : state.settings.sms.autoIssued !== false) ? `<p class="d">✈️ The number is also sent to their Telegram if ${esc(visit.mobile)} is linked to the clinic's bot.</p>` : ""}<button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="message" data-id="${visit.id}">${visit.messagedAt ? "✓ Message copied" : "Copy message"}</button> <button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="slip" data-id="${visit.id}">🖨 Print slip</button> <button class="btn sm ghost" style="color:#e8dec7" data-act="closeIssued">Done</button></div>` : "";
 
     document.querySelectorAll('[data-act="filter"]').forEach((b) => b.classList.toggle("on", b.dataset.filter === filter));
     renderPatients();
@@ -2953,12 +2956,15 @@ function downloadQueueReport(xlsx, state, now) {
             </div>
             <div class="field">Send automatically
               <label class="check"><input type="checkbox" data-sms="autoAssigned" ${draft.sms.autoAssigned ? "checked" : ""}><span><b>When the number is assigned</b><small>📅 Pre-register or 📋 Paste a list on a Clinic tab, for patients with a cellphone number</small></span></label>
+              <label class="check"><input type="checkbox" data-sms="autoIssued" ${draft.sms.autoIssued !== false ? "checked" : ""}><span><b>When the queue number is issued</b><small>Issue queue number in Step 2, for regular (walk-in, scheduled), HMO and clinic walk-in patients with a cellphone number</small></span></label>
               <label class="check"><input type="checkbox" data-sms="autoNext" ${draft.sms.autoNext ? "checked" : ""}><span><b>When they are next in line</b><small>At each of their services (clinic, laboratory, 2D echo, cashier …): right after that service calls the patient before them</small></span></label>
               <label class="check"><input type="checkbox" data-sms="autoTurn" ${draft.sms.autoTurn !== false ? "checked" : ""}><span><b>When it is their turn</b><small>When a service calls them, and when a clinic calls them for vital signs</small></span></label>
               <p style="margin:0;font-size:12px;color:var(--muted)">Next in line and your turn go to every patient whose cellphone is linked to the bot (pre-registered, walk-in, HMO), once for each service.</p>
             </div>
-            <label class="field">Text: number assigned<textarea class="cfg-text" maxlength="320" data-sms="assignedText">${esc(draft.sms.assignedText)}</textarea></label>
+            <label class="field">Text: pre-registered number<textarea class="cfg-text" maxlength="320" data-sms="assignedText">${esc(draft.sms.assignedText)}</textarea></label>
             <p class="yt-hint" id="sms-ex-assigned" style="font-weight:400;color:var(--muted)"></p>
+            <label class="field">Text: queue number issued<textarea class="cfg-text" maxlength="320" data-sms="issuedText">${esc(draft.sms.issuedText ?? SMS_TEXTS.issued)}</textarea></label>
+            <p class="yt-hint" id="sms-ex-issued" style="font-weight:400;color:var(--muted)"></p>
             <label class="field">Text: next in line<textarea class="cfg-text" maxlength="320" data-sms="nextText">${esc(draft.sms.nextText)}</textarea></label>
             <p class="yt-hint" id="sms-ex-next" style="font-weight:400;color:var(--muted)"></p>
             <label class="field">Text: your turn<textarea class="cfg-text" maxlength="320" data-sms="turnText">${esc(draft.sms.turnText ?? SMS_TEXTS.turn)}</textarea></label>
@@ -3080,7 +3086,7 @@ function downloadQueueReport(xlsx, state, now) {
   function showSmsExamples() {
     if (!draft || !$("#sms-ex-assigned")) return;
     const patient = { name: "DELA CRUZ, JUAN", label: `${prefixOf(draft, "S1")}02`, clinic: "Clinic 1", appointment: "09:30", service: "Laboratory (2nd floor)" };
-    for (const [id, field, kind] of [["#sms-ex-assigned", "assignedText", "assigned"], ["#sms-ex-next", "nextText", "next"], ["#sms-ex-turn", "turnText", "turn"]]) {
+    for (const [id, field, kind] of [["#sms-ex-assigned", "assignedText", "assigned"], ["#sms-ex-issued", "issuedText", "issued"], ["#sms-ex-next", "nextText", "next"], ["#sms-ex-turn", "turnText", "turn"]]) {
       const text = smsText(draft.sms[field] || SMS_TEXTS[kind], patient);
       $(id).textContent = `Example: ${text}`;
     }

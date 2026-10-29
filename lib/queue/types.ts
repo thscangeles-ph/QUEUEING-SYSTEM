@@ -163,12 +163,15 @@ export type SmsSettings = {
   telegramTokenSet?: boolean;
   /** The bot's username (without @), for its t.me link; found from the token. */
   telegramBot?: string;
-  /** Send automatically: when a pre-registered patient's number is assigned, when a patient becomes next in line at a service, and when it is their turn. */
+  /** Send automatically: when a pre-registered patient's number is assigned, when a patient's queue number is issued at registration
+   * (regular, HMO, clinic walk-in), when a patient becomes next in line at a service, and when it is their turn. */
   autoAssigned: boolean;
+  autoIssued?: boolean;
   autoNext: boolean;
   autoTurn?: boolean;
   /** The texts, with {name} {fullname} {number} {clinic} {appointment} {service} filled in. */
   assignedText: string;
+  issuedText?: string;
   nextText: string;
   turnText?: string;
 };
@@ -237,7 +240,7 @@ export type QueueAction =
   | { type: "updateVisit"; visitId: string; name?: string; mobile?: string; notes?: string; priority?: boolean; newPatient?: boolean }
   | { type: "markMessaged"; visitId: string }
   /** Records an SMS sent (or not sent, with why) to a patient by the clinic server. */
-  | { type: "smsResult"; visitId: string; kind: "assigned" | "next" | "turn" | "vitals"; station?: string; ok: boolean; error?: string }
+  | { type: "smsResult"; visitId: string; kind: "assigned" | "issued" | "next" | "turn" | "vitals"; station?: string; ok: boolean; error?: string }
   | { type: "call"; station: string; visitId?: string }
   | { type: "recall"; visitId: string }
   | { type: "complete"; visitId: string; sendTo?: string; billing?: Billing }
