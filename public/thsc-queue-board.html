@@ -1161,10 +1161,22 @@ function run(state, action, now) {
             if (!visit)
                 return fail("Patient not found.");
             if (action.ok) {
-                if (action.kind === "next")
-                    visit.smsNextAt = now;
-                else
+                // Next in line, your turn and the vital signs call are kept on the service's step, so each is sent once per service.
+                const step = action.station ? visit.steps.find((item) => item.station === action.station && item.status !== "done") : undefined;
+                if (action.kind === "assigned")
                     visit.smsAssignedAt = now;
+                else if (action.kind === "next") {
+                    visit.smsNextAt = now;
+                    if (step)
+                        step.smsNextAt = now;
+                }
+                else {
+                    visit.smsTurnAt = now;
+                    if (step)
+                        step[action.kind === "vitals" ? "smsVitalsAt" : "smsTurnAt"] = now;
+                }
+                if (action.station)
+                    visit.smsLastStation = action.station;
                 visit.smsError = "";
                 visit.smsErrorAt = null;
             }
@@ -1504,9 +1516,12 @@ const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 60
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
     assigned: "THSC: Hi {name}, your queue number for {clinic} is {number}{appointment}. Please show this number at the Concierge when you arrive.",
-    next: "THSC: Your queue number {number} ({clinic}) is NEXT IN LINE. Please be ready at the Concierge.",
+    next: "THSC: Your queue number {number} is NEXT IN LINE at {service}. Please be ready.",
+    turn: "THSC: It's your turn! Queue number {number}, please proceed to {service} now.",
 };
-const DEFAULT_SMS = { enabled: false, telegramBot: "", autoAssigned: true, autoNext: true, assignedText: SMS_TEXTS.assigned, nextText: SMS_TEXTS.next };
+/** The "next in line" text before it named the service; a saved copy of it becomes the new one. */
+const OLD_NEXT = "THSC: Your queue number {number} ({clinic}) is NEXT IN LINE. Please be ready at the Concierge.";
+const DEFAULT_SMS = { enabled: false, telegramBot: "", autoAssigned: true, autoNext: true, autoTurn: true, assignedText: SMS_TEXTS.assigned, nextText: SMS_TEXTS.next, turnText: SMS_TEXTS.turn };
 const smsClean = (value, max) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 /** The reminder settings from the settings form; the bot token is kept when the form leaves it empty (screens never get it). */
 function smsSettingsOf(input, previous) {
@@ -1522,8 +1537,10 @@ function smsSettingsOf(input, previous) {
         telegramBot: /^[A-Za-z0-9_]{5,32}$/.test(telegramBot) ? telegramBot : "",
         autoAssigned: raw.autoAssigned !== false,
         autoNext: raw.autoNext !== false,
+        autoTurn: raw.autoTurn !== false,
         assignedText: smsClean(raw.assignedText, 320) || SMS_TEXTS.assigned,
-        nextText: smsClean(raw.nextText, 320) || SMS_TEXTS.next,
+        nextText: (smsClean(raw.nextText, 320) === OLD_NEXT ? "" : smsClean(raw.nextText, 320)) || SMS_TEXTS.next,
+        turnText: smsClean(raw.turnText, 320) || SMS_TEXTS.turn,
     };
 }
 /** A Philippine cellphone number in international form (+639171234567), from 0917 123 4567, +63 917…, 63917… or 917…; null if it is not one. */
@@ -1551,8 +1568,9 @@ function smsText(template, patient) {
         number: patient.label,
         clinic: patient.clinic,
         appointment: patient.appointment ? `, appointment ${appointmentText(patient.appointment)}` : "",
+        service: patient.service || patient.clinic,
     };
-    return template.replace(/\{(name|fullname|number|clinic|appointment)\}/gi, (_, key) => fields[key.toLowerCase()]).replace(/\s+/g, " ").trim();
+    return template.replace(/\{(name|fullname|number|clinic|appointment|service)\}/gi, (_, key) => fields[key.toLowerCase()]).replace(/\s+/g, " ").trim();
 }
 
 // ---- from lib/queue/slip.ts ----
@@ -2517,11 +2535,13 @@ function downloadQueueReport(xlsx, state, now) {
   /** The line under a pre-registered patient: what was sent and when, or why not. */
   function smsStatus(v) {
     if (!state.settings.sms?.enabled && !v.smsAssignedAt && !v.smsNextAt && !v.smsError) return "";
-    const last = Math.max(v.smsAssignedAt ?? 0, v.smsNextAt ?? 0);
+    const last = Math.max(v.smsAssignedAt ?? 0, v.smsNextAt ?? 0, v.smsTurnAt ?? 0);
     const line = (kind, text) => `<br><span class="sms-st ${kind}">${text}</span>`;
     const name = reminderName();
+    const at = v.smsLastStation ? ` (${esc(stationName(state, v.smsLastStation))})` : "";
     if (v.smsError && (v.smsErrorAt ?? 0) >= last) return line("fail", `⚠ ${name} not sent — ${esc(v.smsError)}`);
-    if (v.smsNextAt) return line("next", `✓ Next-in-line ${name} sent ${esc(formatTime(v.smsNextAt))}`);
+    if (v.smsTurnAt && v.smsTurnAt >= (v.smsNextAt ?? 0)) return line("next", `✓ Your-turn ${name} sent${at} ${esc(formatTime(v.smsTurnAt))}`);
+    if (v.smsNextAt) return line("next", `✓ Next-in-line ${name} sent${at} ${esc(formatTime(v.smsNextAt))}`);
     if (v.smsAssignedAt) return line("sent", `✓ Number ${name} sent ${esc(formatTime(v.smsAssignedAt))}`);
     if (!v.mobile) return line("none", "No reminder — tap ✏️ to add a cellphone");
     if (!smsPhone(v.mobile)) return line("fail", "⚠ Check the cellphone number");
@@ -2933,13 +2953,17 @@ function downloadQueueReport(xlsx, state, now) {
             </div>
             <div class="field">Send automatically
               <label class="check"><input type="checkbox" data-sms="autoAssigned" ${draft.sms.autoAssigned ? "checked" : ""}><span><b>When the number is assigned</b><small>📅 Pre-register or 📋 Paste a list on a Clinic tab, for patients with a cellphone number</small></span></label>
-              <label class="check"><input type="checkbox" data-sms="autoNext" ${draft.sms.autoNext ? "checked" : ""}><span><b>When they are next in line</b><small>Right after the clinic calls the patient before them</small></span></label>
+              <label class="check"><input type="checkbox" data-sms="autoNext" ${draft.sms.autoNext ? "checked" : ""}><span><b>When they are next in line</b><small>At each of their services (clinic, laboratory, 2D echo, cashier …): right after that service calls the patient before them</small></span></label>
+              <label class="check"><input type="checkbox" data-sms="autoTurn" ${draft.sms.autoTurn !== false ? "checked" : ""}><span><b>When it is their turn</b><small>When a service calls them, and when a clinic calls them for vital signs</small></span></label>
+              <p style="margin:0;font-size:12px;color:var(--muted)">Next in line and your turn go to every patient whose cellphone is linked to the bot (pre-registered, walk-in, HMO), once for each service.</p>
             </div>
             <label class="field">Text: number assigned<textarea class="cfg-text" maxlength="320" data-sms="assignedText">${esc(draft.sms.assignedText)}</textarea></label>
             <p class="yt-hint" id="sms-ex-assigned" style="font-weight:400;color:var(--muted)"></p>
             <label class="field">Text: next in line<textarea class="cfg-text" maxlength="320" data-sms="nextText">${esc(draft.sms.nextText)}</textarea></label>
             <p class="yt-hint" id="sms-ex-next" style="font-weight:400;color:var(--muted)"></p>
-            <p style="margin:0;font-size:12px;color:var(--muted)">Filled in for each patient: <b>{name}</b> (first name), <b>{fullname}</b>, <b>{number}</b>, <b>{clinic}</b> and <b>{appointment}</b> (", appointment 9:30 AM" when there is one).</p>
+            <label class="field">Text: your turn<textarea class="cfg-text" maxlength="320" data-sms="turnText">${esc(draft.sms.turnText ?? SMS_TEXTS.turn)}</textarea></label>
+            <p class="yt-hint" id="sms-ex-turn" style="font-weight:400;color:var(--muted)"></p>
+            <p style="margin:0;font-size:12px;color:var(--muted)">Filled in for each patient: <b>{name}</b> (first name), <b>{fullname}</b>, <b>{number}</b>, <b>{clinic}</b>, <b>{appointment}</b> (", appointment 9:30 AM" when there is one) and <b>{service}</b> (the service and where it is, e.g. "Laboratory (2nd floor)").</p>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><label class="field" style="flex:1 1 180px">Test cellphone number<em>The number must have linked the bot first (open its link, Start, Share my phone number).</em><input type="tel" id="sms-test-phone" placeholder="0917 123 4567" inputmode="tel"></label><button type="button" class="btn sm outline" data-act="testSms" id="sms-test-btn" style="min-height:40px">✈️ Send test</button></div>
             <p class="yt-hint" id="sms-hint"></p>
           </div></section>
@@ -3055,9 +3079,9 @@ function downloadQueueReport(xlsx, state, now) {
   /** The two texts as a patient would get them, under their boxes. */
   function showSmsExamples() {
     if (!draft || !$("#sms-ex-assigned")) return;
-    const patient = { name: "DELA CRUZ, JUAN", label: `${prefixOf(draft, "S1")}02`, clinic: "Clinic 1", appointment: "09:30" };
-    for (const [id, field] of [["#sms-ex-assigned", "assignedText"], ["#sms-ex-next", "nextText"]]) {
-      const text = smsText(draft.sms[field] || SMS_TEXTS[field === "nextText" ? "next" : "assigned"], patient);
+    const patient = { name: "DELA CRUZ, JUAN", label: `${prefixOf(draft, "S1")}02`, clinic: "Clinic 1", appointment: "09:30", service: "Laboratory (2nd floor)" };
+    for (const [id, field, kind] of [["#sms-ex-assigned", "assignedText", "assigned"], ["#sms-ex-next", "nextText", "next"], ["#sms-ex-turn", "turnText", "turn"]]) {
+      const text = smsText(draft.sms[field] || SMS_TEXTS[kind], patient);
       $(id).textContent = `Example: ${text}`;
     }
   }
