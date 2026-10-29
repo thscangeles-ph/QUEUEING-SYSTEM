@@ -1,7 +1,7 @@
 import type { ActionResult, AnnounceLanguage, Announcement, Billing, NumberGroup, PatientKind, TaggedGroup, QueueAction, QueueState, Settings, SmsSettings, Station, Step, Visit, VisitInput } from "./types";
 import { slipWidthOf } from "./escpos";
 import { configPinOk, hashConfigPin } from "./pin";
-import { smsSettingsOf } from "./sms";
+import { smsSettingsOf, smsTextOf } from "./sms";
 import { cleanTvMedia } from "./youtube";
 
 export const TIME_ZONE = "Asia/Manila";
@@ -802,7 +802,7 @@ function withoutBilling(step: Step): Step {
 export function withoutSecrets(state: QueueState): QueueState {
   const { configPin, sms, ...settings } = state.settings;
   // Only the known fields: settings saved before (e.g. an old SMS gateway password) never reach a screen.
-  const smsView: SmsSettings | undefined = sms ? { enabled: sms.enabled, telegramBot: sms.telegramBot, autoAssigned: sms.autoAssigned, autoIssued: sms.autoIssued, autoNext: sms.autoNext, autoTurn: sms.autoTurn, autoThanks: sms.autoThanks, assignedText: sms.assignedText, issuedText: sms.issuedText, nextText: sms.nextText, turnText: sms.turnText, thanksText: sms.thanksText, telegramTokenSet: Boolean(sms.telegramToken) } : undefined;
+  const smsView: SmsSettings | undefined = sms ? { enabled: sms.enabled, telegramBot: sms.telegramBot, autoAssigned: sms.autoAssigned, autoIssued: sms.autoIssued, autoNext: sms.autoNext, autoTurn: sms.autoTurn, autoThanks: sms.autoThanks, assignedText: smsTextOf(sms, "assigned"), issuedText: smsTextOf(sms, "issued"), nextText: smsTextOf(sms, "next"), turnText: smsTextOf(sms, "turn"), thanksText: smsTextOf(sms, "thanks"), telegramTokenSet: Boolean(sms.telegramToken) } : undefined;
   return { ...state, settings: { ...settings, ...(smsView ? { sms: smsView } : {}), configPinSet: Boolean(configPin) } };
 }
 

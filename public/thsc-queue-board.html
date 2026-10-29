@@ -1527,6 +1527,16 @@ const SMS_TEXTS = {
 const OLD_NEXT = "THSC: Your queue number {number} ({clinic}) is NEXT IN LINE. Please be ready at the Concierge.";
 const DEFAULT_SMS = { enabled: false, telegramBot: "", autoAssigned: true, autoIssued: true, autoNext: true, autoTurn: true, autoThanks: true, assignedText: SMS_TEXTS.assigned, issuedText: SMS_TEXTS.issued, nextText: SMS_TEXTS.next, turnText: SMS_TEXTS.turn, thanksText: SMS_TEXTS.thanks };
 const smsClean = (value, max) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+const SMS_TEXT_FIELDS = { assigned: "assignedText", issued: "issuedText", next: "nextText", turn: "turnText", thanks: "thanksText" };
+/**
+ * A reminder's text as saved, or its default when it is empty, the old "next in line" text, or another reminder's
+ * default text put in the wrong box (e.g. the thank-you message in "next in line"), so a patient never gets the wrong one.
+ */
+function smsTextOf(sms, kind) {
+    const value = smsClean(sms?.[SMS_TEXT_FIELDS[kind]], 320);
+    const wrong = !value || (kind === "next" && value === OLD_NEXT) || Object.entries(SMS_TEXTS).some(([other, preset]) => other !== kind && preset === value);
+    return wrong ? SMS_TEXTS[kind] : value;
+}
 /** The reminder settings from the settings form; the bot token is kept when the form leaves it empty (screens never get it). */
 function smsSettingsOf(input, previous) {
     const raw = { ...DEFAULT_SMS, ...previous, ...input };
@@ -1544,11 +1554,11 @@ function smsSettingsOf(input, previous) {
         autoNext: raw.autoNext !== false,
         autoTurn: raw.autoTurn !== false,
         autoThanks: raw.autoThanks !== false,
-        assignedText: smsClean(raw.assignedText, 320) || SMS_TEXTS.assigned,
-        issuedText: smsClean(raw.issuedText, 320) || SMS_TEXTS.issued,
-        nextText: (smsClean(raw.nextText, 320) === OLD_NEXT ? "" : smsClean(raw.nextText, 320)) || SMS_TEXTS.next,
-        turnText: smsClean(raw.turnText, 320) || SMS_TEXTS.turn,
-        thanksText: smsClean(raw.thanksText, 320) || SMS_TEXTS.thanks,
+        assignedText: smsTextOf(raw, "assigned"),
+        issuedText: smsTextOf(raw, "issued"),
+        nextText: smsTextOf(raw, "next"),
+        turnText: smsTextOf(raw, "turn"),
+        thanksText: smsTextOf(raw, "thanks"),
     };
 }
 /** A Philippine cellphone number in international form (+639171234567), from 0917 123 4567, +63 917…, 63917… or 917…; null if it is not one. */
@@ -2967,15 +2977,15 @@ function downloadQueueReport(xlsx, state, now) {
               <label class="check"><input type="checkbox" data-sms="autoTurn" ${draft.sms.autoTurn !== false ? "checked" : ""}><span><b>When it is their turn</b><small>When a service calls them, and when a clinic calls them for vital signs</small></span></label>
               <p style="margin:0;font-size:12px;color:var(--muted)">Next in line and your turn go to every patient whose cellphone is linked to the bot (pre-registered, walk-in, HMO), once for each service.</p>
             </div>
-            <label class="field">Text: pre-registered number<textarea class="cfg-text" maxlength="320" data-sms="assignedText">${esc(draft.sms.assignedText)}</textarea></label>
+            <div class="field"><span style="display:flex;justify-content:space-between;align-items:center;gap:8px">Text: pre-registered number<button type="button" class="btn sm ghost" data-act="smsDefault" data-field="assignedText" data-kind="assigned" title="Put back the original text">↺ Default</button></span><textarea class="cfg-text" maxlength="320" data-sms="assignedText" aria-label="Text: pre-registered number">${esc(smsTextOf(draft.sms, "assigned"))}</textarea></div>
             <p class="yt-hint" id="sms-ex-assigned" style="font-weight:400;color:var(--muted)"></p>
-            <label class="field">Text: queue number issued<textarea class="cfg-text" maxlength="320" data-sms="issuedText">${esc(draft.sms.issuedText ?? SMS_TEXTS.issued)}</textarea></label>
+            <div class="field"><span style="display:flex;justify-content:space-between;align-items:center;gap:8px">Text: queue number issued<button type="button" class="btn sm ghost" data-act="smsDefault" data-field="issuedText" data-kind="issued" title="Put back the original text">↺ Default</button></span><textarea class="cfg-text" maxlength="320" data-sms="issuedText" aria-label="Text: queue number issued">${esc(smsTextOf(draft.sms, "issued"))}</textarea></div>
             <p class="yt-hint" id="sms-ex-issued" style="font-weight:400;color:var(--muted)"></p>
-            <label class="field">Text: next in line<textarea class="cfg-text" maxlength="320" data-sms="nextText">${esc(draft.sms.nextText)}</textarea></label>
+            <div class="field"><span style="display:flex;justify-content:space-between;align-items:center;gap:8px">Text: next in line<button type="button" class="btn sm ghost" data-act="smsDefault" data-field="nextText" data-kind="next" title="Put back the original text">↺ Default</button></span><textarea class="cfg-text" maxlength="320" data-sms="nextText" aria-label="Text: next in line">${esc(smsTextOf(draft.sms, "next"))}</textarea></div>
             <p class="yt-hint" id="sms-ex-next" style="font-weight:400;color:var(--muted)"></p>
-            <label class="field">Text: your turn<textarea class="cfg-text" maxlength="320" data-sms="turnText">${esc(draft.sms.turnText ?? SMS_TEXTS.turn)}</textarea></label>
+            <div class="field"><span style="display:flex;justify-content:space-between;align-items:center;gap:8px">Text: your turn<button type="button" class="btn sm ghost" data-act="smsDefault" data-field="turnText" data-kind="turn" title="Put back the original text">↺ Default</button></span><textarea class="cfg-text" maxlength="320" data-sms="turnText" aria-label="Text: your turn">${esc(smsTextOf(draft.sms, "turn"))}</textarea></div>
             <p class="yt-hint" id="sms-ex-turn" style="font-weight:400;color:var(--muted)"></p>
-            <label class="field">Text: thank you (visit complete)<textarea class="cfg-text" maxlength="320" data-sms="thanksText">${esc(draft.sms.thanksText ?? SMS_TEXTS.thanks)}</textarea></label>
+            <div class="field"><span style="display:flex;justify-content:space-between;align-items:center;gap:8px">Text: thank you (visit complete)<button type="button" class="btn sm ghost" data-act="smsDefault" data-field="thanksText" data-kind="thanks" title="Put back the original text">↺ Default</button></span><textarea class="cfg-text" maxlength="320" data-sms="thanksText" aria-label="Text: thank you (visit complete)">${esc(smsTextOf(draft.sms, "thanks"))}</textarea></div>
             <p class="yt-hint" id="sms-ex-thanks" style="font-weight:400;color:var(--muted)"></p>
             <p style="margin:0;font-size:12px;color:var(--muted)">Filled in for each patient: <b>{name}</b> (first name), <b>{fullname}</b>, <b>{number}</b>, <b>{clinic}</b>, <b>{appointment}</b> (", appointment 9:30 AM" when there is one) and <b>{service}</b> (the service and where it is, e.g. "Laboratory (2nd floor)").</p>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><label class="field" style="flex:1 1 180px">Test cellphone number<em>The number must have linked the bot first (open its link, Start, Share my phone number).</em><input type="tel" id="sms-test-phone" placeholder="0917 123 4567" inputmode="tel"></label><button type="button" class="btn sm outline" data-act="testSms" id="sms-test-btn" style="min-height:40px">✈️ Send test</button></div>
@@ -3095,7 +3105,7 @@ function downloadQueueReport(xlsx, state, now) {
     if (!draft || !$("#sms-ex-assigned")) return;
     const patient = { name: "DELA CRUZ, JUAN", label: `${prefixOf(draft, "S1")}02`, clinic: "Clinic 1", appointment: "09:30", service: "Laboratory (2nd floor)" };
     for (const [id, field, kind] of [["#sms-ex-assigned", "assignedText", "assigned"], ["#sms-ex-issued", "issuedText", "issued"], ["#sms-ex-next", "nextText", "next"], ["#sms-ex-turn", "turnText", "turn"], ["#sms-ex-thanks", "thanksText", "thanks"]]) {
-      const text = smsText(draft.sms[field] || SMS_TEXTS[kind], patient);
+      const text = smsText(smsTextOf({ [field]: draft.sms[field] }, kind), patient);
       $(id).textContent = `Example: ${text}`;
     }
   }
@@ -4166,6 +4176,15 @@ function downloadQueueReport(xlsx, state, now) {
         break;
       }
       case "openTelegramPoster": window.open(`${queueServerBase() || ""}/queue/telegram-poster`, "_blank"); break;
+      case "smsDefault": {
+        // Puts back a reminder's original text (Save configuration keeps it).
+        const box = document.querySelector(`[data-sms="${el.dataset.field}"]`);
+        if (!box || !draft) break;
+        box.value = SMS_TEXTS[el.dataset.kind];
+        draft.sms[el.dataset.field] = box.value;
+        showSmsExamples(); refreshDirty();
+        break;
+      }
       case "testSms": {
         const hint = $("#sms-hint");
         const phone = $("#sms-test-phone").value;

@@ -1,6 +1,6 @@
 import { applyAction, arrivalLabel, clinicNameOf, clinicOf, currentStep, ensureDay, findStation, preRegisteredList, vitalsPlaceOf, waitingFor } from "./reducer";
 import { getBackend } from "./server-store";
-import { smsPhone, smsText } from "./sms";
+import { smsPhone, smsText, smsTextOf } from "./sms";
 import { saveTelegramMessage, sendTelegram, startTelegram, telegramChatOf, unlinkTelegramChat } from "./telegram";
 import type { ActionResult, QueueAction, QueueState, Visit } from "./types";
 
@@ -123,7 +123,7 @@ async function sendJob(job: SmsJob): Promise<boolean> {
   const station = job.station ? findStation(state, job.station) : undefined;
   const where = station?.location && station.location.toLowerCase() !== station.name.toLowerCase() ? ` (${station.location})` : "";
   const service = job.kind === "vitals" ? vitalsPlaceOf(state.settings) : station ? `${station.name}${where}` : undefined;
-  const template = { assigned: sms.assignedText, issued: sms.issuedText, thanks: sms.thanksText, next: sms.nextText, turn: sms.turnText, vitals: sms.turnText }[job.kind] || sms.nextText;
+  const template = smsTextOf(sms, job.kind === "vitals" ? "turn" : job.kind);
   const message = smsText(template, { name: visit.name, label: arrivalLabel(visit), clinic: clinicOf(visit.kind) ?? clinicNameOf(state.settings), appointment: visit.appointment, service });
   try {
     await sendTelegram(sms.telegramToken, chat, message);
