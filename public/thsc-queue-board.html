@@ -1170,6 +1170,8 @@ function run(state, action, now) {
                     if (step)
                         step.smsNextAt = now;
                 }
+                else if (action.kind === "thanks")
+                    visit.smsThanksAt = now;
                 else {
                     visit.smsTurnAt = now;
                     if (step)
@@ -1519,10 +1521,11 @@ const SMS_TEXTS = {
     issued: "THSC: Hi {name}, your queue number is {number}. Please take a seat and watch the TV screen. We will message you here when you are next in line.",
     next: "THSC: Your queue number {number} is NEXT IN LINE at {service}. Please be ready.",
     turn: "THSC: It's your turn! Queue number {number}, please proceed to {service} now.",
+    thanks: "THSC: Thank you for visiting The Heart Specialists Clinic, {name}! We wish you good health.",
 };
 /** The "next in line" text before it named the service; a saved copy of it becomes the new one. */
 const OLD_NEXT = "THSC: Your queue number {number} ({clinic}) is NEXT IN LINE. Please be ready at the Concierge.";
-const DEFAULT_SMS = { enabled: false, telegramBot: "", autoAssigned: true, autoIssued: true, autoNext: true, autoTurn: true, assignedText: SMS_TEXTS.assigned, issuedText: SMS_TEXTS.issued, nextText: SMS_TEXTS.next, turnText: SMS_TEXTS.turn };
+const DEFAULT_SMS = { enabled: false, telegramBot: "", autoAssigned: true, autoIssued: true, autoNext: true, autoTurn: true, autoThanks: true, assignedText: SMS_TEXTS.assigned, issuedText: SMS_TEXTS.issued, nextText: SMS_TEXTS.next, turnText: SMS_TEXTS.turn, thanksText: SMS_TEXTS.thanks };
 const smsClean = (value, max) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 /** The reminder settings from the settings form; the bot token is kept when the form leaves it empty (screens never get it). */
 function smsSettingsOf(input, previous) {
@@ -1540,10 +1543,12 @@ function smsSettingsOf(input, previous) {
         autoIssued: raw.autoIssued !== false,
         autoNext: raw.autoNext !== false,
         autoTurn: raw.autoTurn !== false,
+        autoThanks: raw.autoThanks !== false,
         assignedText: smsClean(raw.assignedText, 320) || SMS_TEXTS.assigned,
         issuedText: smsClean(raw.issuedText, 320) || SMS_TEXTS.issued,
         nextText: (smsClean(raw.nextText, 320) === OLD_NEXT ? "" : smsClean(raw.nextText, 320)) || SMS_TEXTS.next,
         turnText: smsClean(raw.turnText, 320) || SMS_TEXTS.turn,
+        thanksText: smsClean(raw.thanksText, 320) || SMS_TEXTS.thanks,
     };
 }
 /** A Philippine cellphone number in international form (+639171234567), from 0917 123 4567, +63 917…, 63917… or 917…; null if it is not one. */
@@ -2958,6 +2963,7 @@ function downloadQueueReport(xlsx, state, now) {
               <label class="check"><input type="checkbox" data-sms="autoAssigned" ${draft.sms.autoAssigned ? "checked" : ""}><span><b>When the number is assigned</b><small>📅 Pre-register or 📋 Paste a list on a Clinic tab, for patients with a cellphone number</small></span></label>
               <label class="check"><input type="checkbox" data-sms="autoIssued" ${draft.sms.autoIssued !== false ? "checked" : ""}><span><b>When the queue number is issued</b><small>Issue queue number in Step 2, for regular (walk-in, scheduled), HMO and clinic walk-in patients with a cellphone number</small></span></label>
               <label class="check"><input type="checkbox" data-sms="autoNext" ${draft.sms.autoNext ? "checked" : ""}><span><b>When they are next in line</b><small>At each of their services (clinic, laboratory, 2D echo, cashier …): right after that service calls the patient before them</small></span></label>
+              <label class="check"><input type="checkbox" data-sms="autoThanks" ${draft.sms.autoThanks !== false ? "checked" : ""}><span><b>When the visit is complete</b><small>✓ Complete visit after the patient's last service: a thank-you message (once a visit)</small></span></label>
               <label class="check"><input type="checkbox" data-sms="autoTurn" ${draft.sms.autoTurn !== false ? "checked" : ""}><span><b>When it is their turn</b><small>When a service calls them, and when a clinic calls them for vital signs</small></span></label>
               <p style="margin:0;font-size:12px;color:var(--muted)">Next in line and your turn go to every patient whose cellphone is linked to the bot (pre-registered, walk-in, HMO), once for each service.</p>
             </div>
@@ -2969,6 +2975,8 @@ function downloadQueueReport(xlsx, state, now) {
             <p class="yt-hint" id="sms-ex-next" style="font-weight:400;color:var(--muted)"></p>
             <label class="field">Text: your turn<textarea class="cfg-text" maxlength="320" data-sms="turnText">${esc(draft.sms.turnText ?? SMS_TEXTS.turn)}</textarea></label>
             <p class="yt-hint" id="sms-ex-turn" style="font-weight:400;color:var(--muted)"></p>
+            <label class="field">Text: thank you (visit complete)<textarea class="cfg-text" maxlength="320" data-sms="thanksText">${esc(draft.sms.thanksText ?? SMS_TEXTS.thanks)}</textarea></label>
+            <p class="yt-hint" id="sms-ex-thanks" style="font-weight:400;color:var(--muted)"></p>
             <p style="margin:0;font-size:12px;color:var(--muted)">Filled in for each patient: <b>{name}</b> (first name), <b>{fullname}</b>, <b>{number}</b>, <b>{clinic}</b>, <b>{appointment}</b> (", appointment 9:30 AM" when there is one) and <b>{service}</b> (the service and where it is, e.g. "Laboratory (2nd floor)").</p>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><label class="field" style="flex:1 1 180px">Test cellphone number<em>The number must have linked the bot first (open its link, Start, Share my phone number).</em><input type="tel" id="sms-test-phone" placeholder="0917 123 4567" inputmode="tel"></label><button type="button" class="btn sm outline" data-act="testSms" id="sms-test-btn" style="min-height:40px">✈️ Send test</button></div>
             <p class="yt-hint" id="sms-hint"></p>
@@ -3086,7 +3094,7 @@ function downloadQueueReport(xlsx, state, now) {
   function showSmsExamples() {
     if (!draft || !$("#sms-ex-assigned")) return;
     const patient = { name: "DELA CRUZ, JUAN", label: `${prefixOf(draft, "S1")}02`, clinic: "Clinic 1", appointment: "09:30", service: "Laboratory (2nd floor)" };
-    for (const [id, field, kind] of [["#sms-ex-assigned", "assignedText", "assigned"], ["#sms-ex-issued", "issuedText", "issued"], ["#sms-ex-next", "nextText", "next"], ["#sms-ex-turn", "turnText", "turn"]]) {
+    for (const [id, field, kind] of [["#sms-ex-assigned", "assignedText", "assigned"], ["#sms-ex-issued", "issuedText", "issued"], ["#sms-ex-next", "nextText", "next"], ["#sms-ex-turn", "turnText", "turn"], ["#sms-ex-thanks", "thanksText", "thanks"]]) {
       const text = smsText(draft.sms[field] || SMS_TEXTS[kind], patient);
       $(id).textContent = `Example: ${text}`;
     }

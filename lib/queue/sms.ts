@@ -8,11 +8,12 @@ export const SMS_TEXTS = {
   issued: "THSC: Hi {name}, your queue number is {number}. Please take a seat and watch the TV screen. We will message you here when you are next in line.",
   next: "THSC: Your queue number {number} is NEXT IN LINE at {service}. Please be ready.",
   turn: "THSC: It's your turn! Queue number {number}, please proceed to {service} now.",
+  thanks: "THSC: Thank you for visiting The Heart Specialists Clinic, {name}! We wish you good health.",
 } as const;
 /** The "next in line" text before it named the service; a saved copy of it becomes the new one. */
 const OLD_NEXT = "THSC: Your queue number {number} ({clinic}) is NEXT IN LINE. Please be ready at the Concierge.";
 
-export const DEFAULT_SMS: SmsSettings = { enabled: false, telegramBot: "", autoAssigned: true, autoIssued: true, autoNext: true, autoTurn: true, assignedText: SMS_TEXTS.assigned, issuedText: SMS_TEXTS.issued, nextText: SMS_TEXTS.next, turnText: SMS_TEXTS.turn };
+export const DEFAULT_SMS: SmsSettings = { enabled: false, telegramBot: "", autoAssigned: true, autoIssued: true, autoNext: true, autoTurn: true, autoThanks: true, assignedText: SMS_TEXTS.assigned, issuedText: SMS_TEXTS.issued, nextText: SMS_TEXTS.next, turnText: SMS_TEXTS.turn, thanksText: SMS_TEXTS.thanks };
 
 const text = (value: unknown, max: number) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -31,10 +32,12 @@ export function smsSettingsOf(input: Partial<SmsSettings> | undefined, previous?
     autoIssued: raw.autoIssued !== false,
     autoNext: raw.autoNext !== false,
     autoTurn: raw.autoTurn !== false,
+    autoThanks: raw.autoThanks !== false,
     assignedText: text(raw.assignedText, 320) || SMS_TEXTS.assigned,
     issuedText: text(raw.issuedText, 320) || SMS_TEXTS.issued,
     nextText: (text(raw.nextText, 320) === OLD_NEXT ? "" : text(raw.nextText, 320)) || SMS_TEXTS.next,
     turnText: text(raw.turnText, 320) || SMS_TEXTS.turn,
+    thanksText: text(raw.thanksText, 320) || SMS_TEXTS.thanks,
   };
 }
 
