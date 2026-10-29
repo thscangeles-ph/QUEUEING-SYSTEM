@@ -352,6 +352,25 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .ticker span, .hero.fresh, .vid-over > div { animation: none; } .tabs a.queued:not(.on) { animation: none; background: #f6c6cd; } }
 
 /* Sync */
+.msg-badge { border: 0; cursor: pointer; } .msg-badge.new { background: #b4233c; color: #fff; animation: msg-pulse 1.6s ease-in-out infinite; }
+@keyframes msg-pulse { 50% { opacity: .6; } }
+.msg-box { display: grid; grid-template-columns: 290px 1fr; min-height: 460px; }
+.msg-list { border-right: 1px solid var(--line-soft); max-height: 70vh; overflow-y: auto; }
+.msg-list button { display: grid; gap: 2px; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line-soft); background: #fff; padding: 10px 14px; font-size: 13px; }
+.msg-list button.on { background: #fff9e9; } .msg-list button b { font-size: 14px; } .msg-list button small { color: var(--muted); }
+.msg-list .dot { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 999px; background: #b4233c; color: #fff; font-size: 11px; font-weight: 800; text-align: center; margin-left: 6px; }
+.msg-main { display: grid; grid-template-rows: auto 1fr auto; min-width: 0; }
+.msg-who { padding: 10px 16px; border-bottom: 1px solid var(--line-soft); font-size: 13px; color: var(--muted); } .msg-who b { color: var(--ink); font-size: 15px; }
+.msg-thread { padding: 14px 16px; display: grid; gap: 8px; align-content: start; max-height: 52vh; overflow-y: auto; background: var(--bg); }
+.msg-b { max-width: 78%; padding: 8px 12px; border-radius: 14px; font-size: 14px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg-b small { display: block; margin-top: 3px; font-size: 11px; opacity: .7; }
+.msg-b.patient { background: #fff; border: 1px solid var(--line); justify-self: start; border-bottom-left-radius: 4px; }
+.msg-b.staff { background: var(--cream); justify-self: end; border-bottom-right-radius: 4px; }
+.msg-b.bot { background: #e8f1ff; color: #23508f; justify-self: end; border-bottom-right-radius: 4px; }
+.msg-compose { border-top: 1px solid var(--line-soft); padding: 10px 16px; display: grid; gap: 8px; }
+.msg-compose textarea { width: 100%; min-height: 64px; font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid #d8c79f; border-radius: 8px; resize: vertical; }
+.msg-quick { display: flex; gap: 6px; flex-wrap: wrap; } .msg-quick button { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 3px 10px; font-size: 12px; }
+@media (max-width: 760px) { .msg-box { grid-template-columns: 1fr; } .msg-list { border-right: 0; max-height: 200px; } }
 .badge-device.ok { background: #33421f; color: #cfe6b8; } .badge-device.bad { background: var(--bad-bg); color: var(--bad); }
 .tv-badge.bad { animation: queued-blink-badge 1.6s ease-in-out infinite; } .tv-badge:empty { display: none; }
 @keyframes queued-blink-badge { 50% { background: #b4233c; color: #fff; } }
@@ -2048,6 +2067,95 @@ function downloadQueueReport(xlsx, state, now) {
     else if (view === "kiosk") updateKiosk();
   }
 
+  // ---------- 💬 Messages: what patients write to the clinic's Telegram bot, and the staff's replies ----------
+  let inbox = null;
+  let msgOpen = false;
+  let msgChat = null;
+  let msgDraft = "";
+  const inboxOn = () => sync.mode === "server" && Boolean(state?.settings.sms?.enabled) && state.settings.sms.channel === "telegram" && ["desk", "station", "config"].includes(view);
+  async function messagesRequest(method, body) {
+    const pin = readSetting(PIN_KEY);
+    try {
+      const response = await fetch(`${syncServer()}/api/messages`, { method, cache: "no-store", headers: { ...(body ? { "Content-Type": "application/json" } : {}), ...(pin ? { "x-queue-pin": pin } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+      return await response.json().catch(() => ({ ok: false, error: "The queue server did not answer." }));
+    } catch {
+      return { ok: false, error: "The queue server could not be reached." };
+    }
+  }
+  /** Checks for new messages (every few seconds, and after a reply). */
+  async function refreshInbox() {
+    if (!inboxOn()) { inbox = null; showInbox(); return; }
+    const body = await messagesRequest("GET");
+    if (!body.available) { inbox = null; showInbox(); return; }
+    inbox = body;
+    showInbox();
+    if (msgOpen) renderMessages(false);
+  }
+  setInterval(() => { void refreshInbox(); }, 8000);
+  /** The 💬 Messages button in the top bar, red with the number of new messages. */
+  function showInbox() {
+    const badge = $(".msg-badge");
+    if (!badge) return;
+    badge.classList.toggle("hidden", !inbox);
+    const unread = inbox?.unread ?? 0;
+    badge.classList.toggle("new", unread > 0);
+    badge.textContent = `💬 Messages${unread ? ` · ${unread} new` : ""}`;
+  }
+  const chatTitle = (chat) => (chat.patient ? `${chat.patient.label} · ${chat.patient.name}` : chat.name || "Patient on Telegram");
+  const chatDetails = (chat) => [chat.patient?.clinic, chat.phone ? `📱 ${chat.phone}` : "Has not shared a cellphone number", chat.patient ? (chat.patient.cancelled ? "cancelled today" : "") : chat.phone ? "not in today's queue" : "", chat.patient && chat.name ? `Telegram: ${chat.name}` : ""].filter(Boolean).join(" · ");
+  const msgTime = (at) => (new Date(at).toDateString() === new Date().toDateString() ? formatTime(at) : `${new Intl.DateTimeFormat("en-PH", { timeZone: TIME_ZONE, month: "short", day: "numeric" }).format(new Date(at))}, ${formatTime(at)}`);
+  /** The Messages window: the chats on the left, the open chat and a reply box on the right. Only the lists change while staff type. */
+  function renderMessages(full) {
+    const box = $("#messages-box");
+    if (!box) return;
+    if (!msgOpen) { box.innerHTML = ""; return; }
+    const chats = inbox?.chats ?? [];
+    if (msgChat === null || !chats.some((chat) => chat.chatId === msgChat)) msgChat = chats[0]?.chatId ?? null;
+    const chat = chats.find((item) => item.chatId === msgChat);
+    if (full || !$("#msg-list")) {
+      box.innerHTML = `<div class="modal-bg" data-act="closeMessagesBg"><section class="panel modal" style="width:min(980px,100%)" role="dialog" aria-label="Messages">
+        <div class="panel-h"><div><h2>💬 Messages</h2><p>What patients write to the clinic's Telegram bot. Your reply goes to their Telegram. Messages are kept for 30 days.</p></div><button class="btn sm ghost" data-act="closeMessages">Close</button></div>
+        <div class="msg-box"><div class="msg-list" id="msg-list"></div>
+          <div class="msg-main"><div class="msg-who" id="msg-who"></div><div class="msg-thread" id="msg-thread" aria-live="polite"></div>
+            <div class="msg-compose" id="msg-compose"><div class="msg-quick">${["Please proceed to the Concierge.", "Your number will be called soon. Please stay near the waiting area.", "The doctor is running late. Thank you for waiting.", "Please call the clinic for this concern."].map((text) => `<button type="button" data-act="msgQuick" data-text="${esc(text)}">${esc(text)}</button>`).join("")}</div>
+              <textarea id="msg-text" maxlength="1000" placeholder="Type your reply…"></textarea>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><small style="color:var(--muted)">Ctrl + Enter sends.</small><button type="button" class="btn sm" data-act="msgSend" id="msg-send">✈️ Send reply</button></div></div></div></div>
+      </section></div>`;
+      const input = $("#msg-text");
+      input.value = msgDraft;
+      input.addEventListener("input", () => { msgDraft = input.value; });
+      input.addEventListener("keydown", (event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void sendMessageReply(); } });
+    }
+    $("#msg-list").innerHTML = chats.length ? chats.map((item) => `<button type="button" class="${item.chatId === msgChat ? "on" : ""}" data-act="msgChat" data-chat="${item.chatId}"><b>${esc(chatTitle(item))}${item.unread ? `<span class="dot">${item.unread}</span>` : ""}</b><small>${esc(item.phone || item.name || "")} · ${esc(msgTime(item.last))}</small><small>${esc((item.messages.at(-1)?.text ?? "").slice(0, 60))}</small></button>`).join("") : `<p class="empty" style="margin:14px">No messages yet. When a patient writes to the clinic's Telegram bot, it shows here.</p>`;
+    $("#msg-who").innerHTML = chat ? `<b>${esc(chatTitle(chat))}</b><br>${esc(chatDetails(chat))}` : "";
+    const thread = $("#msg-thread");
+    const atBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 40;
+    const shown = chat ? chat.messages.map((m) => `<div class="msg-b ${m.from}">${esc(m.text)}<small>${m.from === "bot" ? "🤖 Automatic reminder · " : m.from === "staff" ? "Staff · " : ""}${esc(msgTime(m.at))}</small></div>`).join("") : "";
+    if (thread.dataset.chat !== String(msgChat) || thread.dataset.count !== String(chat?.messages.length ?? 0)) {
+      thread.innerHTML = shown;
+      if (thread.dataset.chat !== String(msgChat) || atBottom) thread.scrollTop = thread.scrollHeight;
+      thread.dataset.chat = String(msgChat);
+      thread.dataset.count = String(chat?.messages.length ?? 0);
+    }
+    $("#msg-compose").classList.toggle("hidden", !chat);
+    // Opening a chat marks it as read on every computer.
+    if (chat?.unread) { chat.unread = 0; inbox.unread = chats.reduce((sum, item) => sum + item.unread, 0); showInbox(); void messagesRequest("POST", { read: chat.chatId }); }
+  }
+  async function sendMessageReply() {
+    const text = msgDraft.trim();
+    if (!text || msgChat === null) return;
+    const button = $("#msg-send");
+    if (button) { button.disabled = true; button.textContent = "Sending…"; }
+    const body = await messagesRequest("POST", { chatId: msgChat, text });
+    if (button) { button.disabled = false; button.textContent = "✈️ Send reply"; }
+    if (!body.ok) { toast(body.error || "The reply could not be sent.", true); return; }
+    msgDraft = "";
+    const input = $("#msg-text");
+    if (input) input.value = "";
+    toast("Reply sent on Telegram.");
+    await refreshInbox();
+  }
+
   // ---------- Staff shell ----------
   function mountStaff() {
     const nav = [["desk", "#desk", "Front desk"], ["station", "#station", "Stations"], ["config", "#config", "⚙ System configuration"]];
@@ -2055,11 +2163,14 @@ function downloadQueueReport(xlsx, state, now) {
       <header class="top"><div class="top-in">
         <div class="top-row">
           <div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state?.settings).toUpperCase())}</small><b>Queue Board · ${{ desk: "Front Desk", station: "Stations", config: "System Configuration" }[view]}</b></div></div>
-          <div class="top-actions"><span class="badge-device tv-badge"></span><span class="badge-device sync-badge"></span></div>
+          <div class="top-actions"><button type="button" class="badge-device msg-badge hidden" data-act="openMessages" title="Messages patients sent to the clinic's Telegram bot">💬 Messages</button><span class="badge-device tv-badge"></span><span class="badge-device sync-badge"></span></div>
         </div>
         <nav class="nav">${nav.map(([key, href, label]) => `<a href="${href}" class="${view === key ? "on" : ""}">${label}</a>`).join("")}<button data-act="openTv">TV display ↗</button><button data-act="openPoster">Check-in QR ↗</button><a href="#setup">Sync setup</a></nav>
       </div></header>
-      <main class="wrap"><p class="sync-banner hidden" id="sync-banner" role="alert"></p><div id="main"></div></main>`;
+      <main class="wrap"><p class="sync-banner hidden" id="sync-banner" role="alert"></p><div id="main"></div></main><div id="messages-box"></div>`;
+    showInbox();
+    void refreshInbox();
+    if (msgOpen) renderMessages(true);
     if (view === "desk") mountDesk();
     else if (view === "config") mountConfig();
     else $("#main").innerHTML = `<div id="station"></div>`;
@@ -3903,6 +4014,12 @@ function downloadQueueReport(xlsx, state, now) {
     const { act, id, station, send, index, code } = el.dataset;
     switch (act) {
       case "openTv": void openTv(); break;
+      case "openMessages": msgOpen = true; msgChat = (inbox?.chats.find((chat) => chat.unread) ?? inbox?.chats[0])?.chatId ?? null; renderMessages(true); $("#msg-text")?.focus(); break;
+      case "closeMessages": msgOpen = false; renderMessages(true); break;
+      case "closeMessagesBg": if (event.target === el) { msgOpen = false; renderMessages(true); } break;
+      case "msgChat": msgChat = Number(el.dataset.chat); renderMessages(false); $("#msg-text")?.focus(); break;
+      case "msgQuick": { msgDraft = el.dataset.text; const input = $("#msg-text"); if (input) { input.value = msgDraft; input.focus(); } break; }
+      case "msgSend": void sendMessageReply(); break;
       case "openPoster":
         // Patients' phones cannot open this file, so check-in runs on the sync server's web pages.
         if (sync.mode === "server") window.open(`${syncServer()}/queue/poster`, "_blank", "noopener");

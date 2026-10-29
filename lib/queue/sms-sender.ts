@@ -1,7 +1,7 @@
 import { applyAction, arrivalLabel, clinicNameOf, clinicOf, ensureDay, preRegisteredList, waitingFor } from "./reducer";
 import { getBackend } from "./server-store";
 import { smsPhone, smsText } from "./sms";
-import { sendTelegram, startTelegram, telegramChatOf, unlinkTelegramChat } from "./telegram";
+import { saveTelegramMessage, sendTelegram, startTelegram, telegramChatOf, unlinkTelegramChat } from "./telegram";
 import type { ActionResult, QueueAction, QueueState, SmsSettings } from "./types";
 
 // Sends reminders to pre-registered patients, by the clinic's Telegram bot (lib/queue/telegram.ts) or as SMS through
@@ -96,6 +96,8 @@ async function sendJob(job: SmsJob): Promise<"sms" | "telegram" | null> {
       if (!chat) return fail(NOT_ON_TELEGRAM);
       try {
         await sendTelegram(sms.telegramToken!, chat, message);
+        // Shown in the patient's chat on the front desk (💬 Messages), with what they write back.
+        await saveTelegramMessage({ chatId: chat, from: "bot", text: message, read: true }).catch(() => undefined);
       } catch (error) {
         // The patient stopped the bot: forget the link, so they can link again with /start.
         if ((error as { blocked?: boolean }).blocked) await unlinkTelegramChat(chat);
