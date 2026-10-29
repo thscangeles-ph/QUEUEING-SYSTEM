@@ -24,7 +24,8 @@ const stepAt = (visit: Visit, station: string) => visit.steps.find((step) => ste
 /**
  * The reminders an action calls for: the number when a patient is pre-registered; and when a station calls a patient,
  * "your turn" to that patient and "next in line" to the one after them (at a clinic, the first pre-registered patient
- * not arrived yet when no one is waiting). A vital signs call sends "your turn" to the vital signs place.
+ * not arrived yet when no one is waiting). A vital signs call sends "your turn" to the vital signs place, and a call back
+ * sends "your turn" again.
  * Patients without a cellphone are left out here; one not linked to Telegram is skipped when sending.
  */
 export function smsJobsAfter(state: QueueState, action: QueueAction, result: ActionResult): SmsJob[] {
@@ -39,6 +40,11 @@ export function smsJobsAfter(state: QueueState, action: QueueAction, result: Act
   if (action.type === "register" && !action.preRegister && sms.autoIssued !== false) {
     const visit = find(result.visitId);
     return visit ? [{ visitId: visit.id, kind: "issued" }] : [];
+  }
+  // Call back (a station calling a patient it served back to it): "your turn" again, for the new step.
+  if (action.type === "callBack") {
+    const visit = find(result.visitId);
+    return visit && sms.autoTurn !== false ? [{ visitId: visit.id, kind: "turn", station: String(action.station).toUpperCase() }] : [];
   }
   if (action.type !== "call" && action.type !== "callVitals") return [];
   const code = String(action.station).toUpperCase();
