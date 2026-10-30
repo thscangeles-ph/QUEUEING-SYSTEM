@@ -6,7 +6,7 @@ import type { ActionResult, QueueAction, QueueState, Visit } from "./types";
 
 // Sends reminders to patients by the clinic's Telegram bot (lib/queue/telegram.ts): a pre-registered patient's number,
 // and for every patient who linked their cellphone, "next in line" and "your turn" at each of their services.
-// Only on the clinic server (QUEUE_STORE=file). Reminders go one at a time, and each result is saved on the patient
+// Only on the clinic server (QUEUE_STORE=sqlite or file). Reminders go one at a time, and each result is saved on the patient
 // (smsResult) for the front desk to see.
 
 /** station: the service a "next in line", "your turn" or vital signs reminder is about. */
@@ -16,7 +16,7 @@ const GAP_MS = 300;
 export const NOT_ON_TELEGRAM = "Not on Telegram yet — it is sent when the patient opens the bot link and shares their number.";
 
 /** Whether this server can send: the clinic's own server. */
-export const smsAvailable = () => getBackend()?.name === "file";
+export const smsAvailable = () => { const name = getBackend()?.name; return name === "sqlite" || name === "file"; };
 
 /** A patient's open step at a station (being called, waiting, or still to come). */
 const stepAt = (visit: Visit, station: string) => visit.steps.find((step) => step.station === station && step.status !== "done");

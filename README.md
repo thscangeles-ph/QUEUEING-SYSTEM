@@ -29,7 +29,25 @@ One Windows computer in the clinic (for example the front desk PC) can be the qu
 2. Double-click `local-server\install-local-server.cmd`. The first time it needs the internet. It installs Node.js if needed (run it again after that), asks for the **staff PIN**, builds the app, opens port 3000 in the Windows firewall (click **Yes**), and asks whether to start the server with Windows.
 3. It then starts the server and lists this computer's addresses, e.g. `http://192.168.1.20:3000`. Open that address on the other computers and tablets: add `/queue/station?s=C1` for a station and `/queue/display` for the TV. On the server computer itself, use `http://localhost:3000`.
 
-`local-server\start-local-server.cmd` starts the server by hand. Keep its window open; minimizing it is fine. It restarts the server if it stops, and does nothing if the server is already running. Settings are in `local-server\settings.cmd` (PIN, port, data file); the queue is saved in `%LOCALAPPDATA%\THSC-Queue\queue.json`, outside the app folder, so it is kept when you install a new version. **To update the server**, double-click `local-server\update-server.cmd`. It downloads the newest version from GitHub (needs the internet), stops the server, copies the new files over the app (keeping `settings.cmd`, `tv-setup\queue-server.txt`, the queue and the TV pictures), builds it and starts the server again; the screens reconnect by themselves. Without a download, drag a THSC-Queue ZIP file onto `update-server.cmd` to update from that file. (Unzipping the new version over the folder and running `install-local-server.cmd` again still works too.)
+`local-server\start-local-server.cmd` starts the server by hand. Keep its window open; minimizing it is fine. It restarts the server if it stops, and does nothing if the server is already running. Settings are in `local-server\settings.cmd` (PIN, port, data file); everything is saved in a **database**, `%LOCALAPPDATA%\THSC-Queue\queue.db` (SQLite, built into Node.js 22.13 and newer, so nothing else is installed), outside the app folder, so it is kept when you install a new version. See [Database](#database). **To update the server**, double-click `local-server\update-server.cmd`. It downloads the newest version from GitHub (needs the internet), stops the server, copies the new files over the app (keeping `settings.cmd`, `tv-setup\queue-server.txt`, the queue and the TV pictures), builds it and starts the server again; the screens reconnect by themselves. Without a download, drag a THSC-Queue ZIP file onto `update-server.cmd` to update from that file. (Unzipping the new version over the folder and running `install-local-server.cmd` again still works too.)
+
+### Database
+
+The clinic server keeps everything in one SQLite database file, `queue.db`, in `%LOCALAPPDATA%\THSC-Queue` (beside `QUEUE_DATA_FILE`; `QUEUE_DB_FILE` sets another place):
+
+| Table | What is in it |
+|---|---|
+| `queue_state` | Today's queue and all settings (one row, with a version number so two computers saving at the same moment never overwrite each other) |
+| `visits` | **Every visit of every day**, kept after the queue starts fresh at midnight: day, queue number, type, name, cellphone, birthday, age, requesting physician, HMO and LOA, appointment, services, status (waiting, completed, cancelled, cleared, removed …), registered and finished times, and the whole visit |
+| `media` | The TV slideshow pictures |
+| `data` | The patients linked to the Telegram bot and the 💬 Messages chats |
+| `meta` | When the old files were imported and the last backup |
+
+- **Moving from the JSON files:** the first time the server starts with the database, it brings in `queue.json`, the `media` folder and the Telegram files from the same folder. They are left as they were, as a backup.
+- **Backups:** once a day the server saves a copy of the database in the `backups` folder beside it (`queue-2026-10-31.db` …); the last 30 days are kept. To go back to one, close the server window, replace `queue.db` with the copy (renamed to `queue.db`, and delete `queue.db-wal` and `queue.db-shm`), and start the server again.
+- **Looking at the data:** open `queue.db` with the free *DB Browser for SQLite*, or copy it first while the server runs.
+- **Moving to another server:** copy the whole `%LOCALAPPDATA%\THSC-Queue` folder (with the server closed); `uninstall-server.cmd` does this in its backup.
+- `QUEUE_STORE=file` in `settings.cmd` keeps the JSON files instead. A Node.js older than 22.13 has no built-in SQLite, so the server then uses the JSON files and says so in its window.
 
 **Desktop icons:** setup offers to put three icons with the THSC logo on the server's desktop: *THSC Queue Board* (the front desk at `http://localhost:3000`), *THSC Front Desk + TV* (runs `tv-setup\start-desk-and-tv.cmd`: the front desk, and the TV full screen on the extended screen) and *THSC Queue Server* (starts the server if it is not running). Double-click `local-server\make-desktop-icons.cmd` (in the package: `make-desktop-icons.cmd`) to add them later or put back one that was deleted.
 
@@ -111,7 +129,7 @@ The queue follows the clinic's arrival flow:
 | Where it runs | Environment variables |
 | --- | --- |
 | Vercel | Add an Upstash Redis database from the Vercel Marketplace (it sets `KV_REST_API_URL` and `KV_REST_API_TOKEN`), or set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` yourself. Then add `QUEUE_STAFF_PIN` and redeploy. |
-| A clinic PC on the local network | See [Run on a clinic computer](#run-on-a-clinic-computer-local-server) (the setup file does this). By hand: `QUEUE_STORE=file` and `QUEUE_STAFF_PIN=…`. Data is saved to `.queue-data/queue.json` (change it with `QUEUE_DATA_FILE`). Run `pnpm build && pnpm start`, then open `http://<pc-address>:3000/queue` on the other devices. |
+| A clinic PC on the local network | See [Run on a clinic computer](#run-on-a-clinic-computer-local-server) (the setup file does this). By hand: `QUEUE_STORE=sqlite` (the database; or `file` for JSON files) and `QUEUE_STAFF_PIN=…`. Data is saved to `.queue-data/queue.json` (change it with `QUEUE_DATA_FILE`). Run `pnpm build && pnpm start`, then open `http://<pc-address>:3000/queue` on the other devices. |
 
 Screens refresh every 2 seconds. With Upstash, each open screen makes about one request every 2 seconds, so a full clinic day goes over the free tier; expect a small pay-as-you-go charge.
 

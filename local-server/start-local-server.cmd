@@ -21,7 +21,9 @@ echo The queue server is already running on this computer (port %PORT%).
 timeout /t 10
 exit /b
 :start_server
-set "QUEUE_STORE=file"
+rem The queue, settings, visit history, TV pictures and Telegram data are kept in a database (queue.db, Node.js's built-in
+rem SQLite) beside QUEUE_DATA_FILE, with a daily copy in its backups folder. QUEUE_STORE=file in settings.cmd keeps JSON files instead.
+if not defined QUEUE_STORE set "QUEUE_STORE=sqlite"
 set "NODE_ENV=production"
 if not defined QUEUE_DATA_FILE set "QUEUE_DATA_FILE=%LOCALAPPDATA%\THSC-Queue\queue.json"
 echo.
@@ -29,7 +31,9 @@ echo  THSC Queue Board - local server
 echo  On this computer:  http://localhost:%PORT%
 echo  Other computers:
 powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|VirtualBox|VMware|Loopback|Bluetooth' } | ForEach-Object { $t = if ($_.InterfaceAlias -match 'Wi-?Fi|Wireless|WLAN') { 'Wi-Fi:     ' } elseif ($_.InterfaceAlias -match 'Ethernet') { 'LAN cable: ' } else { $_.InterfaceAlias + ': ' }; '                    ' + $t + 'http://' + $_.IPAddress + ':%PORT%' }"
-echo  Queue data:        %QUEUE_DATA_FILE%
+for %%f in ("%QUEUE_DATA_FILE%") do set "QUEUE_FOLDER=%%~dpf"
+if "%QUEUE_STORE%"=="sqlite" echo  Database:          %QUEUE_FOLDER%queue.db
+if not "%QUEUE_STORE%"=="sqlite" echo  Queue data:        %QUEUE_DATA_FILE%
 echo.
 rem Open the front desk and the TV display (extended screen) once the server answers, if chosen in setup.
 if "%OPEN_DESK_AND_TV%"=="1" if exist "tv-setup\start-desk-and-tv.cmd" start "THSC Desk and TV" /min cmd /c "tv-setup\start-desk-and-tv.cmd"

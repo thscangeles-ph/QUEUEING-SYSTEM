@@ -8,7 +8,7 @@ import { getBackend, isStaff } from "@/lib/queue/server-store";
 export const dynamic = "force-dynamic";
 
 // The clinic server prints queue number slips on its own receipt printer (e.g. a Bluetooth thermal printer),
-// for the kiosk tablet's Regular and HMO buttons. Staff PIN needed; only on the clinic server (QUEUE_STORE=file).
+// for the kiosk tablet's Regular and HMO buttons. Staff PIN needed; only on the clinic server (QUEUE_STORE=sqlite or file).
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, x-queue-pin", "Access-Control-Max-Age": "86400" };
 const json = (body: Record<string, unknown>, status = 200) => Response.json(body, { status, headers: { ...CORS, "Cache-Control": "no-store" } });
 const UNAVAILABLE = "Printing on the server works only on the clinic's own queue server.";
