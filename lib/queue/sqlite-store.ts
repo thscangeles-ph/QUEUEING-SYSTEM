@@ -3,7 +3,7 @@ import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { visitStatus } from "./format";
 import { arrivalLabel } from "./reducer";
-import type { Backend, Media, Stored } from "./server-store";
+import type { Backend, HistoryQuery, HistoryResult, HistoryRow, Media, Stored } from "./server-store";
 import type { QueueState, Visit } from "./types";
 
 // The clinic server's database: one SQLite file (queue.db, beside the old queue.json) with Node.js's built-in SQLite,
@@ -167,6 +167,36 @@ export function sqliteBackend(dbFile: string, legacyQueueFile: string): Backend 
     },
     async saveData(name, value) {
       db.prepare("INSERT INTO data (name, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").run(name, JSON.stringify(value), Date.now());
+    },
+    async history(query: HistoryQuery): Promise<HistoryResult> {
+      const where = ["day BETWEEN ? AND ?"];
+      const params: (string | number)[] = [query.from, query.to];
+      const text = String(query.q ?? "").trim();
+      if (text) {
+        // A name, queue number, physician or HMO; a cellphone matches with or without spaces and dashes.
+        const digits = text.replace(/\D/g, "");
+        where.push("(name LIKE ? OR number LIKE ? OR physician LIKE ? OR hmo LIKE ?" + (digits.length >= 3 ? " OR REPLACE(REPLACE(REPLACE(mobile, ' ', ''), '-', ''), '+63', '0') LIKE ?" : "") + ")");
+        params.push(`%${text}%`, `%${text}%`, `%${text}%`, `%${text}%`, ...(digits.length >= 3 ? [`%${digits.replace(/^63/, "0")}%`] : []));
+      }
+      if (query.kinds?.length) {
+        where.push(`kind IN (${query.kinds.map(() => "?").join(", ")})`);
+        params.push(...query.kinds);
+      }
+      const closed = "('cancelled', 'removed', 'cleared')";
+      if (query.status === "completed") where.push("status = 'completed'");
+      else if (query.status === "cancelled") where.push(`status IN ${closed}`);
+      else if (query.status === "open") where.push(`status != 'completed' AND status NOT IN ${closed}`);
+      const filter = where.join(" AND ");
+      const totals = db.prepare(`SELECT count(*) AS visits, sum(status = 'completed') AS completed, sum(status IN ${closed}) AS cancelled, count(DISTINCT day) AS days FROM visits WHERE ${filter}`).get(...params) as Record<string, number | null>;
+      const limit = Math.min(Math.max(Number(query.limit) || 500, 1), 5000);
+      const rows = db.prepare(`SELECT day, id, number, kind, name, mobile, birth_date AS birthDate, age, physician, hmo, loa, appointment, services, status,
+        created_at AS createdAt, registered_at AS registeredAt, finished_at AS finishedAt FROM visits WHERE ${filter} ORDER BY day DESC, created_at ASC LIMIT ?`).all(...params, limit) as HistoryRow[];
+      const visits = Number(totals.visits ?? 0), completed = Number(totals.completed ?? 0), cancelled = Number(totals.cancelled ?? 0);
+      return { rows, summary: { visits, completed, cancelled, open: visits - completed - cancelled, days: Number(totals.days ?? 0) } };
+    },
+    async historyVisit(day: string, id: string) {
+      const row = db.prepare("SELECT data FROM visits WHERE day = ? AND id = ?").get(day, id) as { data: string } | undefined;
+      return row ? JSON.parse(row.data) : null;
     },
   };
 }
