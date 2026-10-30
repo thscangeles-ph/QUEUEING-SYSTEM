@@ -17,7 +17,19 @@ export type Backend = {
   /** Other saved data that is kept from day to day (e.g. the patients linked to the Telegram bot). */
   loadData<T>(name: string): Promise<T | null>;
   saveData(name: string, value: unknown): Promise<void>;
+  /** Past visits (the database only): the 📅 History page's search, and one visit with all its details. */
+  history?(query: HistoryQuery): Promise<HistoryResult>;
+  historyVisit?(day: string, id: string): Promise<unknown | null>;
 };
+
+/** status: completed, cancelled (also removed and cleared), or open (not finished); kinds: patient kinds (W, S, H, P1 …). */
+export type HistoryQuery = { from: string; to: string; q?: string; kinds?: string[]; status?: "all" | "completed" | "cancelled" | "open"; limit?: number };
+export type HistoryRow = {
+  day: string; id: string; number: string; kind: string; name: string; mobile: string; birthDate: string | null; age: number | null;
+  physician: string | null; hmo: string | null; loa: string | null; appointment: string | null; services: string; status: string;
+  createdAt: number | null; registeredAt: number | null; finishedAt: number | null;
+};
+export type HistoryResult = { rows: HistoryRow[]; summary: { visits: number; completed: number; cancelled: number; open: number; days: number } };
 
 const STATE_KEY = "thsc:queue:state";
 const VERSION_KEY = "thsc:queue:version";

@@ -352,6 +352,14 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .ticker span, .hero.fresh, .vid-over > div { animation: none; } .tabs a.queued:not(.on) { animation: none; background: #f6c6cd; } }
 
 /* Sync */
+.hist-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; }
+.hist-quick { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.hist-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 16px 0; }
+.hist-tiles div { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; } .hist-tiles b { display: block; font-size: 24px; } .hist-tiles span { color: var(--muted); font-size: 12px; font-weight: 600; }
+.hist-table { overflow-x: auto; } .hist-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.hist-table th, .hist-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; } .hist-table th { background: var(--soft); font-size: 12px; position: sticky; top: 0; }
+.hist-table tbody tr { cursor: pointer; } .hist-table tbody tr:hover { background: #fff9e9; } .hist-day td { background: #f7f2e6; font-weight: 700; cursor: default; }
+.st-removed { background: var(--bad-bg); color: var(--bad); } .st-cleared { background: #efebe4; color: #7d725f; }
 .msg-badge { border: 0; cursor: pointer; } .msg-badge.new { background: #b4233c; color: #fff; animation: msg-pulse 1.6s ease-in-out infinite; }
 @keyframes msg-pulse { 50% { opacity: .6; } }
 .msg-box { display: grid; grid-template-columns: 290px 1fr; min-height: 460px; }
@@ -2066,7 +2074,7 @@ function downloadQueueReport(xlsx, state, now) {
     if (kioskLocked()) return { name: "kiosk", arg: "" };
     const fromPath = location.pathname.startsWith("/queue/station") ? `station/${new URLSearchParams(location.search).get("s") ?? ""}` : location.pathname.startsWith("/queue/display") ? "display" : location.pathname.startsWith("/queue/config") ? "config" : location.pathname.startsWith("/queue/kiosk") ? "kiosk" : "";
     const [name, arg] = (location.hash.replace(/^#/, "") || fromPath).split("/");
-    return { name: ["station", "display", "setup", "config", "kiosk"].includes(name) ? name : "desk", arg: arg ? decodeURIComponent(arg) : "" };
+    return { name: ["station", "display", "setup", "config", "kiosk", "history"].includes(name) ? name : "desk", arg: arg ? decodeURIComponent(arg) : "" };
   }
   function mount() {
     const r = route();
@@ -2077,7 +2085,7 @@ function downloadQueueReport(xlsx, state, now) {
     if (r.name !== "display" && locked()) { view = "gate"; document.body.className = ""; document.title = "Staff PIN · THSC Queue Board"; mountGate(); refreshSync(); return; }
     view = r.name;
     document.body.className = view === "display" ? "tv" : view === "kiosk" ? "kiosk" : "";
-    document.title = { desk: "Front Desk · THSC Queue Board", station: "Stations · THSC Queue Board", display: "TV Display · THSC Queue Board", config: "System Configuration · THSC Queue Board", kiosk: "Get a Queue Number · THSC" }[view];
+    document.title = { desk: "Front Desk · THSC Queue Board", station: "Stations · THSC Queue Board", display: "TV Display · THSC Queue Board", config: "System Configuration · THSC Queue Board", history: "History · THSC Queue Board", kiosk: "Get a Queue Number · THSC" }[view];
     if (view === "display") mountDisplay(); else if (view === "kiosk") mountKiosk(); else mountStaff();
     update();
   }
@@ -2098,7 +2106,7 @@ function downloadQueueReport(xlsx, state, now) {
   let msgOpen = false;
   let msgChat = null;
   let msgDraft = "";
-  const inboxOn = () => sync.mode === "server" && Boolean(state?.settings.sms?.enabled) && ["desk", "station", "config"].includes(view);
+  const inboxOn = () => sync.mode === "server" && Boolean(state?.settings.sms?.enabled) && ["desk", "station", "config", "history"].includes(view);
   async function messagesRequest(method, body) {
     const pin = readSetting(PIN_KEY);
     try {
@@ -2185,13 +2193,110 @@ function downloadQueueReport(xlsx, state, now) {
     await refreshInbox();
   }
 
+  // ---------- 📅 History: every visit of every day, from the clinic server's database ----------
+  const HIST_TYPES = [["", "All types"], ["W,S", "Regular (walk-in, scheduled)"], ["H", "HMO"], ["P1,S1", "Clinic 1"], ["P2,S2", "Clinic 2"], ["P3,S3", "Clinic 3"]];
+  const HIST_STATUS = [["all", "All"], ["completed", "Completed"], ["open", "Not finished"], ["cancelled", "Cancelled / removed"]];
+  const HIST_STATUS_LABEL = { ...STATUS_LABEL, removed: "Removed", cleared: "Cleared" };
+  let hist = null;
+  const dayShift = (day, days) => new Date(Date.parse(`${day}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+  const histDate = (day) => new Intl.DateTimeFormat("en-PH", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric", year: "numeric" }).format(new Date(`${day}T00:00:00Z`));
+  const histTime = (at) => (at ? formatTime(at) : "");
+  async function historyRequest(query) {
+    const pin = readSetting(PIN_KEY);
+    try {
+      const response = await fetch(`${syncServer()}/api/history?${new URLSearchParams(query)}`, { cache: "no-store", headers: pin ? { "x-queue-pin": pin } : {} });
+      return await response.json().catch(() => ({ error: "The queue server did not answer." }));
+    } catch {
+      return { error: "The queue server could not be reached." };
+    }
+  }
+  const histQuery = (limit) => ({ from: hist.from, to: hist.to, q: hist.q, kinds: hist.kinds, status: hist.status, limit: String(limit) });
+  function mountHistory() {
+    const today = state.day;
+    hist ??= { from: today, to: today, q: "", kinds: "", status: "all", result: null, loading: false };
+    const quick = [["Today", today, today], ["Yesterday", dayShift(today, -1), dayShift(today, -1)], ["Last 7 days", dayShift(today, -6), today], ["This month", `${today.slice(0, 8)}01`, today], ["Last month", dayShift(`${today.slice(0, 8)}01`, -1).slice(0, 8) + "01", dayShift(`${today.slice(0, 8)}01`, -1)]];
+    $("#main").innerHTML = `
+      <section class="panel"><div class="panel-h"><div><h2>📅 History</h2><p>Every visit of every day, kept in the clinic server's database. Click a visit to see its services and times.</p></div><button type="button" class="btn sm outline" data-act="histExcel">⬇ Download Excel</button></div>
+        <div class="panel-b">
+          <form id="hist-form" class="hist-filters">
+            <label class="field">From<input type="date" id="hist-from" value="${hist.from}" max="${today}"></label>
+            <label class="field">To<input type="date" id="hist-to" value="${hist.to}" max="${today}"></label>
+            <label class="field" style="grid-column:span 2">Search<input type="search" id="hist-q" value="${esc(hist.q)}" placeholder="Name, cellphone, queue number, physician or HMO"></label>
+            <label class="field">Type<select id="hist-kinds">${HIST_TYPES.map(([v, l]) => `<option value="${v}" ${hist.kinds === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+            <label class="field">Status<select id="hist-status">${HIST_STATUS.map(([v, l]) => `<option value="${v}" ${hist.status === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+            <button class="btn" type="submit" style="min-height:40px">🔍 Search</button>
+          </form>
+          <div class="hist-quick">${quick.map(([label, from, to]) => `<button type="button" class="btn sm ghost" data-act="histRange" data-from="${from}" data-to="${to}">${label}</button>`).join("")}</div>
+          <div id="hist-result"></div>
+        </div></section>
+      <div id="hist-visit"></div>`;
+    $("#hist-form").addEventListener("submit", (event) => { event.preventDefault(); void loadHistory(); });
+    if (hist.result) renderHistory(); else void loadHistory();
+  }
+  async function loadHistory() {
+    if (!$("#hist-form")) return;
+    Object.assign(hist, { from: $("#hist-from").value || state.day, to: $("#hist-to").value || $("#hist-from").value || state.day, q: $("#hist-q").value.trim(), kinds: $("#hist-kinds").value, status: $("#hist-status").value, loading: true });
+    renderHistory();
+    hist.result = sync.mode === "server" ? await historyRequest(histQuery(500)) : { available: false };
+    hist.loading = false;
+    if (view === "history") renderHistory();
+  }
+  function renderHistory() {
+    const box = $("#hist-result");
+    if (!box) return;
+    const r = hist.result;
+    if (hist.loading) { box.innerHTML = `<p class="empty" style="margin-top:16px">Searching…</p>`; return; }
+    if (!r) { box.innerHTML = ""; return; }
+    if (r.available === false) { box.innerHTML = `<p class="note" style="margin-top:16px">${esc(r.error || "History needs the clinic server's database.")} The clinic server keeps every visit in its database (queue.db) once it runs the newest version.</p>`; return; }
+    if (r.error) { box.innerHTML = `<p class="note" style="margin-top:16px">${esc(r.error)}</p>`; return; }
+    const s = r.summary;
+    let lastDay = "";
+    const rows = r.rows.map((v) => {
+      const head = v.day !== lastDay ? `<tr class="hist-day"><td colspan="11">${esc(histDate(v.day))}</td></tr>` : "";
+      lastDay = v.day;
+      return `${head}<tr data-act="histVisit" data-day="${v.day}" data-id="${esc(v.id)}"><td class="mono"><b>${esc(v.number)}</b></td><td>${esc(kindLabel(v.kind))}</td><td>${esc(v.name || "—")}</td><td>${esc(v.mobile || "")}</td><td>${v.age ?? ""}</td><td>${esc(v.physician || "")}</td><td>${esc(v.hmo || "")}</td><td>${esc((v.services || "").split(" > ").map((code) => stationName(state, code)).join(" → "))}</td><td><span class="pill st-${esc(v.status)}">${esc(HIST_STATUS_LABEL[v.status] ?? v.status)}</span></td><td>${esc(histTime(v.createdAt))}</td><td>${esc(histTime(v.finishedAt))}</td></tr>`;
+    }).join("");
+    box.innerHTML = `
+      <div class="hist-tiles"><div><b>${s.visits}</b><span>Visits</span></div><div><b>${s.completed}</b><span>Completed</span></div><div><b>${s.open}</b><span>Not finished</span></div><div><b>${s.cancelled}</b><span>Cancelled / removed</span></div><div><b>${s.days}</b><span>Day${s.days === 1 ? "" : "s"}</span></div></div>
+      ${r.rows.length < s.visits ? `<p class="note">Showing the first ${r.rows.length} of ${s.visits} visits. Narrow the dates or search, or use ⬇ Download Excel for all of them.</p>` : ""}
+      ${r.rows.length ? `<div class="hist-table"><table><thead><tr><th>Number</th><th>Type</th><th>Patient</th><th>Cellphone</th><th>Age</th><th>Requesting physician</th><th>HMO</th><th>Services</th><th>Status</th><th>Arrived</th><th>Finished</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<p class="empty">No visits found for these dates and filters.</p>`}`;
+  }
+  /** One past visit: the patient's details and each service with its times. */
+  async function openHistoryVisit(day, id) {
+    const box = $("#hist-visit");
+    const body = await historyRequest({ day, id });
+    if (!body.visit) { toast(body.error || "That visit could not be opened.", true); return; }
+    const v = body.visit;
+    const facts = [["Date", histDate(day)], ["Queue number", arrivalLabel(v)], ["Type", kindLabel(v.kind)], ["Cellphone", v.mobile], ["Birthday", v.birthDate ? formatBirthday(v.birthDate) : ""], ["Age", v.age ?? ""], ["Requesting physician", v.requestingPhysician], ["HMO", [v.hmo, v.loa ? `LOA ${v.loa}` : ""].filter(Boolean).join(" · ")], ["Appointment", v.appointment ? appointmentText(v.appointment) : ""], ["Arrived", histTime(v.createdAt)], ["Registered", histTime(v.registeredAt)], ["Notes", v.notes]].filter(([, value]) => value !== "" && value !== null && value !== undefined);
+    box.innerHTML = `<div class="modal-bg" data-act="histCloseBg"><section class="panel modal" style="width:min(720px,100%)" role="dialog" aria-label="Visit">
+      <div class="panel-h"><div><h2>${esc(arrivalLabel(v))} · ${esc(v.name || "—")}</h2><p>${esc(histDate(day))}</p></div><button class="btn sm ghost" data-act="histClose">Close</button></div>
+      <div class="panel-b" style="display:grid;gap:14px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px 16px;font-size:14px">${facts.map(([label, value]) => `<div><small style="color:var(--muted);font-weight:600">${esc(label)}</small><br>${esc(String(value))}</div>`).join("")}</div>
+        <div class="hist-table"><table><thead><tr><th>Service</th><th>Status</th><th>In line</th><th>Called</th><th>Done</th><th>Charges</th></tr></thead><tbody>${v.steps.map((st) => `<tr style="cursor:default"><td><b class="mono">${esc(st.station)}</b> ${esc(stationName(state, st.station))}</td><td><span class="pill st-${esc(st.status === "done" ? "completed" : st.status)}">${esc(st.status === "done" ? "Done" : STATUS_LABEL[st.status] ?? st.status)}</span></td><td>${esc(histTime(st.queuedAt))}</td><td>${esc(histTime(st.calledAt))}${st.calls > 1 ? ` (${st.calls}×)` : ""}</td><td>${esc(histTime(st.doneAt))}</td><td>${esc(st.billing ? [st.billing.fee === "pf" ? "Professional fee" : "", ...st.billing.items].filter(Boolean).join(", ") : "")}</td></tr>`).join("") || `<tr><td colspan="6">No services (not registered).</td></tr>`}</tbody></table></div>
+      </div></section></div>`;
+  }
+  /** All visits found (up to 5000) as an Excel file. */
+  async function downloadHistory() {
+    if (!hist?.result?.available) { toast("Search first, on the clinic server.", true); return; }
+    toast("Preparing the Excel file…");
+    const body = await historyRequest(histQuery(5000));
+    if (!body.rows) { toast(body.error || "The history could not be loaded.", true); return; }
+    const header = ["Date", "Queue number", "Type", "Patient", "Cellphone", "Birthday", "Age", "Requesting physician", "HMO", "LOA", "Appointment", "Services", "Status", "Arrived", "Registered", "Finished"];
+    const rows = body.rows.map((v) => [v.day, v.number, kindLabel(v.kind), v.name, v.mobile, v.birthDate ? formatBirthday(v.birthDate) : "", v.age ?? "", v.physician ?? "", v.hmo ?? "", v.loa ?? "", v.appointment ? appointmentText(v.appointment) : "", (v.services || "").split(" > ").filter(Boolean).map((code) => stationName(state, code)).join(" → "), HIST_STATUS_LABEL[v.status] ?? v.status, histTime(v.createdAt), histTime(v.registeredAt), histTime(v.finishedAt)]);
+    const ws = XLSX.utils.aoa_to_sheet([[`${clinicNameOf(state.settings)} · Visits ${hist.from === hist.to ? hist.from : `${hist.from} to ${hist.to}`}`], [], header, ...rows]);
+    ws["!cols"] = [12, 12, 22, 26, 15, 14, 6, 22, 16, 12, 11, 40, 14, 10, 10, 10].map((wch) => ({ wch }));
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, ws, "Visits");
+    XLSX.writeFile(book, `THSC-History-${hist.from}${hist.from === hist.to ? "" : `-to-${hist.to}`}.xlsx`);
+  }
+
   // ---------- Staff shell ----------
   function mountStaff() {
-    const nav = [["desk", "#desk", "Front desk"], ["station", "#station", "Stations"], ["config", "#config", "⚙ System configuration"]];
+    const nav = [["desk", "#desk", "Front desk"], ["station", "#station", "Stations"], ["history", "#history", "📅 History"], ["config", "#config", "⚙ System configuration"]];
     app.innerHTML = `
       <header class="top"><div class="top-in">
         <div class="top-row">
-          <div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state?.settings).toUpperCase())}</small><b>Queue Board · ${{ desk: "Front Desk", station: "Stations", config: "System Configuration" }[view]}</b></div></div>
+          <div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state?.settings).toUpperCase())}</small><b>Queue Board · ${{ desk: "Front Desk", station: "Stations", config: "System Configuration", history: "History" }[view]}</b></div></div>
           <div class="top-actions"><button type="button" class="badge-device msg-badge hidden" data-act="openMessages" title="Messages patients sent to the clinic's Telegram bot">💬 Messages</button><span class="badge-device tv-badge"></span><span class="badge-device sync-badge"></span></div>
         </div>
         <nav class="nav">${nav.map(([key, href, label]) => `<a href="${href}" class="${view === key ? "on" : ""}">${label}</a>`).join("")}<button data-act="openTv">TV display ↗</button><button data-act="openPoster">Check-in QR ↗</button><a href="#setup">Sync setup</a></nav>
@@ -2202,6 +2307,7 @@ function downloadQueueReport(xlsx, state, now) {
     if (msgOpen) renderMessages(true);
     if (view === "desk") mountDesk();
     else if (view === "config") mountConfig();
+    else if (view === "history") mountHistory();
     else $("#main").innerHTML = `<div id="station"></div>`;
   }
 
@@ -4039,6 +4145,11 @@ function downloadQueueReport(xlsx, state, now) {
     const { act, id, station, send, index, code } = el.dataset;
     switch (act) {
       case "openTv": void openTv(); break;
+      case "histRange": $("#hist-from").value = el.dataset.from; $("#hist-to").value = el.dataset.to; void loadHistory(); break;
+      case "histVisit": void openHistoryVisit(el.dataset.day, el.dataset.id); break;
+      case "histClose": $("#hist-visit").innerHTML = ""; break;
+      case "histCloseBg": if (event.target === el) $("#hist-visit").innerHTML = ""; break;
+      case "histExcel": void downloadHistory(); break;
       case "openMessages": msgOpen = true; msgChat = (inbox?.chats.find((chat) => chat.unread) ?? inbox?.chats[0])?.chatId ?? null; renderMessages(true); $("#msg-text")?.focus(); break;
       case "closeMessages": msgOpen = false; renderMessages(true); break;
       case "closeMessagesBg": if (event.target === el) { msgOpen = false; renderMessages(true); } break;
