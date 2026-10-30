@@ -37,7 +37,8 @@ UPDATE TO A NEW VERSION
 
 GOOD TO KNOW
 - The credits folder lists the open-source software inside this package, with its licenses.
-- The queue and settings are saved in %LOCALAPPDATA%\THSC-Queue\queue.json on this computer.
+- Everything (the queue, settings, every day's visits, TV pictures, Telegram links and messages) is saved in a
+  database, %LOCALAPPDATA%\THSC-Queue\queue.db, with a daily copy in its backups folder (the last 30 days).
 - Give this computer a fixed address in the router, so the address does not change.
 - If other computers or phones cannot connect ("This site can't be reached" / "took too long to respond"),
   double-click fix-network.cmd on this computer: it sets the network to Private, removes firewall rules that

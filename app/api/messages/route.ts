@@ -8,7 +8,7 @@ import type { QueueState } from "@/lib/queue/types";
 export const dynamic = "force-dynamic";
 
 // The front desk's 💬 Messages: what patients write to the clinic's Telegram bot, and the staff's replies.
-// Staff PIN needed; only on the clinic server (QUEUE_STORE=file), with reminders set to Telegram.
+// Staff PIN needed; only on the clinic server (QUEUE_STORE=sqlite or file), with reminders set to Telegram.
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, x-queue-pin", "Access-Control-Max-Age": "86400" };
 const json = (body: Record<string, unknown>, status = 200) => Response.json(body, { status, headers: { ...CORS, "Cache-Control": "no-store" } });
 

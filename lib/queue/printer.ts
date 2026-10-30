@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { open, readdir } from "node:fs/promises";
+import { isClinicServer } from "./server-store";
 
 // Sends slips to the receipt printer of the clinic server computer. A Bluetooth thermal printer paired with Windows
 // appears either as a printer (when a driver is installed) or as a Bluetooth COM port; both are supported.
@@ -8,8 +9,8 @@ import { open, readdir } from "node:fs/promises";
 
 export type PrinterChoice = { id: string; name: string; kind: "printer" | "port" };
 
-/** Printing is only for the clinic's own server (QUEUE_STORE=file), not the website. */
-export const printingAvailable = () => process.env.QUEUE_STORE === "file" && (process.platform === "win32" || process.platform === "linux");
+/** Printing is only for the clinic's own server (QUEUE_STORE=sqlite or file), not the website. */
+export const printingAvailable = () => isClinicServer() && (process.platform === "win32" || process.platform === "linux");
 
 function powershell(script: string, env: Record<string, string> = {}, timeout = 30000) {
   return new Promise<string>((resolve, reject) => {

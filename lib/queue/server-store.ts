@@ -1,13 +1,14 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { sqliteBackend } from "./sqlite-store";
 import type { QueueState } from "./types";
 
-type Stored = { state: QueueState | null; version: number };
+export type Stored = { state: QueueState | null; version: number };
 /** A picture for the TV slideshow: its media type and base64 data. */
 export type Media = { type: string; data: string };
-type Backend = {
-  name: "redis" | "file";
+export type Backend = {
+  name: "redis" | "file" | "sqlite";
   load(): Promise<Stored>;
   save(state: QueueState, expectedVersion: number): Promise<boolean>;
   saveMedia(id: string, media: Media): Promise<void>;
@@ -128,14 +129,25 @@ function fileBackend(file: string): Backend {
 
 let cached: Backend | null | undefined;
 
-/** Shared mode is on when Upstash/Vercel KV credentials are present, or QUEUE_STORE=file on a self-hosted server. */
+/** Whether this is the clinic's own server (QUEUE_STORE=sqlite, the database, or file), not the website. */
+export const isClinicServer = () => process.env.QUEUE_STORE === "sqlite" || process.env.QUEUE_STORE === "file";
+
+/**
+ * Shared mode is on when Upstash/Vercel KV credentials are present, or on a self-hosted server: QUEUE_STORE=sqlite keeps
+ * everything in a SQLite database (queue.db, beside QUEUE_DATA_FILE, or QUEUE_DB_FILE), QUEUE_STORE=file in JSON files.
+ */
 export function getBackend(): Backend | null {
   if (cached !== undefined) return cached;
   const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
   if (url && token) cached = redisBackend(url, token);
-  else if (process.env.QUEUE_STORE === "file") cached = fileBackend(process.env.QUEUE_DATA_FILE ? path.resolve(/*turbopackIgnore: true*/ process.env.QUEUE_DATA_FILE) : path.join(process.cwd(), ".queue-data", "queue.json"));
-  else cached = null;
+  else if (isClinicServer()) {
+    const file = process.env.QUEUE_DATA_FILE ? path.resolve(/*turbopackIgnore: true*/ process.env.QUEUE_DATA_FILE) : path.join(process.cwd(), ".queue-data", "queue.json");
+    const db = process.env.QUEUE_DB_FILE ? path.resolve(/*turbopackIgnore: true*/ process.env.QUEUE_DB_FILE) : path.join(path.dirname(file), "queue.db");
+    const sqlite = process.env.QUEUE_STORE === "sqlite" ? sqliteBackend(db, file) : null;
+    if (process.env.QUEUE_STORE === "sqlite" && !sqlite) console.warn("THSC Queue Board: this Node.js has no built-in SQLite (it needs 22.13 or newer), so the queue is kept in JSON files. Install the newest Node.js LTS to use the database.");
+    cached = sqlite ?? fileBackend(file);
+  } else cached = null;
   return cached;
 }
 

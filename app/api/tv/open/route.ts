@@ -2,7 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isStaff } from "@/lib/queue/server-store";
+import { isClinicServer, isStaff } from "@/lib/queue/server-store";
 
 export const dynamic = "force-dynamic";
 
@@ -37,10 +37,10 @@ export function OPTIONS() {
 /**
  * Opens the TV display on the clinic server computer's extended screen (the lobby TV), full screen with sound.
  * Browsers cannot place a window on another screen from a page at a network address, so the server does it.
- * Only on a Windows clinic server (QUEUE_STORE=file); elsewhere the board opens the TV itself.
+ * Only on a Windows clinic server (QUEUE_STORE=sqlite or file); elsewhere the board opens the TV itself.
  */
 export async function POST(request: Request) {
-  if (process.platform !== "win32" || process.env.QUEUE_STORE !== "file") return json({ ok: false, reason: "unavailable" });
+  if (process.platform !== "win32" || !isClinicServer()) return json({ ok: false, reason: "unavailable" });
   if (!isStaff(request)) return json({ ok: false, error: "Staff PIN required." }, 401);
   const screen = await tvScreen();
   if (!screen) return json({ ok: false, reason: "no-tv", error: "The server computer has no extended screen. On it, press Windows+P and choose Extend, then try again." });
