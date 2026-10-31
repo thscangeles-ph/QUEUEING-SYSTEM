@@ -1547,6 +1547,9 @@ function announcementSpeech(item, language = "en") {
 /** Time to leave for each call so two languages never talk over the next call. */
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
+/** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
+const BOARD_VERSION = "2026-10-31.2";
+
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
     assigned: "THSC: Hi {name}, your queue number for {clinic} is {number}{appointment}. Please show this number at the Concierge when you arrive.",
@@ -3158,7 +3161,7 @@ function downloadQueueReport(xlsx, state, now) {
     const services = [["consultation", "Consultation"], ["procedure", "Procedure"], ["laboratory", "Laboratory"], ["imaging", "Imaging"], ["cashier", "Cashier"], ["hmo", "HMO desk"], ["other", "Other"]];
     const volume = videoVolumeOf(draft);
     box.innerHTML = `
-      <div class="cfg-head"><div><h1>System configuration</h1><p>Every Queue Board setting in one place. Saved changes reach every computer, the stations and the lobby TV within a few seconds.</p></div><button type="button" class="btn sm outline" data-act="lockConfig" title="Lock System configuration on this computer">🔒 Lock</button></div>
+      <div class="cfg-head"><div><h1>System configuration <small style="font-size:13px;font-weight:600;color:var(--muted)">· version ${BOARD_VERSION}</small></h1><p>Every Queue Board setting in one place. Saved changes reach every computer, the stations and the lobby TV within a few seconds.</p></div><button type="button" class="btn sm outline" data-act="lockConfig" title="Lock System configuration on this computer">🔒 Lock</button></div>
       <section class="panel"><div class="panel-h"><div><h2>Stations</h2><p>Station codes become part of the queue number, e.g. C1 in 01-C1-W. Set a station inactive to hide it without losing it.</p></div></div>
         <div class="panel-b">
           <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th title="Stations with the same group share one screen on the Stations page">Group</th><th>Active</th><th></th></tr></thead><tbody>
@@ -3726,10 +3729,14 @@ function downloadQueueReport(xlsx, state, now) {
    */
   function servedFinish(v) {
     const step = currentStep(v);
+    const tag = (text, title, ok = false) => `<span class="tag" style="white-space:nowrap;${ok ? "background:var(--ok-bg);color:var(--ok)" : "background:var(--soft);color:var(--muted)"}" title="${esc(title)}">${text}</span>`;
+    // Being served elsewhere: the row already says where; Complete visit comes back when they are done there.
     if (step) return step.status === "called" ? "" : `<button class="btn sm" data-act="servedComplete" data-id="${v.id}" title="End the visit: the services still to come are removed">✓ Complete visit</button>`;
-    const thanks = smsReady() && state.settings.sms.autoThanks !== false && smsPhone(v.mobile);
-    if (!thanks) return "";
-    return v.smsThanksAt ? `<span class="tag" style="background:var(--ok-bg);color:var(--ok)" title="Sent ${formatTime(v.smsThanksAt)}">✓ Thank-you sent</span>` : `<button class="btn sm outline" data-act="servedThanks" data-id="${v.id}" title="Send the thank-you message on Telegram">💬 Send thank-you</button>`;
+    // A finished visit: the row already says "Visit complete"; this says what happened to the thank-you message.
+    if (!smsReady()) return tag("No thank-you: Telegram off", "Turn on Telegram reminders in System configuration to send the thank-you message.");
+    if (state.settings.sms.autoThanks === false) return tag("No thank-you: turned off", "The thank-you message is turned off in System configuration.");
+    if (!smsPhone(v.mobile)) return tag("No cellphone", "No thank-you message: there is no cellphone number for this patient.");
+    return v.smsThanksAt ? tag("✓ Thank-you sent", `Sent ${formatTime(v.smsThanksAt)}`, true) : `<button class="btn sm outline" data-act="servedThanks" data-id="${v.id}" title="Send the thank-you message on Telegram">💬 Send thank-you</button>`;
   }
   /** A chip for each group of stations (one screen for all of them), with how many wait in the group. */
   function groupChips(selected = "") {
