@@ -677,8 +677,8 @@ const DEFAULT_SETTINGS = {
         { code: "C1", name: "Consultation 1", service: "consultation", location: "Clinic Room 1", selfCheckIn: true, active: true },
         { code: "C2", name: "Consultation 2", service: "consultation", location: "Clinic Room 2", selfCheckIn: true, active: true },
         { code: "C3", name: "Consultation 3", service: "consultation", location: "Clinic Room 3", selfCheckIn: true, active: true },
-        { code: "E1", name: "2D Echo 1", service: "procedure", location: "2D Echo Room 1", selfCheckIn: false, active: true },
-        { code: "E2", name: "2D Echo 2", service: "procedure", location: "2D Echo Room 2", selfCheckIn: false, active: true },
+        { code: "E1", name: "2D Echo 1", service: "procedure", location: "2D Echo Room 1", selfCheckIn: false, active: true, vitals: true },
+        { code: "E2", name: "2D Echo 2", service: "procedure", location: "2D Echo Room 2", selfCheckIn: false, active: true, vitals: true },
         { code: "ECG", name: "ECG", service: "procedure", location: "ECG Room", selfCheckIn: false, active: true },
         { code: "ABPM", name: "ABPM", service: "procedure", location: "ABPM Room", selfCheckIn: false, active: true },
         { code: "HT", name: "Holter", service: "procedure", location: "Holter Room", selfCheckIn: false, active: true },
@@ -770,6 +770,8 @@ function currentLabel(visit) {
     return step ? ticketLabel(visit, step.station) : arrivalLabel(visit);
 }
 const findStation = (state, code) => state.settings.stations.find((station) => station.code === code);
+/** Whether a station's patients get their vital signs taken first: the clinics, and any station with Vitals first ticked. */
+const vitalsFirst = (station) => station.vitals ?? station.service === "consultation";
 const clean = (value, max) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 const fail = (error) => ({ ok: false, error });
 function makeStep(station, now, first) {
@@ -975,6 +977,7 @@ function sanitizeSettings(input) {
             selfCheckIn: Boolean(raw.selfCheckIn),
             active: raw.active !== false,
             ...(clean(raw.group, 40) ? { group: clean(raw.group, 40) } : {}),
+            ...(typeof raw.vitals === "boolean" ? { vitals: raw.vitals } : {}),
         });
     }
     if (!stations.length)
@@ -1565,7 +1568,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-10-31.5";
+const BOARD_VERSION = "2026-10-31.6";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2640,9 +2643,9 @@ function downloadQueueReport(xlsx, state, now) {
   let search = "";
 
   // ---- 💉 Nursing station: the clinics' patients and their vital signs ----
-  /** Everyone waiting for a clinic (consultation station), with their step there. */
+  /** Everyone waiting for a station with vital signs first (the clinics, 2D Echo …), with their step there. */
   function nursingRows() {
-    return state.settings.stations.filter((st) => st.active && st.service === "consultation")
+    return state.settings.stations.filter((st) => st.active && vitalsFirst(st))
       .flatMap((st) => waitingFor(state, st.code).map((v) => ({ v, st, step: currentStep(v) })));
   }
   function renderNursing() {
@@ -2653,7 +2656,7 @@ function downloadQueueReport(xlsx, state, now) {
     const called = rows.filter((r) => r.step.vitalsCalledAt && !r.step.vitalsDoneAt).sort((a, b) => a.step.vitalsCalledAt - b.step.vitalsCalledAt);
     const waiting = rows.filter((r) => !r.step.vitalsCalledAt && !r.step.vitalsDoneAt);
     const done = rows.filter((r) => r.step.vitalsDoneAt).sort((a, b) => b.step.vitalsDoneAt - a.step.vitalsDoneAt);
-    const clinics = state.settings.stations.filter((st) => st.active && st.service === "consultation");
+    const clinics = state.settings.stations.filter((st) => st.active && vitalsFirst(st));
     const now = Date.now();
     const item = ({ v, st, step }, kind, handle = "") => `<li class="${kind === "called" ? "now" : ""}${handle ? " draggable" : ""}" data-id="${v.id}">${handle}<span class="mono">${esc(ticketLabel(v, st.code))}</span><div class="who"><b>${esc(v.name)}${groupTag(v) ? ` ${groupTag(v)}` : ""}</b><span>${esc(st.name)}${patientFacts(v) ? ` · ${patientFacts(v)}` : ""} · ${kind === "called" ? `called ${formatTime(step.vitalsCalledAt)}${step.vitalsCalls > 1 ? ` (${step.vitalsCalls}×)` : ""}` : kind === "done" ? `taken ${formatTime(step.vitalsDoneAt)}` : `waiting ${formatWait(minutesSince(step.queuedAt, now))}`}</span></div>
       <div class="acts">${kind === "called"
@@ -3050,7 +3053,7 @@ function downloadQueueReport(xlsx, state, now) {
     const stations = state.settings.stations.filter((s) => s.active);
     form.stations = form.stations.filter((code) => stations.some((s) => s.code === code));
     $("#reg-steps").innerHTML = form.stations.map((code, i) => `<li><span class="n">${i + 1}.</span><b class="mono">${esc(ticketLabel({ seq: previewSeq, kind: form.kind, prefix: previewPrefix }, code))}</b><span class="name">${esc(stationName(state, code))}</span><button type="button" aria-label="Remove" data-act="unstep" data-index="${i}">✕</button></li>`).join("");
-    $("#reg-chips").innerHTML = stations.map((s) => `<button type="button" data-act="step" data-code="${esc(s.code)}">＋ <b class="mono">${esc(s.code)}</b> <span>${esc(s.name)}</span></button>`).join("");
+    $("#reg-chips").innerHTML = stations.map((s) => `<button type="button" data-act="step" data-code="${esc(s.code)}"${vitalsFirst(s) ? ` title="Vital signs first (Nursing station)"` : ""}>＋ <b class="mono">${esc(s.code)}</b> <span>${esc(s.name)}</span>${vitalsFirst(s) ? ` <span class="vit-mark">🩺</span>` : ""}</button>`).join("");
     syncSubmit();
 
     const visit = issued && state.visits.find((v) => v.id === issued);
@@ -3189,18 +3192,20 @@ function downloadQueueReport(xlsx, state, now) {
       <div class="cfg-head"><div><h1>System configuration <small style="font-size:13px;font-weight:600;color:var(--muted)">· version ${BOARD_VERSION}</small></h1><p>Every Queue Board setting in one place. Saved changes reach every computer, the stations and the lobby TV within a few seconds.</p></div><button type="button" class="btn sm outline" data-act="lockConfig" title="Lock System configuration on this computer">🔒 Lock</button></div>
       <section class="panel"><div class="panel-h"><div><h2>Stations</h2><p>Station codes become part of the queue number, e.g. C1 in 01-C1-W. Set a station inactive to hide it without losing it.</p></div></div>
         <div class="panel-b">
-          <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th title="Stations with the same group share one screen on the Stations page">Group</th><th>Active</th><th></th></tr></thead><tbody>
+          <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th title="Stations with the same group share one screen on the Stations page">Group</th><th title="Patients are called for vital signs (Nursing station) before they go in">🩺 Vitals first</th><th>Active</th><th></th></tr></thead><tbody>
           ${draft.stations.map((s, i) => `<tr>
             <td><input type="text" class="mono" style="width:76px;font-weight:700" maxlength="4" value="${esc(s.code)}" data-set="code" data-index="${i}" aria-label="Station code"></td>
             <td><input type="text" value="${esc(s.name)}" data-set="name" data-index="${i}" aria-label="Station name"></td>
             <td><input type="text" value="${esc(s.location)}" placeholder="e.g. Clinic Room 1" data-set="location" data-index="${i}" aria-label="Location"></td>
             <td><select data-set="service" data-index="${i}" aria-label="Service type">${services.map(([v, l]) => `<option value="${v}" ${s.service === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
             <td><input type="text" style="width:130px" maxlength="40" value="${esc(s.group ?? "")}" placeholder="—" list="station-groups" data-set="group" data-index="${i}" aria-label="Group (one screen for stations with the same group)"></td>
+            <td style="text-align:center"><input type="checkbox" ${vitalsFirst(s) ? "checked" : ""} data-set="vitals" data-index="${i}" aria-label="Vital signs first"></td>
             <td style="text-align:center"><input type="checkbox" ${s.active ? "checked" : ""} data-set="active" data-index="${i}" aria-label="Active"></td>
             <td style="text-align:right"><button class="btn icon ghost" ${inUse(s.code) ? "disabled title=\"Patients are still queued here — set it inactive instead\"" : "title=\"Remove station\""} data-act="removeStation" data-index="${i}" aria-label="Remove station">✕</button></td>
           </tr>`).join("")}
           </tbody></table></div>
           <datalist id="station-groups">${[...new Set(["Procedures", ...draft.stations.map((s) => s.group).filter(Boolean)])].map((g) => `<option value="${esc(g)}">`).join("")}</datalist>
+          <p style="margin:8px 0 0;font-size:12px;color:var(--muted)"><b>🩺 Vitals first:</b> patients waiting for this station are called for vital signs first and appear on the front desk's Nursing station card (ticked for the clinics; tick 2D Echo 1 and 2D Echo 2 too if their patients need vital signs before going in).</p>
           <p style="margin:8px 0 0;font-size:12px;color:var(--muted)"><b>Group:</b> stations with the same group (e.g. <b>Procedures</b> for ECG, ABPM, Holter, ABI, Biosensor and 6-Minute Walk) also get one screen on the Stations page with one combined line. Each test stays its own station for registration, the TV and reports.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sm outline" data-act="addStation">＋ Add station</button>${standardChanges().length ? `<button class="btn sm outline" data-act="addStandard" title="${esc(standardChanges().join(", "))}">＋ Update to the standard stations (${esc(standardChanges().join(", "))})</button>` : ""}</div>
         </div></section>
@@ -3852,8 +3857,8 @@ function downloadQueueReport(xlsx, state, now) {
     };
     const next = waiting[0];
     const others = stations.filter((s) => s.code !== station.code);
-    const consult = station.service === "consultation";
-    // Clinics call each waiting patient for vital signs first, then call them in.
+    const consult = vitalsFirst(station);
+    // Clinics (and other stations with Vitals first) call each waiting patient for vital signs first, then call them in.
     const nextVitals = consult ? waiting.find((v) => !currentStep(v).vitalsCalledAt && !currentStep(v).vitalsDoneAt) : null;
     const vitalsCell = (v) => {
       if (!consult) return "";

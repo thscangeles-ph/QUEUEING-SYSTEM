@@ -24,6 +24,8 @@ export type Station = {
   active: boolean;
   /** Stations with the same group (e.g. "Procedures") also share one screen on the Stations page, with one combined line. */
   group?: string;
+  /** Patients are called for vital signs before they go in (as at the clinics). Not set: clinics (consultation) only. */
+  vitals?: boolean;
 };
 
 export type Step = {
