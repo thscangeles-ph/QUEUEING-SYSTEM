@@ -1577,7 +1577,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-10-31.9";
+const BOARD_VERSION = "2026-10-31.10";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -3746,6 +3746,12 @@ function downloadQueueReport(xlsx, state, now) {
   };
   // Doctor's charges for the patient being seen, kept per patient until the consultation is finished.
   const billingDraft = {};
+  /** Says so when the queue server did not keep a doctor's note (its update did not finish, so it runs older code). */
+  function warnIfNoteLost(id, note) {
+    if (!note || sync.mode !== "server") return;
+    const v = state.visits.find((x) => x.id === id);
+    if (v && !payNotes(state, v).some((n) => n.note === note)) toast("The queue server did not keep the doctor's note: its update did not finish. Run APPLY-UPDATE.cmd again on the server computer.", true);
+  }
   // The doctor's note to the Cashier being typed, per patient (kept while the station screen refreshes).
   const billingNote = {};
   document.addEventListener("input", (event) => { const id = event.target.dataset?.billNote; if (id) billingNote[id] = event.target.value; });
@@ -4555,7 +4561,7 @@ function downloadQueueReport(xlsx, state, now) {
         if (note && !toCashier && !confirm("The note to the Cashier is not sent: with No charge and nothing checked, the patient does not go to the Cashier. Continue?")) break;
         void dispatch({ type: "complete", visitId: id, billing: { fee, items, note }, sendTo: toCashier ? cashier.code : undefined },
           (r) => (toCashier ? `Sent to the Cashier to pay: ${pay.join(", ")}.` : r.label ? `No charge. Next: ${r.label}.` : "No charge. Visit complete."))
-          .then((r) => { if (r.ok) { delete billingDraft[id]; delete billingNote[id]; if (view === "station") updateStation(); } });
+          .then((r) => { if (r.ok) { delete billingDraft[id]; delete billingNote[id]; warnIfNoteLost(id, toCashier ? note : ""); if (view === "station") updateStation(); } });
         break;
       }
       case "verify": dispatch({ type: "verify", visitId: id }, "Check-in verified."); break;
@@ -4775,8 +4781,19 @@ function downloadQueueReport(xlsx, state, now) {
       case "priority": { const v = state.visits.find((x) => x.id === id); if (v) dispatch({ type: "updateVisit", visitId: id, priority: !v.priority }); break; }
       case "cancel": { const v = state.visits.find((x) => x.id === id); if (v && confirm(`Cancel ${currentLabel(v)}${v.name ? ` (${v.name})` : ""}?`)) dispatch({ type: "cancel", visitId: id }); break; }
       case "requeue": dispatch({ type: "requeue", visitId: id }, "Back in line."); break;
-      case "callNext": dispatch({ type: "call", station }).then(warnIfSilent); break;
-      case "callOne": dispatch({ type: "call", station, visitId: id }).then(warnIfSilent); break;
+      case "callNext": {
+        // Calling the next patient completes the one being served without charges, so a typed doctor's note would be lost.
+        const unsent = servingAt(state, station).some((v) => (billingNote[v.id] ?? "").trim());
+        if (unsent && !confirm("The doctor's note to the Cashier is not sent yet. Press Professional fee → Cashier (or a Complete button) first to send it.\n\nCall the next patient anyway?")) break;
+        dispatch({ type: "call", station }).then(warnIfSilent);
+        break;
+      }
+      case "callOne": {
+        const unsent = servingAt(state, station).some((v) => (billingNote[v.id] ?? "").trim());
+        if (unsent && !confirm("The doctor's note to the Cashier is not sent yet. Press Professional fee → Cashier (or a Complete button) first to send it.\n\nCall this patient anyway?")) break;
+        dispatch({ type: "call", station, visitId: id }).then(warnIfSilent);
+        break;
+      }
       case "callVitals": dispatch({ type: "callVitals", station }, (r) => `${r.label} called to ${vitalsPlaceOf(state.settings)}.`).then(warnIfSilent); break;
       case "callVitalsOne": dispatch({ type: "callVitals", station, visitId: id }, (r) => `${r.label} called to ${vitalsPlaceOf(state.settings)}.`).then(warnIfSilent); break;
       case "vitalsDone": dispatch({ type: "vitalsDone", station, visitId: id }); break;
@@ -4784,7 +4801,17 @@ function downloadQueueReport(xlsx, state, now) {
       case "callBack": dispatch({ type: "callBack", station, visitId: id }, (r) => `${r.label} called back — shown on the TV.`).then(warnIfSilent); break;
       case "recall": dispatch({ type: "recall", visitId: id }).then(warnIfSilent); break;
       case "miss": dispatch({ type: "miss", visitId: id }); break;
-      case "complete": dispatch({ type: "complete", visitId: id, sendTo: send || undefined }); break;
+      case "complete": {
+        // At a clinic, a doctor's note or checked charges go along even with "Complete and send to" (no professional fee).
+        const v = state.visits.find((x) => x.id === id);
+        const from = v && currentStep(v) ? findStation(state, currentStep(v).station) : null;
+        const items = billingDraft[id] ?? [];
+        const note = (billingNote[id] ?? "").trim();
+        const billing = from?.service === "consultation" && (items.length || note) ? { fee: "none", items, note } : undefined;
+        dispatch({ type: "complete", visitId: id, sendTo: send || undefined, ...(billing ? { billing } : {}) })
+          .then((r) => { if (r.ok && billing) { delete billingDraft[id]; delete billingNote[id]; warnIfNoteLost(id, note); } });
+        break;
+      }
       case "sound": setSound(!sound); break;
       case "startTv": startTv(); break;
       case "fullscreen": document.documentElement.requestFullscreen?.(); break;
