@@ -24,7 +24,7 @@ export function GET() {
 /**
  * { telegramCheck: true, token? }: the Telegram bot's name for a token (typed, or the saved one).
  * { test: true, phone, token? }: sends a test reminder to a cellphone number that linked the bot.
- * { visitIds: [...], kind: "assigned" | "next" }: sends those patients' reminders (again), one after another.
+ * { visitIds: [...], kind: "assigned" | "next" | "thanks" }: sends those patients' reminders (again), one after another.
  */
 export async function POST(request: Request) {
   const backend = getBackend();
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
   }
 
   if (!saved?.enabled) return json({ ok: false, error: "Turn on reminders in System configuration → Patient reminders first." });
-  const kind = body.kind === "next" ? "next" : "assigned";
+  const kind = body.kind === "next" || body.kind === "thanks" ? body.kind : "assigned";
   const ids = Array.isArray(body.visitIds) ? body.visitIds.map(String).slice(0, 300) : [];
   const visits = state.visits.filter((visit) => ids.includes(visit.id) && !visit.cancelled);
   if (!visits.length) return json({ ok: false, error: "That patient was not found." }, 404);

@@ -1,8 +1,8 @@
-import { applyAction, arrivalLabel, clinicNameOf, clinicOf, currentStep, ensureDay, findStation, preRegisteredList, vitalsPlaceOf, waitingFor } from "./reducer";
+import { applyAction, arrivalLabel, clinicNameOf, clinicOf, currentStep, ensureDay, findStation, isRegistered, preRegisteredList, vitalsPlaceOf, waitingFor } from "./reducer";
 import { getBackend } from "./server-store";
 import { smsPhone, smsText, smsTextOf } from "./sms";
 import { saveTelegramMessage, sendTelegram, startTelegram, telegramChatOf, unlinkTelegramChat } from "./telegram";
-import type { ActionResult, QueueAction, QueueState, Visit } from "./types";
+import type { ActionResult, QueueAction, QueueState, SmsSettings, Visit } from "./types";
 
 // Sends reminders to patients by the clinic's Telegram bot (lib/queue/telegram.ts): a pre-registered patient's number,
 // and for every patient who linked their cellphone, "next in line" and "your turn" at each of their services.
@@ -41,20 +41,32 @@ export function smsJobsAfter(state: QueueState, action: QueueAction, result: Act
     const visit = find(result.visitId);
     return visit ? [{ visitId: visit.id, kind: "issued" }] : [];
   }
-  // Complete visit: the patient's last service is done, so they get "thank you for visiting" (once a visit).
-  if (action.type === "complete") {
-    const visit = find(result.visitId);
-    return visit && !currentStep(visit) && !visit.smsThanksAt && sms.autoThanks !== false ? [{ visitId: visit.id, kind: "thanks" }] : [];
+  // The visit is complete: ✓ Complete visit, Complete visit in "Served here today" (the rest of the route removed), or the
+  // last service finished by Call next. Then they get "thank you for visiting" (once a visit).
+  if (sms.autoThanks !== false && ["complete", "setRoute", "call"].includes(action.type)) {
+    const now = Date.now();
+    const finished = (visit: (typeof state.visits)[number]) => !visit.cancelled && !visit.expected && isRegistered(visit) && visit.steps.length > 0 && !currentStep(visit) && !visit.smsThanksAt;
+    // Call next finishes whoever the station was serving: the visits whose last service ended just now.
+    const thanks = action.type === "call"
+      ? state.visits.filter((visit) => find(visit.id) && finished(visit) && now - Math.max(...visit.steps.map((step) => step.doneAt ?? 0)) < 5000)
+      : [find(result.visitId)].filter((visit): visit is NonNullable<typeof visit> => Boolean(visit && finished(visit)));
+    const jobs: SmsJob[] = thanks.map((visit) => ({ visitId: visit.id, kind: "thanks" }));
+    return action.type === "call" ? [...jobs, ...callJobs(state, action, result, sms)] : jobs;
   }
   // Call back (a station calling a patient it served back to it): "your turn" again, for the new step.
   if (action.type === "callBack") {
     const visit = find(result.visitId);
     return visit && sms.autoTurn !== false ? [{ visitId: visit.id, kind: "turn", station: String(action.station).toUpperCase() }] : [];
   }
-  if (action.type !== "call" && action.type !== "callVitals") return [];
+  return action.type === "call" || action.type === "callVitals" ? callJobs(state, action, result, sms) : [];
+}
+
+/** A station's call: "your turn" (or vital signs) to the patient called, and "next in line" to the one after them. */
+function callJobs(state: QueueState, action: Extract<QueueAction, { type: "call" | "callVitals" }>, result: ActionResult, sms: SmsSettings): SmsJob[] {
+  const find = (id?: string) => state.visits.find((item) => item.id === id && !item.cancelled && smsPhone(item.mobile));
   const code = String(action.station).toUpperCase();
   const jobs: SmsJob[] = [];
-  const called = find(result.visitId);
+  const called = find(result.ok ? result.visitId : undefined);
   if (called && sms.autoTurn !== false) jobs.push({ visitId: called.id, kind: action.type === "callVitals" ? "vitals" : "turn", station: code });
   if (action.type === "call" && sms.autoNext) {
     const clinic = /^C([123])$/.exec(code);

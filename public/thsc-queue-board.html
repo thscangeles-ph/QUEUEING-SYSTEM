@@ -3720,6 +3720,17 @@ function downloadQueueReport(xlsx, state, now) {
 
   // Whether the list of all stations is open (⇄ Change station); it closes when a station is chosen.
   let stationPicker = false;
+  /**
+   * "Served here today": ✓ Complete visit ends a visit that still has services to come (forgotten, or the next patient was
+   * already called); a complete visit can get its thank-you message if it was not sent.
+   */
+  function servedFinish(v) {
+    const step = currentStep(v);
+    if (step) return step.status === "called" ? "" : `<button class="btn sm" data-act="servedComplete" data-id="${v.id}" title="End the visit: the services still to come are removed">✓ Complete visit</button>`;
+    const thanks = smsReady() && state.settings.sms.autoThanks !== false && smsPhone(v.mobile);
+    if (!thanks) return "";
+    return v.smsThanksAt ? `<span class="tag" style="background:var(--ok-bg);color:var(--ok)" title="Sent ${formatTime(v.smsThanksAt)}">✓ Thank-you sent</span>` : `<button class="btn sm outline" data-act="servedThanks" data-id="${v.id}" title="Send the thank-you message on Telegram">💬 Send thank-you</button>`;
+  }
   /** A chip for each group of stations (one screen for all of them), with how many wait in the group. */
   function groupChips(selected = "") {
     return stationGroups().map(([name, members]) => {
@@ -3773,7 +3784,7 @@ function downloadQueueReport(xlsx, state, now) {
           </section>
           ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map(({ v, code }) => `<li class="missed"><div class="who"><b class="mono">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
           <section class="panel"><div class="panel-h"><div><h2>Served here today</h2><p>Call again brings the patient back to the same test.</p></div><span class="count">${served.length}</span></div>
-            <div class="panel-b">${served.length ? `<ul class="wlist served">${served.map(({ v, code }) => { const busy = currentStep(v)?.status === "called"; return `<li><div class="who"><b class="mono">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)} · done ${formatTime(doneAt(v))}</span></div><button class="btn sm outline" data-act="callBack" data-station="${esc(code)}" data-id="${v.id}" ${busy ? `disabled title="Being served at another station right now"` : ""}>📢 Call again</button></li>`; }).join("")}</ul>` : `<p class="empty">No one served here yet today.</p>`}</div>
+            <div class="panel-b">${served.length ? `<ul class="wlist served">${served.map(({ v, code }) => { const busy = currentStep(v)?.status === "called"; return `<li><div class="who"><b class="mono">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)} · done ${formatTime(doneAt(v))}${currentStep(v) ? ` · ${currentStep(v).status === "called" ? "being served at" : "waiting for"} ${esc(nameOf(currentStep(v).station))}` : " · Visit complete"}</span></div>${servedFinish(v)}<button class="btn sm outline" data-act="callBack" data-station="${esc(code)}" data-id="${v.id}" ${busy ? `disabled title="Being served at another station right now"` : ""}>📢 Call again</button></li>`; }).join("")}</ul>` : `<p class="empty">No one served here yet today.</p>`}</div>
           </section>
         </div>
       </div>`;
@@ -3852,7 +3863,7 @@ function downloadQueueReport(xlsx, state, now) {
           </section>
           ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map((v) => `<li class="missed"><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
           <section class="panel"><div class="panel-h"><div><h2>Served here today</h2><p>Queue numbers stay here. Call again brings the patient back to ${esc(station.name)}.</p></div><span class="count">${served.length}</span></div>
-            <div class="panel-b">${served.length ? `<ul class="wlist served">${served.map((v) => { const busy = currentStep(v)?.status === "called"; return `<li><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)} · done ${formatTime(lastDoneHere(v))} · ${whereNow(v)}</span></div><button class="btn sm outline" data-act="callBack" data-station="${esc(station.code)}" data-id="${v.id}" ${busy ? `disabled title="Being served at another station right now"` : ""}>📢 Call again</button></li>`; }).join("")}</ul>` : `<p class="empty">No one served here yet today.</p>`}</div>
+            <div class="panel-b">${served.length ? `<ul class="wlist served">${served.map((v) => { const busy = currentStep(v)?.status === "called"; return `<li><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)} · done ${formatTime(lastDoneHere(v))} · ${whereNow(v)}</span></div>${servedFinish(v)}<button class="btn sm outline" data-act="callBack" data-station="${esc(station.code)}" data-id="${v.id}" ${busy ? `disabled title="Being served at another station right now"` : ""}>📢 Call again</button></li>`; }).join("")}</ul>` : `<p class="empty">No one served here yet today.</p>`}</div>
           </section>
         </div>
       </div>`;
@@ -4375,6 +4386,21 @@ function downloadQueueReport(xlsx, state, now) {
     switch (act) {
       case "openTv": void openTv(); break;
       case "toggleStations": stationPicker = !stationPicker; updateStation(); break;
+      case "servedComplete": {
+        const v = state.visits.find((x) => x.id === id);
+        const step = v && currentStep(v);
+        if (!step) break;
+        const rest = v.steps.filter((st) => st.status !== "done").map((st) => stationName(state, st.station)).join(", ");
+        if (!confirm(`Complete the visit of ${arrivalLabel(v)}${v.name ? ` (${v.name})` : ""}?\n\nStill to come: ${rest}. These are removed, and the patient ${smsReady() && state.settings.sms.autoThanks !== false ? "gets the thank-you message if their cellphone is linked to Telegram" : "is done for today"}.`)) break;
+        dispatch({ type: "setRoute", visitId: id, stations: [] }, `${arrivalLabel(v)}: visit complete.`);
+        break;
+      }
+      case "servedThanks": {
+        const v = state.visits.find((x) => x.id === id);
+        if (!v) break;
+        void smsRequest({ visitIds: [id], kind: "thanks" }).then((body) => toast(body.ok ? `Sending the thank-you message to ${arrivalLabel(v)}…` : body.error || "The message could not be sent.", !body.ok));
+        break;
+      }
       case "groupCallNext": {
         const members = stationGroups().find(([name]) => name === el.dataset.group)?.[1] ?? [];
         const codes = members.map((st) => st.code);
