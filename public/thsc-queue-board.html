@@ -83,6 +83,11 @@ label.field em, div.field em { font-style: normal; font-weight: 400; color: var(
 .newnum small { display: block; color: var(--gold-2); font-size: 12px; font-weight: 600; } .newnum b { font-size: 30px; letter-spacing: .03em; }
 .sub { margin: 18px 0 0; color: var(--primary); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .chip-num.wide { width: auto; min-width: 64px; padding: 0 8px; }
+/* Priority lane (Senior, PWD, pregnant): the number in gold, with PRIORITY / PRIORITY LANE. */
+.chip-num.prio { background: #f5b301; color: var(--brown); display: flex; flex-direction: column; justify-content: center; line-height: 1; } .chip-num.prio small { font: 800 8px Inter, "Segoe UI", Arial, sans-serif; letter-spacing: .08em; margin-top: 2px; }
+.prio-lane { display: inline-block; background: #f5b301; color: #2b2118; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; border-radius: .35em; padding: .15em .7em; margin: 4px 0 0; font-size: 12px; }
+td .q.prio, .wlist .who b.prio { display: table; background: #f5b301; color: #2b2118; border-radius: 6px; padding: 0 6px; }
+.tile .num.prio { color: #f5b301; }
 .st-registration { background: #e8eef7; color: #2d4a6e; }
 .toggles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .tog { display: flex; align-items: center; gap: 8px; text-align: left; border: 1px solid #d8c79f; background: #fff; color: #4c4436; border-radius: 12px; padding: 8px 10px; font-size: 13px; }
@@ -116,6 +121,7 @@ label.field em, div.field em { font-style: normal; font-weight: 400; color: var(
 .nl-group > h3::before { content: ""; width: .9vw; height: .9vw; border-radius: 50%; background: currentColor; }
 .nl-group.hmo > h3 { color: #c3a6f5; } .nl-group.clinic > h3 { color: #7fd3cb; } .nl-group.clinic .reg-call, .nl-group.clinic .nl.one b.mono { background: #1d4a47; } .nl-group.hmo .reg-call { background: #3b2a5c; } .nl-group.hmo .nl.one b.mono { background: #3b2a5c; }
 .nl-group .none { color: #8c7f66; font-size: 1.1vw; margin: .6vh 0 0; }
+.nl-group .nl.one b.mono.prio { background: #f5b301; color: #2b2118; }
 .nl.one b.mono { background: #3a3022; border-radius: .5vw; padding: .4vh .8vw; font-size: 2.6vw; white-space: nowrap; } .nl.one i { color: #5c4b2d; font-style: normal; font-size: 2vw; }
 a.btn { text-decoration: none; }
 .cfg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
@@ -320,6 +326,7 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .vid-over > div { border-radius: 1.5vw; border: .25vw solid var(--gold-2); background: #4a3612; padding: 4vh 4vw; animation: pulse 1.6s ease-out 6; }
 .vid-over .k { color: var(--gold-2); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 1.6vw; margin: 0; }
 .vid-over .num { white-space: nowrap; font-size: 10vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; } .vid-over .go { font-size: 2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; }
+.hero .prio-lane, .vid-over .prio-lane { font-size: 1.9vw; margin: 1.5vh 0 0; } .hero.compact .prio-lane { font-size: 1.1vw; margin-top: 1vh; }
 .hero.compact { flex: none; padding: 2vh 1vw; } .hero.compact .k { font-size: 1.2vw; } .hero.compact .num { font-size: 6.4vw; } .hero.compact .go { font-size: 1.4vw; }
 .tiles.small { flex: none; } .tiles.small .tile { padding: 1.2vh .7vw; } .tiles.small .tile .s { font-size: .95vw; } .tiles.small .tile .num { font-size: 3vw; }
 .tv-right .tv-next { flex: 1; }
@@ -1548,7 +1555,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-10-31.3";
+const BOARD_VERSION = "2026-10-31.4";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -1641,12 +1648,14 @@ img { height: 22mm; margin-top: 2mm; }
 .n { font: 800 34pt ui-monospace, Consolas, monospace; margin: 1mm 0; letter-spacing: .04em; }
 .t { font-size: 9pt; margin: 0; }
 .x { font-size: 11pt; font-weight: 700; margin: 0 0 1mm; }
+.p { display: inline-block; border: 2px solid #000; border-radius: 1mm; padding: .5mm 3mm; margin: 0 0 1.5mm; font-size: 11pt; font-weight: 800; letter-spacing: .15em; }
 .m { font-size: 10pt; line-height: 1.35; margin: 4mm 2mm 2mm; border-top: 1px dashed #000; padding-top: 3mm; }
 </style></head><body>
 <img src="${logoUrl}" alt="">
 <p class="c">${escapeHtml(clinic.toUpperCase())}</p>
 <p class="k">${escapeHtml(extra?.kicker ?? "Your queue number")}</p>
 <p class="n">${escapeHtml(label)}</p>
+${extra?.priority ? `<p class="p">PRIORITY LANE</p>` : ""}
 ${(extra?.lines ?? []).map((line) => `<p class="x">${escapeHtml(line)}</p>`).join("")}
 <p class="t">${escapeHtml(slipTime.format(new Date(issuedAt)))}</p>
 <p class="m">${escapeHtml(extra?.message ?? "Please take a seat. Watch the TV screen — your number will be called for registration. Keep this number for every service today.")}</p>
@@ -2507,6 +2516,10 @@ function downloadQueueReport(xlsx, state, now) {
   const patientFacts = (v) => [v.birthDate ? `🎂 ${esc(formatBirthday(v.birthDate))}` : "", v.age !== null && v.age !== undefined ? `${v.age} y` : "", v.requestingPhysician ? `Requested by ${esc(v.requestingPhysician)}` : ""].filter(Boolean).join(" · ");
   /** The tags that show a patient's group on staff screens: HMO (company), or Clinic 1–3 (pre-scheduled). */
   const groupTag = (v, withLoa = false) => (v.kind === "H" ? `<span class="tag hmo">HMO${v.hmo ? ` · ${esc(v.hmo)}` : ""}${withLoa && v.loa ? ` · LOA ${esc(v.loa)}` : ""}</span>` : clinicOf(v.kind) ? `<span class="tag clinic">${clinicOf(v.kind)}${PRESCHEDULED_KINDS.includes(v.kind) ? " · pre-scheduled" : ""}</span>` : "");
+  /** A queue number box for the front desk: gold with PRIORITY for priority lane patients (Senior, PWD, pregnant). */
+  const numChip = (v) => (v.priority ? `<span class="chip-num wide mono prio" title="Priority lane">${esc(arrivalLabel(v))}<small>PRIORITY</small></span>` : `<span class="chip-num wide mono">${esc(arrivalLabel(v))}</span>`);
+  /** "PRIORITY LANE" under a priority lane patient's big number. */
+  const prioLane = (v, size = 0) => (v.priority ? `<p class="prio-lane"${size ? ` style="font-size:${size}px"` : ""}>Priority lane</p>` : "");
   const HMO_COMPANIES = ["Maxicare", "Intellicare", "MediCard", "PhilCare", "Cocolife", "Avega", "Pacific Cross", "ValuCare", "Etiqa", "Insular Health Care", "Kaiser", "Generali", "Caritas Health Shield", "AXA", "Sun Life Grepa"];
   // Step 1's New patient / Priority lane switches: each card (Regular, HMO, Clinic 1–3) keeps its own.
   const arrByTab = {};
@@ -2962,12 +2975,12 @@ function downloadQueueReport(xlsx, state, now) {
     const waitingReg = waitingToRegister(state).filter(inTab);
     $("#call-reg").disabled = !waitingReg.some((v) => v.regCalledAt === null);
     const latest = latestArrival && state.visits.find((v) => v.id === latestArrival && !v.cancelled && !isRegistered(v));
-    $("#newnum").innerHTML = latest ? `<div class="newnum"><div><small>New queue number — give it to the patient</small><b class="mono">${esc(arrivalLabel(latest))}</b></div><button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="slip" data-id="${latest.id}">🖨 Print slip</button></div>` : "";
+    $("#newnum").innerHTML = latest ? `<div class="newnum"><div><small>New queue number — give it to the patient</small><b class="mono">${esc(arrivalLabel(latest))}</b>${latest.priority ? ` <span class="prio-lane" style="vertical-align:middle;margin:0 0 0 6px">Priority lane</span>` : ""}</div><button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="slip" data-id="${latest.id}">🖨 Print slip</button></div>` : "";
     $("#reg-count").textContent = `Waiting to register · ${waitingReg.length}`;
     $("#arrivals").innerHTML = waitingReg.length ? waitingReg.map((v) => `
       <li class="${v.regCalledAt ? "called" : ""}">
-        <span class="chip-num wide mono">${esc(arrivalLabel(v))}</span>
-        <div class="info"><b>${v.regCalledAt ? `Called${v.regCalls > 1 ? ` ×${v.regCalls}` : ""}` : "Waiting"}${v.source === "self" ? ` <span class="tag" title="Took this number with the QR code">📱 QR</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</b><span>${v.name ? `<b style="color:var(--ink)">${esc(v.name)}</b> · ` : ""}${v.purposes?.length ? `${esc(v.purposes.join(", "))} · ` : ""}Arrived ${formatTime(v.createdAt)} · ${formatWait(minutesSince(v.createdAt, now))}</span></div>
+        ${numChip(v)}
+        <div class="info"><b>${v.regCalledAt ? `Called${v.regCalls > 1 ? ` ×${v.regCalls}` : ""}` : "Waiting"}${v.source === "self" ? ` <span class="tag" title="Took this number with the QR code">📱 QR</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}</b><span>${v.name ? `<b style="color:var(--ink)">${esc(v.name)}</b> · ` : ""}${v.purposes?.length ? `${esc(v.purposes.join(", "))} · ` : ""}Arrived ${formatTime(v.createdAt)} · ${formatWait(minutesSince(v.createdAt, now))}</span></div>
         <button class="btn icon outline" title="Call to register" aria-label="Call ${esc(arrivalLabel(v))} to register" data-act="callReg" data-id="${v.id}">🔔</button>
         <button class="btn sm" data-act="registerArrival" data-id="${v.id}">Register</button>
         <button class="btn icon ghost" title="Remove number" aria-label="Remove ${esc(arrivalLabel(v))}" data-act="removeArrival" data-id="${v.id}">✕</button>
@@ -2988,7 +3001,7 @@ function downloadQueueReport(xlsx, state, now) {
       $("#prereg-list").innerHTML = expected.length ? expected.map((v, i) => `
       <li data-id="${v.id}" class="prereg-row">
         <button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(arrivalLabel(v))}, place ${i + 1} of ${expected.length}. Use the up and down arrow keys.">⠿</button>
-        <span class="chip-num wide mono">${esc(arrivalLabel(v))}</span>
+        ${numChip(v)}
         <div class="info"><b>${esc(v.name)}</b><span>${v.appointment ? `🕘 ${esc(v.appointment)} · ` : ""}${v.mobile ? `📱 ${esc(v.mobile)} · ` : ""}${esc(v.steps.map((st) => stationName(state, st.station)).join(" → "))}</span>${smsStatus(v)}${mobileEdit?.id === v.id ? `<div class="sms-edit"><input type="tel" id="mobile-edit" inputmode="tel" maxlength="20" placeholder="0917 123 4567" aria-label="Cellphone number of ${esc(v.name)}" value="${esc(mobileEdit.value)}"><button type="button" class="btn sm" data-act="mobileSave" data-id="${v.id}">${smsReady() ? "Save &amp; send" : "Save"}</button><button type="button" class="btn sm ghost" data-act="mobileCancel">Cancel</button></div>` : ""}</div>
         <div class="acts">
         ${smsReady() ? `<button class="btn icon ghost" data-act="smsSend" data-id="${v.id}" title="${smsPhone(v.mobile) ? `Send the queue number ${reminderName()}` : "Add a cellphone number first (✏️)"}" aria-label="Send ${reminderName()} to ${esc(arrivalLabel(v))}" ${smsPhone(v.mobile) ? "" : "disabled"}>${reminderIcon()}</button>` : ""}
@@ -3031,7 +3044,7 @@ function downloadQueueReport(xlsx, state, now) {
     syncSubmit();
 
     const visit = issued && state.visits.find((v) => v.id === issued);
-    $("#issued").innerHTML = visit ? `<div class="issued"><p class="k">${visit.expected ? `Pre-registered${visit.appointment ? ` for ${esc(visit.appointment)}` : ""} — the number is ready; tap ✅ Arrived when the patient comes` : "Queue number issued — tell the patient"}</p><p class="num mono">${esc(currentLabel(visit))}</p><p class="d">They keep the same number (${esc(arrivalLabel(visit))}) for every service today.</p>${smsReady() && smsPhone(visit.mobile) && (visit.expected ? state.settings.sms.autoAssigned : state.settings.sms.autoIssued !== false) ? `<p class="d">✈️ The number is also sent to their Telegram if ${esc(visit.mobile)} is linked to the clinic's bot.</p>` : ""}<button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="message" data-id="${visit.id}">${visit.messagedAt ? "✓ Message copied" : "Copy message"}</button> <button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="slip" data-id="${visit.id}">🖨 Print slip</button> <button class="btn sm ghost" style="color:#e8dec7" data-act="closeIssued">Done</button></div>` : "";
+    $("#issued").innerHTML = visit ? `<div class="issued"><p class="k">${visit.expected ? `Pre-registered${visit.appointment ? ` for ${esc(visit.appointment)}` : ""} — the number is ready; tap ✅ Arrived when the patient comes` : "Queue number issued — tell the patient"}</p><p class="num mono">${esc(currentLabel(visit))}</p>${prioLane(visit)}<p class="d">They keep the same number (${esc(arrivalLabel(visit))}) for every service today.</p>${smsReady() && smsPhone(visit.mobile) && (visit.expected ? state.settings.sms.autoAssigned : state.settings.sms.autoIssued !== false) ? `<p class="d">✈️ The number is also sent to their Telegram if ${esc(visit.mobile)} is linked to the clinic's bot.</p>` : ""}<button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="message" data-id="${visit.id}">${visit.messagedAt ? "✓ Message copied" : "Copy message"}</button> <button class="btn sm" style="background:var(--cream);color:var(--brown)" data-act="slip" data-id="${visit.id}">🖨 Print slip</button> <button class="btn sm ghost" style="color:#e8dec7" data-act="closeIssued">Done</button></div>` : "";
 
     document.querySelectorAll('[data-act="filter"]').forEach((b) => b.classList.toggle("on", b.dataset.filter === filter));
     renderPatients();
@@ -3055,7 +3068,7 @@ function downloadQueueReport(xlsx, state, now) {
       const since = step?.status === "called" ? step.calledAt : step?.queuedAt ?? null;
       const live = status === "waiting" || status === "called";
       return `<tr class="${v.cancelled ? "cancelled" : ""}">
-        <td><span class="q mono">${esc(currentLabel(v))}</span><small>${v.expected ? `Pre-registered${v.appointment ? ` · 🕘 ${esc(v.appointment)}` : ""}` : `Arrived ${formatTime(v.createdAt)}`}</small></td>
+        <td><span class="q mono${v.priority ? " prio" : ""}"${v.priority ? ` title="Priority lane"` : ""}>${esc(currentLabel(v))}</span><small>${v.expected ? `Pre-registered${v.appointment ? ` · 🕘 ${esc(v.appointment)}` : ""}` : `Arrived ${formatTime(v.createdAt)}`}</small></td>
         <td style="max-width:240px">${v.name ? `<b>${esc(v.name)}</b>` : `<i style="color:var(--muted-2)">Not registered yet</i>`}${patientFacts(v) ? `<small style="display:block;color:var(--muted)">${patientFacts(v)}</small>` : ""}<div class="tags">${v.source === "self" ? `<span class="tag qr">${v.verified ? "QR check-in" : "QR check-in · verify"}</span>` : ""}${groupTag(v)}${v.loa ? `<span>LOA ${esc(v.loa)}</span>` : ""}${payStatus(state, v) ? `<span class="tag ${payStatus(state, v) === "paid" ? "paid" : "pay"}" title="${esc(payItems(state, v).join(", "))}">${payStatus(state, v) === "paid" ? "✓ Paid" : `💳 To pay: ${payItems(state, v).map((x) => esc(x.replace(/^Professional fee.*/, "PF"))).join(", ")}`}</span>` : ""}${v.newPatient ? `<span class="tag new">New patient</span>` : ""}${v.priority ? `<span class="tag prio">Priority</span>` : ""}${v.mobile ? `<span>${esc(v.mobile)}</span>` : ""}${v.notes ? `<span>· ${esc(v.notes)}</span>` : ""}</div></td>
         <td><span class="pill st-${status}">${STATUS_LABEL[status]}</span>${step && status !== "completed" ? `<small>${esc(stationName(state, step.station))}</small>` : ""}</td>
         <td style="font-variant-numeric:tabular-nums">${live ? formatWait(minutesSince(since, now)) : "—"}</td>
@@ -3776,7 +3789,7 @@ function downloadQueueReport(xlsx, state, now) {
             ${serving.length ? serving.map(({ v, code }) => {
               const step = currentStep(v);
               const upcoming = v.steps[v.steps.indexOf(step) + 1];
-              return `<div><p class="num mono">${esc(ticketLabel(v, code))}</p>
+              return `<div><p class="num mono">${esc(ticketLabel(v, code))}</p>${prioLane(v, 14)}
                 <p class="who">${esc(v.name)} ${testTag(code)}${groupTag(v) ? ` ${groupTag(v)}` : ""}</p>
                 ${patientFacts(v) ? `<p class="meta">${patientFacts(v)}</p>` : ""}
                 <p class="meta">${esc(nameOf(code))} · called ${step.calledAt ? formatTime(step.calledAt) : ""} · ${formatWait(minutesSince(step.calledAt, now))} ago${v.notes ? ` · ${esc(v.notes)}` : ""}</p>
@@ -3789,11 +3802,11 @@ function downloadQueueReport(xlsx, state, now) {
         </div>
         <div class="col">
           <section class="panel"><div class="panel-h"><div><h2>Waiting for ${esc(name)} · ${n}</h2><p>One line for ${members.map((st) => esc(st.name)).join(", ")}: priority lane first, then in the order they joined.</p></div></div>
-            <div class="panel-b">${n ? `<ol class="wlist">${waiting.map(({ v, code }, i) => `<li data-id="${v.id}"><span class="pos">${i + 1}</span><div class="who"><b class="mono">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)}${v.age !== null && v.age !== undefined ? ` · ${v.age} y` : ""}${groupTag(v) ? ` ${groupTag(v)}` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span><button class="btn sm outline" data-act="callOne" data-station="${esc(code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
+            <div class="panel-b">${n ? `<ol class="wlist">${waiting.map(({ v, code }, i) => `<li data-id="${v.id}"><span class="pos">${i + 1}</span><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)}${v.age !== null && v.age !== undefined ? ` · ${v.age} y` : ""}${groupTag(v) ? ` ${groupTag(v)}` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span><button class="btn sm outline" data-act="callOne" data-station="${esc(code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
           </section>
-          ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map(({ v, code }) => `<li class="missed"><div class="who"><b class="mono">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
+          ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map(({ v, code }) => `<li class="missed"><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
           <section class="panel"><div class="panel-h"><div><h2>Served here today</h2><p>Call again brings the patient back to the same test.</p></div><span class="count">${served.length}</span></div>
-            <div class="panel-b">${served.length ? `<ul class="wlist served">${served.map(({ v, code }) => { const busy = currentStep(v)?.status === "called"; return `<li><div class="who"><b class="mono">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)} · done ${formatTime(doneAt(v))}${currentStep(v) ? ` · ${currentStep(v).status === "called" ? "being served at" : "waiting for"} ${esc(nameOf(currentStep(v).station))}` : " · Visit complete"}</span></div>${servedFinish(v)}<button class="btn sm outline" data-act="callBack" data-station="${esc(code)}" data-id="${v.id}" ${busy ? `disabled title="Being served at another station right now"` : ""}>📢 Call again</button></li>`; }).join("")}</ul>` : `<p class="empty">No one served here yet today.</p>`}</div>
+            <div class="panel-b">${served.length ? `<ul class="wlist served">${served.map(({ v, code }) => { const busy = currentStep(v)?.status === "called"; return `<li><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)} · done ${formatTime(doneAt(v))}${currentStep(v) ? ` · ${currentStep(v).status === "called" ? "being served at" : "waiting for"} ${esc(nameOf(currentStep(v).station))}` : " · Visit complete"}</span></div>${servedFinish(v)}<button class="btn sm outline" data-act="callBack" data-station="${esc(code)}" data-id="${v.id}" ${busy ? `disabled title="Being served at another station right now"` : ""}>📢 Call again</button></li>`; }).join("")}</ul>` : `<p class="empty">No one served here yet today.</p>`}</div>
           </section>
         </div>
       </div>`;
@@ -3852,8 +3865,8 @@ function downloadQueueReport(xlsx, state, now) {
             ${serving.length ? serving.map((v) => {
               const step = currentStep(v);
               const upcoming = v.steps[v.steps.indexOf(step) + 1];
-              return `<div><p class="num mono">${esc(ticketLabel(v, station.code))}</p>
-                <p class="who">${esc(v.name)}${groupTag(v, true) ? ` ${groupTag(v, true).replace('<span class="tag ', '<span style="vertical-align:middle" class="tag ')}` : ""}${v.newPatient ? ` <span class="tag new" style="vertical-align:middle">New patient</span>` : ""}${v.priority ? ` <span class="tag prio" style="vertical-align:middle">Priority</span>` : ""}</p>
+              return `<div><p class="num mono">${esc(ticketLabel(v, station.code))}</p>${prioLane(v, 14)}
+                <p class="who">${esc(v.name)}${groupTag(v, true) ? ` ${groupTag(v, true).replace('<span class="tag ', '<span style="vertical-align:middle" class="tag ')}` : ""}${v.newPatient ? ` <span class="tag new" style="vertical-align:middle">New patient</span>` : ""}</p>
                 ${patientFacts(v) ? `<p class="meta">${patientFacts(v)}</p>` : ""}
                 <p class="meta">Called ${step.calledAt ? formatTime(step.calledAt) : ""} · ${formatWait(minutesSince(step.calledAt, now))} ago${step.calls > 1 ? ` · called ${step.calls}×` : ""}${v.notes ? ` · ${esc(v.notes)}` : ""}</p>
                 ${station.service === "cashier" && payItems(state, v).length ? `<div class="topay">💳 <b>To pay:</b> ${payItems(state, v).map(esc).join(" · ")}</div>` : ""}
@@ -3868,11 +3881,11 @@ function downloadQueueReport(xlsx, state, now) {
         </div>
         <div class="col">
           <section class="panel"><div class="panel-h"><div><h2>Waiting for ${esc(station.name)}</h2><p>Priority lane patients are called first, then in arrival order.${reorder ? " Drag ⠿ to change who is called next." : ""}</p></div></div>
-            <div class="panel-b">${waiting.length ? `<ol class="wlist"${reorder ? ` data-drag-list="line" data-station="${esc(station.code)}"` : ""}>${waiting.map((v, i) => `<li data-id="${v.id}">${reorder && waiting.length > 1 ? `<button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, station.code))}, place ${i + 1} of ${waiting.length}. Use the up and down arrow keys.">⠿</button>` : ""}<span class="pos">${i + 1}</span><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${v.age !== null && v.age !== undefined ? ` · ${v.age} y` : ""}${groupTag(v) ? ` ${groupTag(v)}` : ""}${station.service === "cashier" && payItems(state, v).length ? ` <span class="tag pay">💳 ${payItems(state, v).map(esc).join(", ")}</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span>${vitalsCell(v)}<button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
+            <div class="panel-b">${waiting.length ? `<ol class="wlist"${reorder ? ` data-drag-list="line" data-station="${esc(station.code)}"` : ""}>${waiting.map((v, i) => `<li data-id="${v.id}">${reorder && waiting.length > 1 ? `<button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, station.code))}, place ${i + 1} of ${waiting.length}. Use the up and down arrow keys.">⠿</button>` : ""}<span class="pos">${i + 1}</span><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${v.age !== null && v.age !== undefined ? ` · ${v.age} y` : ""}${groupTag(v) ? ` ${groupTag(v)}` : ""}${station.service === "cashier" && payItems(state, v).length ? ` <span class="tag pay">💳 ${payItems(state, v).map(esc).join(", ")}</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span>${vitalsCell(v)}<button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
           </section>
-          ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map((v) => `<li class="missed"><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
+          ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map((v) => `<li class="missed"><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
           <section class="panel"><div class="panel-h"><div><h2>Served here today</h2><p>Queue numbers stay here. Call again brings the patient back to ${esc(station.name)}.</p></div><span class="count">${served.length}</span></div>
-            <div class="panel-b">${served.length ? `<ul class="wlist served">${served.map((v) => { const busy = currentStep(v)?.status === "called"; return `<li><div class="who"><b class="mono">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)} · done ${formatTime(lastDoneHere(v))} · ${whereNow(v)}</span></div>${servedFinish(v)}<button class="btn sm outline" data-act="callBack" data-station="${esc(station.code)}" data-id="${v.id}" ${busy ? `disabled title="Being served at another station right now"` : ""}>📢 Call again</button></li>`; }).join("")}</ul>` : `<p class="empty">No one served here yet today.</p>`}</div>
+            <div class="panel-b">${served.length ? `<ul class="wlist served">${served.map((v) => { const busy = currentStep(v)?.status === "called"; return `<li><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)} · done ${formatTime(lastDoneHere(v))} · ${whereNow(v)}</span></div>${servedFinish(v)}<button class="btn sm outline" data-act="callBack" data-station="${esc(station.code)}" data-id="${v.id}" ${busy ? `disabled title="Being served at another station right now"` : ""}>📢 Call again</button></li>`; }).join("")}</ul>` : `<p class="empty">No one served here yet today.</p>`}</div>
           </section>
         </div>
       </div>`;
@@ -4139,6 +4152,13 @@ function downloadQueueReport(xlsx, state, now) {
   window.addEventListener("resize", () => { if (view === "display") fitNumbers(); });
 
   /** "Please proceed to" with the destination in a highlighted box (calls made before this change may still end in "for registration"). */
+  /** "PRIORITY LANE" under a called number when it is a priority lane patient's (Senior, PWD, pregnant). */
+  const callPrioLane = (item) => {
+    const prio = item.kind === "registration"
+      ? waitingToRegister(state).some((v) => v.priority && arrivalLabel(v) === item.label && v.createdAt <= item.at)
+      : item.kind !== "card" && state.visits.some((v) => v.priority && !v.cancelled && currentStep(v)?.station === item.station && ticketLabel(v, item.station) === item.label);
+    return prio ? `<p class="prio-lane">Priority lane</p>` : "";
+  };
   const goLine = (item) => `<p class="go">Please proceed to <b>${esc(item.destination.replace(/ for registration$/, ""))}</b></p>`;
   function tick() {
     const now = serverNow();
@@ -4150,7 +4170,7 @@ function downloadQueueReport(xlsx, state, now) {
     // A new call covers the video so patients who are watching it don't miss their number.
     const over = $("#vid-over");
     if (over) {
-      const html = fresh ? `<div><p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p>${goLine(latest)}</div>` : "";
+      const html = fresh ? `<div><p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p>${callPrioLane(latest)}${goLine(latest)}</div>` : "";
       if (over.dataset.label !== (fresh ? latest.id : "")) { over.innerHTML = html; over.dataset.label = fresh ? latest.id : ""; fitNumbers(); }
       over.classList.toggle("hidden", !fresh);
     }
@@ -4285,14 +4305,14 @@ function downloadQueueReport(xlsx, state, now) {
     const stations = state.settings.stations.filter((s) => s.active);
     const latest = openCall(state);
     $("#hero").innerHTML = latest
-      ? `<p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p>${goLine(latest)}`
+      ? `<p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p>${callPrioLane(latest)}${goLine(latest)}`
       : `<p class="k">Welcome</p><p class="go" style="max-width:80%">Please wait for your queue number to appear on this screen.</p>`;
     if (fresh.length) { const hero = $("#hero"); hero.classList.remove("fresh"); void hero.offsetWidth; }
     // With more stations than fit (two rows, or one beside the video), show only the stations serving someone now.
     const maxTiles = mountedVideo ? 5 : 6;
     const tileStations = stations.length <= maxTiles ? stations : stations.filter((s) => servingAt(state, s.code).length).slice(0, maxTiles);
     $("#tiles").style.gridTemplateColumns = `repeat(${Math.min(Math.max(tileStations.length, 1), mountedVideo ? 5 : 3)}, minmax(0, 1fr))`;
-    $("#tiles").innerHTML = tileStations.length ? tileStations.map((s) => { const v = servingAt(state, s.code)[0]; return `<div class="tile"><p class="s"><b class="mono">${esc(s.code)}</b> · ${esc(s.name)}</p><p class="num mono ${v ? "" : "none"}">${v ? esc(arrivalLabel(v)) : "—"}</p></div>`; }).join("") : `<div class="tile"><p class="s">Now serving</p><p class="num mono none">—</p></div>`;
+    $("#tiles").innerHTML = tileStations.length ? tileStations.map((s) => { const v = servingAt(state, s.code)[0]; return `<div class="tile"><p class="s"><b class="mono">${esc(s.code)}</b> · ${esc(s.name)}</p><p class="num mono ${v ? (v.priority ? "prio" : "") : "none"}">${v ? esc(arrivalLabel(v)) : "—"}</p></div>`; }).join("") : `<div class="tile"><p class="s">Now serving</p><p class="num mono none">—</p></div>`;
     // Next in line, in two groups: regular patients (01, 02 …) and HMO patients (HMO-01 …), each with its own line to register.
     const toRegister = waitingToRegister(state);
     const registering = toRegister.filter((v) => v.regCalledAt).sort((a, b) => b.regCalledAt - a.regCalledAt)[0];
@@ -4305,10 +4325,10 @@ function downloadQueueReport(xlsx, state, now) {
       // The next number the desk will call (priority lane first, then in arrival order).
       const nextToRegister = waitingReg.find((v) => v !== registering && !v.regCalledAt);
       const rows = [];
-      if (waitingReg.length) rows.push(`<div class="reg-call nl one" style="padding:1vh 1.2vw"><p class="h" style="color:#f4e8c7;font-size:1.3vw">Registration · ${hmo ? "HMO Desk" : "Concierge"}<small style="color:#e8dec7">${waitingReg.length} waiting</small></p>${nextToRegister ? `<b class="mono">${esc(arrivalLabel(nextToRegister))}</b>` : "<i>—</i>"}</div>`);
+      if (waitingReg.length) rows.push(`<div class="reg-call nl one" style="padding:1vh 1.2vw"><p class="h" style="color:#f4e8c7;font-size:1.3vw">Registration · ${hmo ? "HMO Desk" : "Concierge"}<small style="color:#e8dec7">${waitingReg.length} waiting</small></p>${nextToRegister ? `<b class="mono${nextToRegister.priority ? " prio" : ""}">${esc(arrivalLabel(nextToRegister))}</b>` : "<i>—</i>"}</div>`);
       stations.forEach((st) => {
         const waiting = waitingFor(state, st.code).filter(mine);
-        if (waiting.length) rows.push(`<div class="nl one"><p class="h">${esc(st.name)}<small>${waiting.length} waiting</small></p><b class="mono">${esc(arrivalLabel(waiting[0]))}</b></div>`);
+        if (waiting.length) rows.push(`<div class="nl one"><p class="h">${esc(st.name)}<small>${waiting.length} waiting</small></p><b class="mono${waiting[0].priority ? " prio" : ""}">${esc(arrivalLabel(waiting[0]))}</b></div>`);
       });
       if (clinicOf(key) && !rows.length) return "";
       return `<div class="nl-group ${hmo ? "hmo" : clinicOf(key) ? "clinic" : "regular"}"><h3>${hmo ? "HMO patients" : clinicOf(key) ? `${clinicOf(key)} · pre-scheduled` : "Regular patients"}</h3>${rows.join("") || `<p class="none">No one is waiting.</p>`}</div>`;
@@ -4607,19 +4627,20 @@ function downloadQueueReport(xlsx, state, now) {
         arriving = true;
         const print = $("#arr-print").checked;
         const choice = arr();
+        const choicePriority = choice.priority;
         void dispatch({ type: "arrive", kind: el.dataset.kind, priority: choice.priority, newPatient: choice.newPatient }).then((r) => {
           arriving = false;
           if (!r.ok) return;
           latestArrival = r.visitId; choice.priority = false; choice.newPatient = false;
           if (view === "desk") updateDesk();
-          if (print && !printSlip(r.label, Date.now(), LOGO, clinicNameOf(state.settings))) toast("Allow pop-ups for this file to print queue slips.", true);
+          if (print && !printSlip(r.label, Date.now(), LOGO, clinicNameOf(state.settings), choicePriority ? { priority: true } : null)) toast("Allow pop-ups for this file to print queue slips.", true);
         });
         break;
       }
       case "slip": {
         const v = state.visits.find((x) => x.id === id);
         if (!v) break;
-        const browserPrint = () => { if (!printSlip(arrivalLabel(v), v.expected ? v.preRegisteredAt ?? v.createdAt : v.createdAt, LOGO, clinicNameOf(state.settings), v.expected ? preRegisteredSlip(v, smsReady() ? state.settings.sms.telegramBot : "") : null)) toast("The browser blocked the print window — allow pop-ups for this page.", true); };
+        const browserPrint = () => { if (!printSlip(arrivalLabel(v), v.expected ? v.preRegisteredAt ?? v.createdAt : v.createdAt, LOGO, clinicNameOf(state.settings), { ...(v.expected ? preRegisteredSlip(v, smsReady() ? state.settings.sms.telegramBot : "") : {}), priority: v.priority })) toast("The browser blocked the print window — allow pop-ups for this page.", true); };
         // A pre-registered slip goes to the clinic server's slip printer when one is set (System configuration → Kiosk & slip printer).
         if (!v.expected || sync.mode !== "server" || !state.settings.slipPrinter) { browserPrint(); break; }
         printOnServer(v.id).then((printed) => {
