@@ -792,7 +792,8 @@ export const BILLING_ITEMS = ["Admin fee", "Clearance", "Medical certificate", "
 function cleanBilling(input: Billing | undefined): Billing | null {
   if (!input || (input.fee !== "pf" && input.fee !== "none")) return null;
   const items = Array.isArray(input.items) ? input.items.map((item) => clean(item, 40)).filter((item) => BILLING_ITEMS.includes(item)) : [];
-  return { fee: input.fee, items: [...new Set(items)] };
+  const note = clean(input.note, 300);
+  return { fee: input.fee, items: [...new Set(items)], ...(note ? { note } : {}) };
 }
 
 function withoutBilling(step: Step): Step {

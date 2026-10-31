@@ -111,6 +111,9 @@ td .q.prio, .wlist .who b.prio { display: table; background: #f5b301; color: #2b
 .serving .bill .k2 { color: #cbbd9d; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; margin: 0 0 8px; }
 .serving .bill-items button { border: 1px solid #5c4b2d; background: transparent; color: #e8dec7; border-radius: 999px; padding: 6px 12px; font-size: 13px; margin: 0 6px 6px 0; }
 .serving .bill-items button.on { background: var(--gold-2); border-color: var(--gold-2); color: var(--brown); font-weight: 700; }
+.serving .paynote { margin: 10px 0 0; background: #fff7d6; color: #3a2c1c; border-left: 5px solid #f5b301; border-radius: 10px; padding: 10px 12px; font-size: 15px; white-space: pre-wrap; } .serving .paynote small { color: #7a6a4f; font-size: 13px; }
+.serving .bill-note { display: block; margin-top: 12px; } .serving .bill-note > span { display: block; color: #cbbd9d; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; margin-bottom: 6px; } .serving .bill-note small { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 12px; }
+.serving .bill-note textarea { width: 100%; box-sizing: border-box; border-radius: 10px; border: 1px solid #5c4b2d; background: #2b2118; color: #f4e8c7; padding: 8px 10px; font: inherit; font-size: 15px; resize: vertical; }
 .serving .topay { margin: 12px 0 0; background: #4a3612; border: 1px solid var(--gold); border-radius: 10px; padding: 10px 12px; color: #f4e8c7; font-size: 15px; }
 .route-edit { border: 1px solid var(--line); background: #fff; color: var(--primary); border-radius: 6px; padding: 1px 6px; font-size: 12px; font-weight: 700; }
 .route-edit:hover { border-color: var(--gold); background: #fff9e9; }
@@ -1435,7 +1438,8 @@ function cleanBilling(input) {
     if (!input || (input.fee !== "pf" && input.fee !== "none"))
         return null;
     const items = Array.isArray(input.items) ? input.items.map((item) => clean(item, 40)).filter((item) => BILLING_ITEMS.includes(item)) : [];
-    return { fee: input.fee, items: [...new Set(items)] };
+    const note = clean(input.note, 300);
+    return { fee: input.fee, items: [...new Set(items)], ...(note ? { note } : {}) };
 }
 function withoutBilling(step) {
     const copy = { ...step };
@@ -1459,6 +1463,10 @@ function publicView(state) {
 /** What the patient has to pay at the cashier, from the doctors' choices: e.g. ["Professional fee (Consultation 1)", "Clearance"]. */
 function payItems(state, visit) {
     return visit.steps.flatMap((step) => !step.billing ? [] : [...(step.billing.fee === "pf" ? [`Professional fee (${stationName(state, step.station)})`] : []), ...step.billing.items]);
+}
+/** The doctors' notes to the Cashier (a discount, an adjusted fee …), with the station that wrote each one. */
+function payNotes(state, visit) {
+    return visit.steps.filter((step) => step.billing?.note).map((step) => ({ station: stationName(state, step.station), note: step.billing.note, at: step.doneAt ?? null }));
 }
 /** "to pay" while a cashier service is still open, "paid" once it is done, null when there is nothing to pay. */
 function payStatus(state, visit) {
@@ -1569,7 +1577,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-10-31.8";
+const BOARD_VERSION = "2026-10-31.9";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -3738,12 +3746,16 @@ function downloadQueueReport(xlsx, state, now) {
   };
   // Doctor's charges for the patient being seen, kept per patient until the consultation is finished.
   const billingDraft = {};
+  // The doctor's note to the Cashier being typed, per patient (kept while the station screen refreshes).
+  const billingNote = {};
+  document.addEventListener("input", (event) => { const id = event.target.dataset?.billNote; if (id) billingNote[id] = event.target.value; });
   function billingPanel(v, upcoming, cashier) {
     const items = billingDraft[v.id] ?? [];
     const noChargeNext = items.length ? "pay items at Cashier" : upcoming ? `next ${esc(upcoming.station)}` : "complete visit";
     return `<div class="bill">
       <p class="k2">Charges to pay at the Cashier</p>
       <div class="bill-items">${BILLING_ITEMS.map((item) => `<button type="button" class="${items.includes(item) ? "on" : ""}" aria-pressed="${items.includes(item)}" data-act="billItem" data-id="${v.id}" data-item="${esc(item)}">${items.includes(item) ? "☑" : "☐"} ${esc(item)}</button>`).join("")}</div>
+      <label class="bill-note"><span>📝 Doctor's note to the Cashier <small>· optional, for a change or adjustment in the payment</small></span><textarea rows="2" maxlength="300" data-bill-note="${v.id}" placeholder="e.g. Senior citizen: 20% discount on the PF · PF adjusted to ₱800 · Admin fee waived">${esc(billingNote[v.id] ?? "")}</textarea></label>
       <div class="btns" style="margin-top:8px">
         <button class="btn gold" data-act="billPf" data-id="${v.id}" ${cashier ? "" : "disabled"}>💳 Professional fee → Cashier</button>
         <button class="btn cream" data-act="billNone" data-id="${v.id}" ${items.length && !cashier ? "disabled" : ""}>No charge · ${noChargeNext}</button>
@@ -3875,6 +3887,8 @@ function downloadQueueReport(xlsx, state, now) {
     const othersWaiting = stations.filter((s) => s.code !== station.code && waitingFor(state, s.code).length).length;
     // The screen is redrawn on every update; starting the blink part-way through keeps it smooth across redraws.
     const blinkDelay = -(Date.now() % 2400);
+    // Keep typing in a doctor's note while the screen refreshes.
+    const typing = document.activeElement?.dataset?.billNote ? { id: document.activeElement.dataset.billNote, start: document.activeElement.selectionStart, end: document.activeElement.selectionEnd } : null;
     box.innerHTML = `
       <nav class="tabs" aria-label="Choose station">${stationPicker ? groupChips() : ""}${(stationPicker ? stations : [station]).map((s) => { const n = waitingFor(state, s.code).length; return `<a href="#station/${encodeURIComponent(s.code)}" data-act="pickStation" class="${s.code === station.code ? "on" : ""}${n ? " queued" : ""}"${n ? ` style="animation-delay:${blinkDelay}ms" title="${n} waiting"` : ""}><b class="mono">${esc(s.code)}</b><span class="n">${esc(s.name)}</span><span class="count ${n ? "has" : ""}">${n}</span></a>`; }).join("")}${stations.length > 1 ? `<button type="button" class="btn sm ${stationPicker ? "ghost" : "outline"}" data-act="toggleStations" style="align-self:center">${stationPicker ? "Close" : `⇄ Change station${othersWaiting ? ` · ${othersWaiting} other${othersWaiting === 1 ? "" : "s"} with patients waiting` : ""}`}</button>` : ""}</nav>
       <div class="st-grid">
@@ -3888,6 +3902,7 @@ function downloadQueueReport(xlsx, state, now) {
                 ${patientFacts(v) ? `<p class="meta">${patientFacts(v)}</p>` : ""}
                 <p class="meta">Called ${step.calledAt ? formatTime(step.calledAt) : ""} · ${formatWait(minutesSince(step.calledAt, now))} ago${step.calls > 1 ? ` · called ${step.calls}×` : ""}${v.notes ? ` · ${esc(v.notes)}` : ""}</p>
                 ${station.service === "cashier" && payItems(state, v).length ? `<div class="topay">💳 <b>To pay:</b> ${payItems(state, v).map(esc).join(" · ")}</div>` : ""}
+                ${station.service === "cashier" ? payNotes(state, v).map((n) => `<div class="paynote"><b>📝 Note from ${esc(n.station)}</b>${n.at ? ` <small>· ${formatTime(n.at)}</small>` : ""}<br>${esc(n.note)}</div>`).join("") : ""}
                 <div class="btns"><button class="btn cream" data-act="recall" data-id="${v.id}">📢 Call again</button><button class="btn bare" data-act="miss" data-id="${v.id}">Did not respond</button>${consult ? "" : `<button class="btn gold" data-act="complete" data-id="${v.id}">✓ ${upcoming ? `Complete · next ${esc(upcoming.station)}` : "Complete visit"}</button>`}</div>
                 ${consult ? billingPanel(v, upcoming, cashier) : ""}
                 ${others.length ? `<div class="send"><p>Complete and send to</p>${others.map((s) => `<button data-act="complete" data-id="${v.id}" data-send="${esc(s.code)}">→ <b class="mono">${esc(s.code)}</b> ${esc(s.name)}</button>`).join("")}</div>` : ""}</div>`;
@@ -3899,7 +3914,7 @@ function downloadQueueReport(xlsx, state, now) {
         </div>
         <div class="col">
           <section class="panel"><div class="panel-h"><div><h2>Waiting for ${esc(station.name)}</h2><p>Priority lane patients are called first, then in arrival order.${reorder ? " Drag ⠿ to change who is called next." : ""}</p></div></div>
-            <div class="panel-b">${waiting.length ? `<ol class="wlist"${reorder ? ` data-drag-list="line" data-station="${esc(station.code)}"` : ""}>${waiting.map((v, i) => `<li data-id="${v.id}">${reorder && waiting.length > 1 ? `<button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, station.code))}, place ${i + 1} of ${waiting.length}. Use the up and down arrow keys.">⠿</button>` : ""}<span class="pos">${i + 1}</span><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${v.age !== null && v.age !== undefined ? ` · ${v.age} y` : ""}${groupTag(v) ? ` ${groupTag(v)}` : ""}${station.service === "cashier" && payItems(state, v).length ? ` <span class="tag pay">💳 ${payItems(state, v).map(esc).join(", ")}</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span>${vitalsCell(v)}<button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
+            <div class="panel-b">${waiting.length ? `<ol class="wlist"${reorder ? ` data-drag-list="line" data-station="${esc(station.code)}"` : ""}>${waiting.map((v, i) => `<li data-id="${v.id}">${reorder && waiting.length > 1 ? `<button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, station.code))}, place ${i + 1} of ${waiting.length}. Use the up and down arrow keys.">⠿</button>` : ""}<span class="pos">${i + 1}</span><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${v.age !== null && v.age !== undefined ? ` · ${v.age} y` : ""}${groupTag(v) ? ` ${groupTag(v)}` : ""}${station.service === "cashier" && payItems(state, v).length ? ` <span class="tag pay">💳 ${payItems(state, v).map(esc).join(", ")}</span>` : ""}${station.service === "cashier" && payNotes(state, v).length ? ` <span class="tag prio" title="${esc(payNotes(state, v).map((n) => `${n.station}: ${n.note}`).join(" | "))}">📝 Doctor's note</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span>${vitalsCell(v)}<button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
           </section>
           ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map((v) => `<li class="missed"><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
           <section class="panel"><div class="panel-h"><div><h2>Served here today</h2><p>Queue numbers stay here. Call again brings the patient back to ${esc(station.name)}.</p></div><span class="count">${served.length}</span></div>
@@ -3907,6 +3922,7 @@ function downloadQueueReport(xlsx, state, now) {
           </section>
         </div>
       </div>`;
+    if (typing) { const note = box.querySelector(`[data-bill-note="${typing.id}"]`); if (note) { note.focus(); note.setSelectionRange(typing.start, typing.end); } }
   }
 
   // ---------- Kiosk: a tablet or phone where patients take a queue number; the server prints the slip ----------
@@ -4535,9 +4551,11 @@ function downloadQueueReport(xlsx, state, now) {
         const toCashier = fee === "pf" || items.length > 0;
         if (toCashier && !cashier) { toast("Add a Cashier station in Settings first.", true); break; }
         const pay = [...(fee === "pf" ? ["Professional fee"] : []), ...items];
-        void dispatch({ type: "complete", visitId: id, billing: { fee, items }, sendTo: toCashier ? cashier.code : undefined },
+        const note = (billingNote[id] ?? "").trim();
+        if (note && !toCashier && !confirm("The note to the Cashier is not sent: with No charge and nothing checked, the patient does not go to the Cashier. Continue?")) break;
+        void dispatch({ type: "complete", visitId: id, billing: { fee, items, note }, sendTo: toCashier ? cashier.code : undefined },
           (r) => (toCashier ? `Sent to the Cashier to pay: ${pay.join(", ")}.` : r.label ? `No charge. Next: ${r.label}.` : "No charge. Visit complete."))
-          .then((r) => { if (r.ok) { delete billingDraft[id]; if (view === "station") updateStation(); } });
+          .then((r) => { if (r.ok) { delete billingDraft[id]; delete billingNote[id]; if (view === "station") updateStation(); } });
         break;
       }
       case "verify": dispatch({ type: "verify", visitId: id }, "Check-in verified."); break;
