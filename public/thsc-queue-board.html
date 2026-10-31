@@ -2344,14 +2344,15 @@ function downloadQueueReport(xlsx, state, now) {
 
   // ---------- Staff shell ----------
   function mountStaff() {
-    const nav = [["desk", "#desk", "Front desk"], ["station", "#station", "Stations"], ["config", "#config", "⚙ System configuration"]];
+    const nav = [["desk", "#desk", "Front desk"], ["station", "#station", "Stations"]];
+    const link = ([key, href, label]) => `<a href="${href}" class="${view === key ? "on" : ""}">${label}</a>`;
     app.innerHTML = `
       <header class="top"><div class="top-in">
         <div class="top-row">
           <div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state?.settings).toUpperCase())}</small><b>Queue Board · ${{ desk: "Front Desk", station: "Stations", config: "System Configuration", history: "History" }[view]}</b></div></div>
           <div class="top-actions"><button type="button" class="badge-device msg-badge hidden" data-act="openMessages" title="Messages patients sent to the clinic's Telegram bot">💬 Messages</button><span class="badge-device tv-badge"></span><span class="badge-device sync-badge"></span></div>
         </div>
-        <nav class="nav">${nav.map(([key, href, label]) => `<a href="${href}" class="${view === key ? "on" : ""}">${label}</a>`).join("")}<button data-act="openTv">TV display ↗</button><button data-act="openPoster">Check-in QR ↗</button><a href="#setup">Sync setup</a></nav>
+        <nav class="nav">${nav.map(link).join("")}<button data-act="openTv">TV display ↗</button><button data-act="openPoster">Check-in QR ↗</button><a href="#setup">Sync setup</a>${link(["config", "#config", "⚙ System configuration"])}</nav>
       </div></header>
       <main class="wrap"><p class="sync-banner hidden" id="sync-banner" role="alert"></p><div id="main"></div></main><div id="messages-box"></div>`;
     showInbox();
