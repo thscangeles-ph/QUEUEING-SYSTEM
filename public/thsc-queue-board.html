@@ -300,16 +300,26 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .hero .go { font-size: 2.2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; }
 /* Where to go: a gold box beside "Please proceed to" so patients spot their station at a glance. */
 .hero .go b, .vid-over .go b { display: inline-block; vertical-align: middle; margin: .15em 0 .15em .3em; padding: .15em .65em; border-radius: .4em; background: var(--gold-2); color: var(--brown); font-weight: 800; box-shadow: 0 0 0 .14em rgba(240,200,100,.3); }
-.tiles { flex: 1; min-height: 0; display: grid; gap: 1vw; grid-auto-rows: 1fr; }
+.tiles { flex: 1; min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--brown-2); background: var(--brown-3); border-radius: 1.5vw; padding: 1.2vw 1.4vw; }
+/* Now serving: a box for each station serving someone. */
+.tiles h2 { margin: 0 0 1vh; color: var(--gold-2); text-transform: uppercase; letter-spacing: .14em; font-size: 1.6vw; }
+.ns-grid { flex: 1; min-height: 0; display: grid; gap: .8vw; grid-auto-rows: 1fr; } .ns-grid .tile { background: #2b2118; }
 .tile { border: 1px solid var(--brown-2); background: var(--brown-3); border-radius: 1vw; padding: 1vh 1vw; min-width: 0; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
 .tile p { margin: 0; } .tile .s { color: #cbbd9d; font-size: 1.15vw; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .tile .s b { color: var(--gold-2); }
-.tile .num { white-space: nowrap; overflow: hidden; font-size: 4.6vw; font-weight: 800; margin-top: .5vh; } .tile .num.none { color: #5c4b2d; }
+.tile .num { white-space: nowrap; overflow: hidden; font-size: 3.6vw; font-weight: 800; margin-top: .5vh; } .tile .num.none { color: #5c4b2d; }
 .tv-next { border: 1px solid var(--brown-2); background: var(--brown-3); border-radius: 1.5vw; padding: 1.4vw; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .tv-next h2 { margin: 0; color: var(--gold-2); text-transform: uppercase; letter-spacing: .14em; font-size: 1.6vw; }
 .reg-call { display: flex; justify-content: space-between; align-items: baseline; background: #4a3612; border-radius: .8vw; padding: 1vh 1.2vw; margin-top: 1.2vh; } .reg-call span { color: #f4e8c7; font-size: 1.3vw; } .reg-call b { font-size: 2.6vw; }
 .nl { border-bottom: 1px solid #3a3022; padding: 1vh 0; } .nl:last-child { border: 0; }
 .nl .h { display: flex; justify-content: space-between; color: #cbbd9d; font-size: 1.1vw; }
 .nl .l { display: flex; flex-wrap: wrap; gap: .5vw; margin-top: .6vh; align-items: center; }
+/* Next in line: every number waiting, the next one outlined; two columns when they do not fit in one. */
+#next { flex: 1; }
+#next.two-col { column-count: 2; column-gap: 1.6vw; } #next.two-col .nl-group { break-inside: avoid; margin: 0 0 1.4vh; } #next.two-col .nl { break-inside: avoid; }
+.nl.all { padding: .6vh 0; } .nl.all .h { margin: 0; align-items: baseline; color: #f4e8c7; font-size: 1.2vw; } .nl.all .h small { color: #8c7f66; font-size: 1vw; white-space: nowrap; margin-left: .6vw; }
+.nl.all .l { gap: .4vw; margin-top: .4vh; } .nl.all .l b { font-size: 1.6vw; padding: .1vh .55vw; color: #fff; } #next.two-col .nl.all .l b { font-size: 1.4vw; }
+.nl.all .l b.first { box-shadow: 0 0 0 .18vw #f0c864; } .nl.all .l b.prio { background: #f5b301; color: #2b2118; }
+.nl-group.hmo .nl.all .l b:not(.prio) { background: #3b2a5c; } .nl-group.clinic .nl.all .l b:not(.prio) { background: #1d4a47; }
 .nl .l b { background: #3a3022; border-radius: .5vw; padding: .3vh .55vw; font-size: 2.1vw; } .nl .l i { color: #5c4b2d; font-style: normal; font-size: 1.5vw; } .nl .l span { color: #cbbd9d; font-size: 1.2vw; }
 .tv-foot { display: flex; align-items: center; gap: 12px; background: var(--brown); border-top: 1px solid var(--brown-2); padding: 1.2vh 0; overflow: hidden; }
 .ticker { flex: 1; overflow: hidden; white-space: nowrap; color: #f4e8c7; font-size: 1.35vw; }
@@ -328,7 +338,7 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .vid-over .num { white-space: nowrap; font-size: 10vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; } .vid-over .go { font-size: 2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; }
 .hero .prio-lane, .vid-over .prio-lane { font-size: 1.9vw; margin: 1.5vh 0 0; } .hero.compact .prio-lane { font-size: 1.1vw; margin-top: 1vh; }
 .hero.compact { flex: none; padding: 2vh 1vw; } .hero.compact .k { font-size: 1.2vw; } .hero.compact .num { font-size: 6.4vw; } .hero.compact .go { font-size: 1.4vw; }
-.tiles.small { flex: none; } .tiles.small .tile { padding: 1.2vh .7vw; } .tiles.small .tile .s { font-size: .95vw; } .tiles.small .tile .num { font-size: 3vw; }
+.tiles.small { flex: none; padding: .8vw 1vw; } .tiles.small h2 { font-size: 1.1vw; margin-bottom: .6vh; } .tiles.small .tile { padding: 1.2vh .7vw; } .tiles.small .tile .s { font-size: .95vw; } .tiles.small .tile .num { font-size: 3vw; }
 .tv-right .tv-next { flex: 1; }
 .media-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; counter-reset: media; }
 .media-row { display: flex; gap: 8px; align-items: center; border: 1px solid #e8dfce; border-radius: 10px; padding: 6px 8px; counter-increment: media; }
@@ -1555,7 +1565,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-10-31.4";
+const BOARD_VERSION = "2026-10-31.5";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -4159,6 +4169,10 @@ function downloadQueueReport(xlsx, state, now) {
       : item.kind !== "card" && state.visits.some((v) => v.priority && !v.cancelled && currentStep(v)?.station === item.station && ticketLabel(v, item.station) === item.label);
     return prio ? `<p class="prio-lane">Priority lane</p>` : "";
   };
+  // How many numbers a Next in line row shows before "+ more" (fewer when the rows do not fit the screen).
+  let lineLimit = 12;
+  /** A Next in line row: every number waiting there in calling order (the next one outlined), up to lineLimit and "+ more". */
+  const lineRow = (name, list) => `<div class="nl all"><p class="h"><span>${esc(name)}</span><small>${list.length} waiting</small></p><div class="l">${list.length ? list.slice(0, lineLimit).map((v, i) => `<b class="mono${i === 0 ? " first" : ""}${v.priority ? " prio" : ""}">${esc(arrivalLabel(v))}</b>`).join("") : "<i>—</i>"}${list.length > lineLimit ? `<span>+${list.length - lineLimit} more</span>` : ""}</div></div>`;
   const goLine = (item) => `<p class="go">Please proceed to <b>${esc(item.destination.replace(/ for registration$/, ""))}</b></p>`;
   function tick() {
     const now = serverNow();
@@ -4311,8 +4325,9 @@ function downloadQueueReport(xlsx, state, now) {
     // With more stations than fit (two rows, or one beside the video), show only the stations serving someone now.
     const maxTiles = mountedVideo ? 5 : 6;
     const tileStations = stations.length <= maxTiles ? stations : stations.filter((s) => servingAt(state, s.code).length).slice(0, maxTiles);
-    $("#tiles").style.gridTemplateColumns = `repeat(${Math.min(Math.max(tileStations.length, 1), mountedVideo ? 5 : 3)}, minmax(0, 1fr))`;
-    $("#tiles").innerHTML = tileStations.length ? tileStations.map((s) => { const v = servingAt(state, s.code)[0]; return `<div class="tile"><p class="s"><b class="mono">${esc(s.code)}</b> · ${esc(s.name)}</p><p class="num mono ${v ? (v.priority ? "prio" : "") : "none"}">${v ? esc(arrivalLabel(v)) : "—"}</p></div>`; }).join("") : `<div class="tile"><p class="s">Now serving</p><p class="num mono none">—</p></div>`;
+    const columns = Math.min(Math.max(tileStations.length, 1), mountedVideo ? 5 : 3);
+    const tiles = tileStations.length ? tileStations.map((s) => { const v = servingAt(state, s.code)[0]; return `<div class="tile"><p class="s"><b class="mono">${esc(s.code)}</b> · ${esc(s.name)}</p><p class="num mono ${v ? (v.priority ? "prio" : "") : "none"}">${v ? esc(arrivalLabel(v)) : "—"}</p></div>`; }).join("") : `<div class="tile"><p class="num mono none">—</p></div>`;
+    $("#tiles").innerHTML = `<h2>Now serving</h2><div class="ns-grid" style="grid-template-columns:repeat(${columns}, minmax(0, 1fr))">${tiles}</div>`;
     // Next in line, in two groups: regular patients (01, 02 …) and HMO patients (HMO-01 …), each with its own line to register.
     const toRegister = waitingToRegister(state);
     const registering = toRegister.filter((v) => v.regCalledAt).sort((a, b) => b.regCalledAt - a.regCalledAt)[0];
@@ -4322,19 +4337,25 @@ function downloadQueueReport(xlsx, state, now) {
       // A clinic's group has both its numberings: CL1 and the pre-scheduled PS1.
       const mine = (v) => (clinicOf(key) ? clinicOf(v.kind) === clinicOf(key) : numberGroup(v.kind) === key);
       const waitingReg = toRegister.filter(mine);
-      // The next number the desk will call (priority lane first, then in arrival order).
-      const nextToRegister = waitingReg.find((v) => v !== registering && !v.regCalledAt);
       const rows = [];
-      if (waitingReg.length) rows.push(`<div class="reg-call nl one" style="padding:1vh 1.2vw"><p class="h" style="color:#f4e8c7;font-size:1.3vw">Registration · ${hmo ? "HMO Desk" : "Concierge"}<small style="color:#e8dec7">${waitingReg.length} waiting</small></p>${nextToRegister ? `<b class="mono${nextToRegister.priority ? " prio" : ""}">${esc(arrivalLabel(nextToRegister))}</b>` : "<i>—</i>"}</div>`);
+      if (waitingReg.length) rows.push(lineRow(`Registration · ${hmo ? "HMO Desk" : "Concierge"}`, waitingReg.filter((v) => v !== registering && !v.regCalledAt)));
       stations.forEach((st) => {
         const waiting = waitingFor(state, st.code).filter(mine);
-        if (waiting.length) rows.push(`<div class="nl one"><p class="h">${esc(st.name)}<small>${waiting.length} waiting</small></p><b class="mono${waiting[0].priority ? " prio" : ""}">${esc(arrivalLabel(waiting[0]))}</b></div>`);
+        if (waiting.length) rows.push(lineRow(st.name, waiting));
       });
       if (clinicOf(key) && !rows.length) return "";
       return `<div class="nl-group ${hmo ? "hmo" : clinicOf(key) ? "clinic" : "regular"}"><h3>${hmo ? "HMO patients" : clinicOf(key) ? `${clinicOf(key)} · pre-scheduled` : "Regular patients"}</h3>${rows.join("") || `<p class="none">No one is waiting.</p>`}</div>`;
     };
     $("#reg-call").innerHTML = "";
-    $("#next").innerHTML = ["R", "H", ...CLINIC_KINDS].map(group).join("");
+    // One column while everything fits; then two columns, showing fewer numbers per row until it fits.
+    const next = $("#next");
+    const fits = () => next.scrollHeight <= next.clientHeight + 2;
+    for (const [limit, twoCol] of [[12, false], [12, true], [8, true], [5, true], [3, true], [1, true]]) {
+      lineLimit = limit;
+      next.innerHTML = ["R", "H", ...CLINIC_KINDS].map(group).join("");
+      next.classList.toggle("two-col", twoCol);
+      if (fits()) break;
+    }
     const ticker = $("#ticker");
     if (ticker.textContent !== state.settings.ticker) ticker.textContent = state.settings.ticker;
     fitNumbers();
