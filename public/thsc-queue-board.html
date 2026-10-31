@@ -141,6 +141,7 @@ a.btn { text-decoration: none; }
 .nurse-list .mono { font-size: 18px; font-weight: 800; }
 .nurse-list .who b { display: block; } .nurse-list .who span { color: var(--muted); font-size: 12px; }
 .nurse-list .acts { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+.nurse-list li.draggable { grid-template-columns: auto auto 1fr; }
 .cat-card { display: flex; align-items: center; gap: 8px; min-width: 0; text-align: left; border: 1px solid color-mix(in srgb, var(--c) 25%, transparent); border-left: 6px solid var(--c); background: var(--cs); color: var(--ink); border-radius: 14px; padding: 10px 12px; transition: transform .15s, box-shadow .15s, background .15s; }
 .cat-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(47,40,28,.12); }
 .cat-card .grip { cursor: grab; color: var(--c); opacity: .55; font-size: 18px; line-height: 1; padding: 2px; }
@@ -2518,7 +2519,24 @@ function downloadQueueReport(xlsx, state, now) {
   // Lists in an order staff can change (pre-registered patients, and a clinic's waiting line): drag the ⠿ handle up or
   // down (mouse or touch), or press ↑ ↓ on it. While dragging, the 2-second refresh leaves the list alone.
   let preregDrag = null;
-  const moveAction = (list, visitId, place) => (list.dataset.dragList === "line" ? { type: "moveInLine", station: list.dataset.station, visitId, ...place } : { type: "movePreRegistered", visitId, ...place });
+  const moveAction = (list, visitId, place) => (list.dataset.dragList === "nurse" ? { type: "moveInLine", station: list.dataset.station, visitId, to: nurseLinePlace(list, visitId, place) }
+    : list.dataset.dragList === "line" ? { type: "moveInLine", station: list.dataset.station, visitId, ...place } : { type: "movePreRegistered", visitId, ...place });
+  /**
+   * The Nursing station shows only part of a clinic's line (those without vital signs yet), so a new place there becomes
+   * a place in the whole line: just before the patient now after it (or just after the one before it).
+   */
+  function nurseLinePlace(list, visitId, place) {
+    const shown = [...list.querySelectorAll("li[data-id]")].map((row) => row.dataset.id);
+    // A drag has already put the row in its new place; ↑ ↓ moves it one place.
+    if (place.offset !== undefined) {
+      const from = shown.indexOf(visitId);
+      shown.splice(from, 1);
+      shown.splice(Math.max(0, Math.min(shown.length, from + (place.offset < 0 ? -1 : 1))), 0, visitId);
+    }
+    const at = shown.indexOf(visitId);
+    const line = waitingFor(state, list.dataset.station).map((v) => v.id).filter((id) => id !== visitId);
+    return shown[at + 1] ? line.indexOf(shown[at + 1]) : shown[at - 1] ? line.indexOf(shown[at - 1]) + 1 : 0;
+  }
   document.addEventListener("pointerdown", (event) => {
     const handle = event.target.closest?.("[data-drag-list] .drag-handle");
     if (!handle || event.button > 0) return;
@@ -2600,24 +2618,32 @@ function downloadQueueReport(xlsx, state, now) {
   }
   function renderNursing() {
     const box = $("#nursing");
-    if (!box) return;
+    // Not while a patient is being dragged in it, or the drag would be lost.
+    if (!box || preregDrag) return;
     const rows = nursingRows();
     const called = rows.filter((r) => r.step.vitalsCalledAt && !r.step.vitalsDoneAt).sort((a, b) => a.step.vitalsCalledAt - b.step.vitalsCalledAt);
     const waiting = rows.filter((r) => !r.step.vitalsCalledAt && !r.step.vitalsDoneAt);
     const done = rows.filter((r) => r.step.vitalsDoneAt).sort((a, b) => b.step.vitalsDoneAt - a.step.vitalsDoneAt);
     const clinics = state.settings.stations.filter((st) => st.active && st.service === "consultation");
     const now = Date.now();
-    const item = ({ v, st, step }, kind) => `<li class="${kind === "called" ? "now" : ""}"><span class="mono">${esc(ticketLabel(v, st.code))}</span><div class="who"><b>${esc(v.name)}${groupTag(v) ? ` ${groupTag(v)}` : ""}</b><span>${esc(st.name)}${patientFacts(v) ? ` · ${patientFacts(v)}` : ""} · ${kind === "called" ? `called ${formatTime(step.vitalsCalledAt)}${step.vitalsCalls > 1 ? ` (${step.vitalsCalls}×)` : ""}` : kind === "done" ? `taken ${formatTime(step.vitalsDoneAt)}` : `waiting ${formatWait(minutesSince(step.queuedAt, now))}`}</span></div>
+    const item = ({ v, st, step }, kind, handle = "") => `<li class="${kind === "called" ? "now" : ""}${handle ? " draggable" : ""}" data-id="${v.id}">${handle}<span class="mono">${esc(ticketLabel(v, st.code))}</span><div class="who"><b>${esc(v.name)}${groupTag(v) ? ` ${groupTag(v)}` : ""}</b><span>${esc(st.name)}${patientFacts(v) ? ` · ${patientFacts(v)}` : ""} · ${kind === "called" ? `called ${formatTime(step.vitalsCalledAt)}${step.vitalsCalls > 1 ? ` (${step.vitalsCalls}×)` : ""}` : kind === "done" ? `taken ${formatTime(step.vitalsDoneAt)}` : `waiting ${formatWait(minutesSince(step.queuedAt, now))}`}</span></div>
       <div class="acts">${kind === "called"
         ? `<button class="btn sm" data-act="vitalsDone" data-station="${esc(st.code)}" data-id="${v.id}" style="background:#2f7d4f">✓ Vitals done</button><button class="btn sm outline" data-act="callVitalsOne" data-station="${esc(st.code)}" data-id="${v.id}">📢 Call again</button>`
         : kind === "done" ? `<button class="btn sm ghost" data-act="vitalsUndo" data-station="${esc(st.code)}" data-id="${v.id}">↺ Undo</button>`
         : `<button class="btn sm outline" data-act="callVitalsOne" data-station="${esc(st.code)}" data-id="${v.id}">🩺 Call for vitals</button><button class="btn sm ghost" data-act="vitalsDone" data-station="${esc(st.code)}" data-id="${v.id}">✓ Vitals done</button>`}</div></li>`;
     const list = (items, kind, empty) => (items.length ? `<ul class="nurse-list">${items.map((row) => item(row, kind)).join("")}</ul>` : `<p class="empty">${empty}</p>`);
+    // Waiting: one draggable list per clinic, in its calling order; dragging changes the clinic's line too.
+    const waitingLists = waiting.length ? clinics.map((st) => {
+      const mine = waiting.filter((r) => r.st.code === st.code);
+      if (!mine.length) return "";
+      const drag = mine.length > 1;
+      return `<p class="sub" style="margin:14px 0 8px">${esc(st.name)} · ${mine.length}</p><ul class="nurse-list"${drag ? ` data-drag-list="nurse" data-station="${esc(st.code)}"` : ""}>${mine.map((row, i) => item(row, "waiting", drag ? `<button type="button" class="drag-handle" data-id="${row.v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(row.v, st.code))}, place ${i + 1} of ${mine.length}. Use the up and down arrow keys.">⠿</button>` : "")).join("")}</ul>`;
+    }).join("") : `<p class="empty">Everyone waiting has had their vital signs taken.</p>`;
     box.innerHTML = `
       <div class="nurse-calls">${clinics.map((st) => { const left = rows.filter((r) => r.st.code === st.code && !r.step.vitalsCalledAt && !r.step.vitalsDoneAt).length; return `<button class="btn" data-act="callVitals" data-station="${esc(st.code)}" ${left ? "" : "disabled"} style="background:#2f7d4f">🩺 Call next for vitals · ${esc(st.name)}${left ? ` (${left})` : ""}</button>`; }).join("")}</div>
       <div class="nurse-grid">
         <section class="panel"><div class="panel-h"><div><h2>Called for vital signs · ${called.length}</h2><p>Coming to ${esc(vitalsPlaceOf(state.settings))} now. Tap ✓ when their vital signs are taken.</p></div></div><div class="panel-b">${list(called, "called", "No one is called for vital signs right now.")}</div></section>
-        <section class="panel"><div class="panel-h"><div><h2>Waiting · no vital signs yet · ${waiting.length}</h2><p>In the clinics' lines, in calling order. Call one, or use the buttons above for the next of each clinic.</p></div></div><div class="panel-b">${list(waiting, "waiting", "Everyone waiting has had their vital signs taken.")}</div></section>
+        <section class="panel"><div class="panel-h"><div><h2>Waiting · no vital signs yet · ${waiting.length}</h2><p>In each clinic's calling order. Drag ⠿ to change who is next (the clinic's line changes too). Call one, or use the buttons above for the next of each clinic.</p></div></div><div class="panel-b" style="padding-top:4px">${waitingLists}</div></section>
         <section class="panel"><div class="panel-h"><div><h2>Vital signs done · ${done.length}</h2><p>Waiting for the doctor. ↺ Undo if tapped by mistake.</p></div></div><div class="panel-b">${list(done, "done", "None yet.")}</div></section>
       </div>`;
   }
