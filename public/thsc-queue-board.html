@@ -957,6 +957,7 @@ function sanitizeSettings(input) {
             location: clean(raw.location, 60),
             selfCheckIn: Boolean(raw.selfCheckIn),
             active: raw.active !== false,
+            ...(clean(raw.group, 40) ? { group: clean(raw.group, 40) } : {}),
         });
     }
     if (!stations.length)
@@ -3160,16 +3161,19 @@ function downloadQueueReport(xlsx, state, now) {
       <div class="cfg-head"><div><h1>System configuration</h1><p>Every Queue Board setting in one place. Saved changes reach every computer, the stations and the lobby TV within a few seconds.</p></div><button type="button" class="btn sm outline" data-act="lockConfig" title="Lock System configuration on this computer">🔒 Lock</button></div>
       <section class="panel"><div class="panel-h"><div><h2>Stations</h2><p>Station codes become part of the queue number, e.g. C1 in 01-C1-W. Set a station inactive to hide it without losing it.</p></div></div>
         <div class="panel-b">
-          <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th>Active</th><th></th></tr></thead><tbody>
+          <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th title="Stations with the same group share one screen on the Stations page">Group</th><th>Active</th><th></th></tr></thead><tbody>
           ${draft.stations.map((s, i) => `<tr>
             <td><input type="text" class="mono" style="width:76px;font-weight:700" maxlength="4" value="${esc(s.code)}" data-set="code" data-index="${i}" aria-label="Station code"></td>
             <td><input type="text" value="${esc(s.name)}" data-set="name" data-index="${i}" aria-label="Station name"></td>
             <td><input type="text" value="${esc(s.location)}" placeholder="e.g. Clinic Room 1" data-set="location" data-index="${i}" aria-label="Location"></td>
             <td><select data-set="service" data-index="${i}" aria-label="Service type">${services.map(([v, l]) => `<option value="${v}" ${s.service === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
+            <td><input type="text" style="width:130px" maxlength="40" value="${esc(s.group ?? "")}" placeholder="—" list="station-groups" data-set="group" data-index="${i}" aria-label="Group (one screen for stations with the same group)"></td>
             <td style="text-align:center"><input type="checkbox" ${s.active ? "checked" : ""} data-set="active" data-index="${i}" aria-label="Active"></td>
             <td style="text-align:right"><button class="btn icon ghost" ${inUse(s.code) ? "disabled title=\"Patients are still queued here — set it inactive instead\"" : "title=\"Remove station\""} data-act="removeStation" data-index="${i}" aria-label="Remove station">✕</button></td>
           </tr>`).join("")}
           </tbody></table></div>
+          <datalist id="station-groups">${[...new Set(["Procedures", ...draft.stations.map((s) => s.group).filter(Boolean)])].map((g) => `<option value="${esc(g)}">`).join("")}</datalist>
+          <p style="margin:8px 0 0;font-size:12px;color:var(--muted)"><b>Group:</b> stations with the same group (e.g. <b>Procedures</b> for ECG, ABPM, Holter, ABI, Biosensor and 6-Minute Walk) also get one screen on the Stations page with one combined line. Each test stays its own station for registration, the TV and reports.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sm outline" data-act="addStation">＋ Add station</button>${standardChanges().length ? `<button class="btn sm outline" data-act="addStandard" title="${esc(standardChanges().join(", "))}">＋ Update to the standard stations (${esc(standardChanges().join(", "))})</button>` : ""}</div>
         </div></section>
       <div class="cfg-grid">
@@ -3681,12 +3685,23 @@ function downloadQueueReport(xlsx, state, now) {
   }
 
   // ---------- Station ----------
-  function currentStationCode() {
-    const stations = state.settings.stations.filter((s) => s.active);
+  /** The station chosen on this computer, or a group of stations ("group:Procedures") that shares one screen. */
+  function stationChoice() {
     let wanted = route().arg;
     if (!wanted) { try { wanted = localStorage.getItem(STATION_KEY) || ""; } catch { wanted = ""; } }
+    return wanted;
+  }
+  function currentStationCode() {
+    const stations = state.settings.stations.filter((s) => s.active);
+    const wanted = stationChoice();
     return stations.find((s) => s.code === wanted)?.code ?? stations[0]?.code;
   }
+  /** The groups of active stations, e.g. [["Procedures", [ECG, ABPM …]]]. */
+  const stationGroups = () => {
+    const groups = new Map();
+    for (const st of state.settings.stations.filter((s) => s.active && s.group)) groups.set(st.group, [...(groups.get(st.group) ?? []), st]);
+    return [...groups.entries()];
+  };
   // Doctor's charges for the patient being seen, kept per patient until the consultation is finished.
   const billingDraft = {};
   function billingPanel(v, upcoming, cashier) {
@@ -3705,10 +3720,71 @@ function downloadQueueReport(xlsx, state, now) {
 
   // Whether the list of all stations is open (⇄ Change station); it closes when a station is chosen.
   let stationPicker = false;
+  /** A chip for each group of stations (one screen for all of them), with how many wait in the group. */
+  function groupChips(selected = "") {
+    return stationGroups().map(([name, members]) => {
+      const n = members.reduce((sum, st) => sum + waitingFor(state, st.code).length, 0);
+      return `<a href="#station/${encodeURIComponent(`group:${name}`)}" data-act="pickStation" class="${selected === name ? "on" : ""}${n ? " queued" : ""}"${n ? ` title="${n} waiting"` : ""}><b class="mono">▦</b><span class="n">${esc(name)} <small>(${members.map((st) => esc(st.code)).join(", ")})</small></span><span class="count ${n ? "has" : ""}">${n}</span></a>`;
+    }).join("");
+  }
+  /**
+   * One screen for a group of stations (e.g. Procedures: ECG, ABPM, Holter …): one combined line in calling order (priority
+   * lane first, then the time they joined), each patient with their test. Each test stays its own station.
+   */
+  function renderStationGroup(box, name, members) {
+    const stations = state.settings.stations.filter((s) => s.active);
+    const codes = members.map((st) => st.code);
+    const nameOf = (code) => stations.find((st) => st.code === code)?.name ?? code;
+    const now = Date.now();
+    const testTag = (code) => `<span class="tag" style="background:#e4edf8;color:#2d5d9a">${esc(nameOf(code))}</span>`;
+    const serving = codes.flatMap((code) => servingAt(state, code).map((v) => ({ v, code })));
+    const waiting = codes.flatMap((code) => waitingFor(state, code).map((v) => ({ v, code })))
+      .sort((a, b) => Number(b.v.priority) - Number(a.v.priority) || (currentStep(a.v).queuedAt ?? 0) - (currentStep(b.v).queuedAt ?? 0) || a.v.seq - b.v.seq);
+    const missed = state.visits.filter((v) => { const st = currentStep(v); return !v.cancelled && st && codes.includes(st.station) && st.status === "missed"; }).map((v) => ({ v, code: currentStep(v).station }));
+    const doneAt = (v) => Math.max(...v.steps.filter((st) => codes.includes(st.station) && st.status === "done").map((st) => st.doneAt ?? 0));
+    const served = state.visits.filter((v) => !v.cancelled && !codes.includes(currentStep(v)?.station) && v.steps.some((st) => codes.includes(st.station) && st.status === "done"))
+      .sort((a, b) => doneAt(b) - doneAt(a)).map((v) => ({ v, code: [...v.steps].reverse().find((st) => codes.includes(st.station) && st.status === "done").station }));
+    const next = waiting[0];
+    const n = waiting.length;
+    const others = (code) => stations.filter((st) => st.code !== code);
+    box.innerHTML = `
+      <nav class="tabs" aria-label="Choose station">${stationPicker ? groupChips(name) + stations.map((st) => `<a href="#station/${encodeURIComponent(st.code)}" data-act="pickStation"><b class="mono">${esc(st.code)}</b><span class="n">${esc(st.name)}</span><span class="count ${waitingFor(state, st.code).length ? "has" : ""}">${waitingFor(state, st.code).length}</span></a>`).join("")
+        : `<a href="#station/${encodeURIComponent(`group:${name}`)}" class="on${n ? " queued" : ""}"><b class="mono">▦</b><span class="n">${esc(name)} <small>(${codes.map(esc).join(", ")})</small></span><span class="count ${n ? "has" : ""}">${n}</span></a>`}<button type="button" class="btn sm ${stationPicker ? "ghost" : "outline"}" data-act="toggleStations" style="align-self:center">${stationPicker ? "Close" : "⇄ Change station"}</button></nav>
+      <div class="st-grid">
+        <div>
+          <section class="serving"><p class="k">Now serving · ${esc(name)}</p>
+            ${serving.length ? serving.map(({ v, code }) => {
+              const step = currentStep(v);
+              const upcoming = v.steps[v.steps.indexOf(step) + 1];
+              return `<div><p class="num mono">${esc(ticketLabel(v, code))}</p>
+                <p class="who">${esc(v.name)} ${testTag(code)}${groupTag(v) ? ` ${groupTag(v)}` : ""}</p>
+                ${patientFacts(v) ? `<p class="meta">${patientFacts(v)}</p>` : ""}
+                <p class="meta">${esc(nameOf(code))} · called ${step.calledAt ? formatTime(step.calledAt) : ""} · ${formatWait(minutesSince(step.calledAt, now))} ago${v.notes ? ` · ${esc(v.notes)}` : ""}</p>
+                <div class="btns"><button class="btn cream" data-act="recall" data-id="${v.id}">📢 Call again</button><button class="btn bare" data-act="miss" data-id="${v.id}">Did not respond</button><button class="btn gold" data-act="complete" data-id="${v.id}">✓ ${upcoming ? `Complete · next ${esc(upcoming.station)}` : "Complete visit"}</button></div>
+                <div class="send"><p>Complete and send to</p>${others(code).map((st) => `<button data-act="complete" data-id="${v.id}" data-send="${esc(st.code)}">→ <b class="mono">${esc(st.code)}</b> ${esc(st.name)}</button>`).join("")}</div></div>`;
+            }).join(`<hr style="border:0;border-top:1px solid #4a3d27;margin:18px 0">`) : `<p style="color:#e8dec7;font-size:17px;margin:20px 0 0">No patient called yet.</p>`}
+          </section>
+          <button class="callnext" data-act="groupCallNext" data-group="${esc(name)}" ${next ? "" : "disabled"}>🔔 ${next ? `Call next · <span class="mono">${esc(ticketLabel(next.v, next.code))}</span> · ${esc(nameOf(next.code))}` : "No one waiting"}</button>
+          ${serving.length && next ? `<p class="hint">Calling the next patient completes the patient${serving.length > 1 ? "s" : ""} being served here.</p>` : ""}
+        </div>
+        <div class="col">
+          <section class="panel"><div class="panel-h"><div><h2>Waiting for ${esc(name)} · ${n}</h2><p>One line for ${members.map((st) => esc(st.name)).join(", ")}: priority lane first, then in the order they joined.</p></div></div>
+            <div class="panel-b">${n ? `<ol class="wlist">${waiting.map(({ v, code }, i) => `<li data-id="${v.id}"><span class="pos">${i + 1}</span><div class="who"><b class="mono">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)}${v.age !== null && v.age !== undefined ? ` · ${v.age} y` : ""}${groupTag(v) ? ` ${groupTag(v)}` : ""}${v.priority ? ` <span class="tag prio">Priority</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span><button class="btn sm outline" data-act="callOne" data-station="${esc(code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
+          </section>
+          ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map(({ v, code }) => `<li class="missed"><div class="who"><b class="mono">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
+          <section class="panel"><div class="panel-h"><div><h2>Served here today</h2><p>Call again brings the patient back to the same test.</p></div><span class="count">${served.length}</span></div>
+            <div class="panel-b">${served.length ? `<ul class="wlist served">${served.map(({ v, code }) => { const busy = currentStep(v)?.status === "called"; return `<li><div class="who"><b class="mono">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)} · done ${formatTime(doneAt(v))}</span></div><button class="btn sm outline" data-act="callBack" data-station="${esc(code)}" data-id="${v.id}" ${busy ? `disabled title="Being served at another station right now"` : ""}>📢 Call again</button></li>`; }).join("")}</ul>` : `<p class="empty">No one served here yet today.</p>`}</div>
+          </section>
+        </div>
+      </div>`;
+  }
   function updateStation() {
     // Not while a patient is being dragged in the line, or the drag would be lost.
     if (preregDrag) return;
     const box = $("#station");
+    const choice = stationChoice();
+    const group = choice.startsWith("group:") ? stationGroups().find(([name]) => name === choice.slice(6)) : null;
+    if (group) { try { localStorage.setItem(STATION_KEY, choice); } catch { /* not saved */ } renderStationGroup(box, group[0], group[1]); return; }
     const stations = state.settings.stations.filter((s) => s.active);
     const code = currentStationCode();
     const station = stations.find((s) => s.code === code);
@@ -3749,7 +3825,7 @@ function downloadQueueReport(xlsx, state, now) {
     // The screen is redrawn on every update; starting the blink part-way through keeps it smooth across redraws.
     const blinkDelay = -(Date.now() % 2400);
     box.innerHTML = `
-      <nav class="tabs" aria-label="Choose station">${(stationPicker ? stations : [station]).map((s) => { const n = waitingFor(state, s.code).length; return `<a href="#station/${encodeURIComponent(s.code)}" data-act="pickStation" class="${s.code === station.code ? "on" : ""}${n ? " queued" : ""}"${n ? ` style="animation-delay:${blinkDelay}ms" title="${n} waiting"` : ""}><b class="mono">${esc(s.code)}</b><span class="n">${esc(s.name)}</span><span class="count ${n ? "has" : ""}">${n}</span></a>`; }).join("")}${stations.length > 1 ? `<button type="button" class="btn sm ${stationPicker ? "ghost" : "outline"}" data-act="toggleStations" style="align-self:center">${stationPicker ? "Close" : `⇄ Change station${othersWaiting ? ` · ${othersWaiting} other${othersWaiting === 1 ? "" : "s"} with patients waiting` : ""}`}</button>` : ""}</nav>
+      <nav class="tabs" aria-label="Choose station">${stationPicker ? groupChips() : ""}${(stationPicker ? stations : [station]).map((s) => { const n = waitingFor(state, s.code).length; return `<a href="#station/${encodeURIComponent(s.code)}" data-act="pickStation" class="${s.code === station.code ? "on" : ""}${n ? " queued" : ""}"${n ? ` style="animation-delay:${blinkDelay}ms" title="${n} waiting"` : ""}><b class="mono">${esc(s.code)}</b><span class="n">${esc(s.name)}</span><span class="count ${n ? "has" : ""}">${n}</span></a>`; }).join("")}${stations.length > 1 ? `<button type="button" class="btn sm ${stationPicker ? "ghost" : "outline"}" data-act="toggleStations" style="align-self:center">${stationPicker ? "Close" : `⇄ Change station${othersWaiting ? ` · ${othersWaiting} other${othersWaiting === 1 ? "" : "s"} with patients waiting` : ""}`}</button>` : ""}</nav>
       <div class="st-grid">
         <div>
           <section class="serving"><p class="k">Now serving · ${esc(station.name)}</p>
@@ -4299,6 +4375,21 @@ function downloadQueueReport(xlsx, state, now) {
     switch (act) {
       case "openTv": void openTv(); break;
       case "toggleStations": stationPicker = !stationPicker; updateStation(); break;
+      case "groupCallNext": {
+        const members = stationGroups().find(([name]) => name === el.dataset.group)?.[1] ?? [];
+        const codes = members.map((st) => st.code);
+        const next = codes.flatMap((code) => waitingFor(state, code).map((v) => ({ v, code })))
+          .sort((a, b) => Number(b.v.priority) - Number(a.v.priority) || (currentStep(a.v).queuedAt ?? 0) - (currentStep(b.v).queuedAt ?? 0) || a.v.seq - b.v.seq)[0];
+        if (!next) break;
+        // Like Call next at one station: whoever is being served in the group is completed first.
+        const busy = codes.flatMap((code) => servingAt(state, code)).filter((v) => currentStep(v)?.station !== next.code);
+        void (async () => {
+          for (const v of busy) await dispatch({ type: "complete", visitId: v.id });
+          const r = await dispatch({ type: "call", station: next.code, visitId: next.v.id });
+          warnIfSilent(r);
+        })();
+        break;
+      }
       case "pickStation": stationPicker = false; setTimeout(updateStation); break;
       case "histRange": $("#hist-from").value = el.dataset.from; $("#hist-to").value = el.dataset.to; void loadHistory(); break;
       case "histVisit": void openHistoryVisit(el.dataset.day, el.dataset.id); break;
