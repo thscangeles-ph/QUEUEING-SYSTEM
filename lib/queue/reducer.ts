@@ -94,8 +94,8 @@ export const DEFAULT_SETTINGS: Settings = {
     { code: "C1", name: "Consultation 1", service: "consultation", location: "Clinic Room 1", selfCheckIn: true, active: true },
     { code: "C2", name: "Consultation 2", service: "consultation", location: "Clinic Room 2", selfCheckIn: true, active: true },
     { code: "C3", name: "Consultation 3", service: "consultation", location: "Clinic Room 3", selfCheckIn: true, active: true },
-    { code: "E1", name: "2D Echo 1", service: "procedure", location: "2D Echo Room 1", selfCheckIn: false, active: true },
-    { code: "E2", name: "2D Echo 2", service: "procedure", location: "2D Echo Room 2", selfCheckIn: false, active: true },
+    { code: "E1", name: "2D Echo 1", service: "procedure", location: "2D Echo Room 1", selfCheckIn: false, active: true, vitals: true },
+    { code: "E2", name: "2D Echo 2", service: "procedure", location: "2D Echo Room 2", selfCheckIn: false, active: true, vitals: true },
     { code: "ECG", name: "ECG", service: "procedure", location: "ECG Room", selfCheckIn: false, active: true },
     { code: "ABPM", name: "ABPM", service: "procedure", location: "ABPM Room", selfCheckIn: false, active: true },
     { code: "HT", name: "Holter", service: "procedure", location: "Holter Room", selfCheckIn: false, active: true },
@@ -181,6 +181,8 @@ export function currentLabel(visit: Visit) {
 }
 
 export const findStation = (state: QueueState, code: string): Station | undefined => state.settings.stations.find((station) => station.code === code);
+/** Whether a station's patients get their vital signs taken first: the clinics, and any station with Vitals first ticked. */
+export const vitalsFirst = (station: Station) => station.vitals ?? station.service === "consultation";
 
 const clean = (value: unknown, max: number) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 const fail = (error: string): ActionResult => ({ ok: false, error });
@@ -366,6 +368,7 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
       selfCheckIn: Boolean(raw.selfCheckIn),
       active: raw.active !== false,
       ...(clean(raw.group, 40) ? { group: clean(raw.group, 40) } : {}),
+      ...(typeof raw.vitals === "boolean" ? { vitals: raw.vitals } : {}),
     });
   }
   if (!stations.length) return "Add at least one station.";
