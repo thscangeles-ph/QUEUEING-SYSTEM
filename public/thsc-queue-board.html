@@ -160,8 +160,9 @@ a.btn { text-decoration: none; }
 .desk-cat .panel { border-top: 4px solid var(--cat); }
 .desk-cat .panel-h { background: var(--cat-soft); border-radius: 12px 12px 0 0; }
 .desk-cat .panel-h h2 { color: var(--cat); }
-.cfg-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
-.cfg-tabs a { text-decoration: none; padding: 8px 16px; border-radius: 999px; font-weight: 700; color: var(--muted); border: 1px solid var(--line); background: var(--card); }
+.cfg-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.cfg-tabs .tools { margin-left: auto; } .cfg-tabs button { font: inherit; cursor: pointer; }
+.cfg-tabs a, .cfg-tabs button { text-decoration: none; padding: 8px 16px; border-radius: 999px; font-weight: 700; color: var(--muted); border: 1px solid var(--line); background: var(--card); }
 .cfg-tabs a.on { background: var(--brown); color: var(--gold-2); border-color: var(--brown); }
 .tv-sound { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--muted); padding: 4px 0 6px; }
 .tv-sound input[type="range"] { width: 150px; accent-color: var(--brown); }
@@ -1568,7 +1569,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-10-31.7";
+const BOARD_VERSION = "2026-10-31.8";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2388,7 +2389,7 @@ function downloadQueueReport(xlsx, state, now) {
           <div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state?.settings).toUpperCase())}</small><b>Queue Board · ${{ desk: "Front Desk", station: "Stations", config: "System Configuration", history: "History" }[view]}</b></div></div>
           <div class="top-actions"><button type="button" class="badge-device msg-badge hidden" data-act="openMessages" title="Messages patients sent to the clinic's Telegram bot">💬 Messages</button><span class="badge-device tv-badge"></span><span class="badge-device sync-badge"></span></div>
         </div>
-        <nav class="nav">${nav.map(link).join("")}<button data-act="openTv">TV display ↗</button><button data-act="openPoster">Check-in QR ↗</button><a href="#setup">Sync setup</a>${link(["config", "#config", "⚙ System configuration"])}</nav>
+        <nav class="nav">${nav.map(link).join("")}${link(["config", "#config", "⚙ System configuration"])}</nav>
       </div></header>
       <main class="wrap"><p class="sync-banner hidden" id="sync-banner" role="alert"></p><div id="main"></div></main><div id="messages-box"></div>`;
     showInbox();
@@ -3165,7 +3166,7 @@ function downloadQueueReport(xlsx, state, now) {
     if (!draft) resetDraft();
     // Two parts: the settings, and the 📅 History of every visit.
     const history = route().arg === "history";
-    $("#main").innerHTML = `<nav class="cfg-tabs" aria-label="System configuration"><a href="#config" class="${history ? "" : "on"}">⚙ Settings</a><a href="#config/history" class="${history ? "on" : ""}">📅 History</a></nav><div id="${history ? "history" : "settings"}"></div>`;
+    $("#main").innerHTML = `<nav class="cfg-tabs" aria-label="System configuration"><a href="#config" class="${history ? "" : "on"}">⚙ Settings</a><a href="#config/history" class="${history ? "on" : ""}">📅 History</a><button type="button" class="tools" data-act="openTv" title="Open the lobby TV screen in a new window">📺 TV display ↗</button><button type="button" data-act="openPoster" title="The QR code poster for patients' self check-in">📱 Check-in QR ↗</button><a href="#setup" title="How this computer shares the queue">🔄 Sync setup</a></nav><div id="${history ? "history" : "settings"}"></div>`;
     if (history) mountHistory(); else renderSettings();
   }
   /** A save was refused because the PIN changed on another computer: ask for it again. */
