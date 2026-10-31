@@ -1548,7 +1548,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-10-31.2";
+const BOARD_VERSION = "2026-10-31.3";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2508,7 +2508,9 @@ function downloadQueueReport(xlsx, state, now) {
   /** The tags that show a patient's group on staff screens: HMO (company), or Clinic 1–3 (pre-scheduled). */
   const groupTag = (v, withLoa = false) => (v.kind === "H" ? `<span class="tag hmo">HMO${v.hmo ? ` · ${esc(v.hmo)}` : ""}${withLoa && v.loa ? ` · LOA ${esc(v.loa)}` : ""}</span>` : clinicOf(v.kind) ? `<span class="tag clinic">${clinicOf(v.kind)}${PRESCHEDULED_KINDS.includes(v.kind) ? " · pre-scheduled" : ""}</span>` : "");
   const HMO_COMPANIES = ["Maxicare", "Intellicare", "MediCard", "PhilCare", "Cocolife", "Avega", "Pacific Cross", "ValuCare", "Etiqa", "Insular Health Care", "Kaiser", "Generali", "Caritas Health Shield", "AXA", "Sun Life Grepa"];
-  const arr = { newPatient: false, priority: false };
+  // Step 1's New patient / Priority lane switches: each card (Regular, HMO, Clinic 1–3) keeps its own.
+  const arrByTab = {};
+  const arr = () => (arrByTab[deskTab] ??= { newPatient: false, priority: false });
   // prereg: on a Clinic 1–3 tab, a new number for a scheduled patient who is not here yet (with an optional appointment time).
   const form = { kind: "W", newPatient: false, arrival: null, name: "", mobile: "", notes: "", hmo: "", loa: "", priority: false, stations: [], prereg: false, appointment: "", bdayDay: "", bdayMonth: "", bdayYear: "", age: "", physician: "" };
   /** Empties the registration form; the services list starts blank for every patient, HMO included. */
@@ -3012,7 +3014,7 @@ function downloadQueueReport(xlsx, state, now) {
     if (submit) submit.textContent = form.prereg && !form.arrival ? "📅 Pre-register number" : "Issue queue number";
 
     const press = (sel, on) => $(sel).setAttribute("aria-pressed", String(Boolean(on)));
-    press("#arr-new", arr.newPatient); press("#arr-prio", arr.priority); press("#reg-new", form.newPatient); press("#reg-prio", form.priority);
+    press("#arr-new", arr().newPatient); press("#arr-prio", arr().priority); press("#reg-new", form.newPatient); press("#reg-prio", form.priority);
 
     // Register form (only the parts that depend on the queue; typed text is never re-rendered)
     document.querySelectorAll('[data-act="kind"]').forEach((b) => { b.classList.toggle("on", b.dataset.kind === form.kind); b.setAttribute("aria-checked", String(b.dataset.kind === form.kind)); });
@@ -4604,10 +4606,11 @@ function downloadQueueReport(xlsx, state, now) {
         if (arriving) break;
         arriving = true;
         const print = $("#arr-print").checked;
-        void dispatch({ type: "arrive", kind: el.dataset.kind, priority: arr.priority, newPatient: arr.newPatient }).then((r) => {
+        const choice = arr();
+        void dispatch({ type: "arrive", kind: el.dataset.kind, priority: choice.priority, newPatient: choice.newPatient }).then((r) => {
           arriving = false;
           if (!r.ok) return;
-          latestArrival = r.visitId; arr.priority = false; arr.newPatient = false;
+          latestArrival = r.visitId; choice.priority = false; choice.newPatient = false;
           if (view === "desk") updateDesk();
           if (print && !printSlip(r.label, Date.now(), LOGO, clinicNameOf(state.settings))) toast("Allow pop-ups for this file to print queue slips.", true);
         });
@@ -4639,7 +4642,7 @@ function downloadQueueReport(xlsx, state, now) {
       case "callReg": dispatch({ type: "callRegistration", visitId: id || undefined, group: id ? undefined : tabGroup() }, (r) => `${r.label} called to register — shown on the TV.`).then(warnIfSilent); break;
       case "removeArrival": { const v = state.visits.find((x) => x.id === id); if (v && confirm(`Remove ${arrivalLabel(v)}? Use this if the patient left before registering. The number ${arrivalLabel(v)} will be given to the next arrival.`)) dispatch({ type: "cancel", visitId: id }, `${arrivalLabel(v)} removed — the next Queue number will reuse it.`); break; }
       case "registerArrival": { const v = state.visits.find((x) => x.id === id); if (v) { pickArrival(v); updateDesk(); $("#reg-name").focus(); } break; }
-      case "togArrNew": arr.newPatient = !arr.newPatient; updateDesk(); break;
+      case "togArrNew": arr().newPatient = !arr().newPatient; updateDesk(); break;
       case "togPrereg": form.prereg = !form.prereg; updateDesk(); break;
       case "bulkToggle": {
         const box = $("#bulk");
@@ -4691,7 +4694,7 @@ function downloadQueueReport(xlsx, state, now) {
       }
 
       case "checkIn": { const v = state.visits.find((x) => x.id === id); if (v) dispatch({ type: "checkIn", visitId: id }, (r) => `${r.label} has arrived and is now in line${currentStep(v) ? ` for ${stationName(state, currentStep(v).station)}` : ""}.`); break; }
-      case "togArrPrio": arr.priority = !arr.priority; updateDesk(); break;
+      case "togArrPrio": arr().priority = !arr().priority; updateDesk(); break;
       case "togRegNew": form.newPatient = !form.newPatient; updateDesk(); break;
       case "togRegPrio": form.priority = !form.priority; updateDesk(); break;
       case "kind": form.kind = el.dataset.kind; updateDesk(); break;
