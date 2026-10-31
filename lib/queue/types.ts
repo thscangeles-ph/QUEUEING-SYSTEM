@@ -50,7 +50,8 @@ export type Step = {
   billing?: Billing;
 };
 
-export type Billing = { fee: "pf" | "none"; items: string[] };
+/** note: the doctor's note to the Cashier, e.g. a discount or an adjusted fee. */
+export type Billing = { fee: "pf" | "none"; items: string[]; note?: string };
 
 export type Visit = {
   id: string;
