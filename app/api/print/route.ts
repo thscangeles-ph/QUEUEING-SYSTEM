@@ -63,7 +63,8 @@ export async function POST(request: Request) {
   // With Telegram reminders on, the slip shows the clinic bot's link, so the patient can link their number.
   const sms = state.settings.sms;
   const bot = sms?.enabled ? sms.telegramBot : "";
-  const details = expected && visit ? [visit.name, visit.appointment ? `Appointment ${appointmentText(visit.appointment)}` : "", bot ? `Reminders on Telegram: t.me/${bot}` : ""].filter(Boolean) : [];
+  // A priority lane patient's slip says so right under the number.
+  const details = [visit?.priority ? "*** PRIORITY LANE ***" : "", ...(expected && visit ? [visit.name, visit.appointment ? `Appointment ${appointmentText(visit.appointment)}` : "", bot ? `Reminders on Telegram: t.me/${bot}` : ""] : [])].filter(Boolean);
   const message = expected ? PREREG_SLIP_MESSAGE : SLIP_MESSAGE;
   try {
     // A4 and Letter go through the office printer's driver; receipt rolls get ESC/POS commands.
