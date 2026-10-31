@@ -1568,7 +1568,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-10-31.6";
+const BOARD_VERSION = "2026-10-31.7";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -3857,11 +3857,13 @@ function downloadQueueReport(xlsx, state, now) {
     };
     const next = waiting[0];
     const others = stations.filter((s) => s.code !== station.code);
-    const consult = vitalsFirst(station);
-    // Clinics (and other stations with Vitals first) call each waiting patient for vital signs first, then call them in.
-    const nextVitals = consult ? waiting.find((v) => !currentStep(v).vitalsCalledAt && !currentStep(v).vitalsDoneAt) : null;
+    // Only the clinics (consultation) choose the charges for the cashier (professional fee, admin fee …).
+    const consult = station.service === "consultation";
+    // Clinics (and other stations with Vitals first, e.g. 2D Echo) call each waiting patient for vital signs first, then call them in.
+    const vitals = vitalsFirst(station);
+    const nextVitals = vitals ? waiting.find((v) => !currentStep(v).vitalsCalledAt && !currentStep(v).vitalsDoneAt) : null;
     const vitalsCell = (v) => {
-      if (!consult) return "";
+      if (!vitals) return "";
       const step = currentStep(v);
       if (step.vitalsDoneAt) return `<span class="tag vitals done" title="Vital signs taken at ${formatTime(step.vitalsDoneAt)}">✓ Vitals done</span><button class="btn icon ghost" data-act="vitalsUndo" data-station="${esc(station.code)}" data-id="${v.id}" title="Undo: vital signs not taken yet" aria-label="Undo vital signs for ${esc(ticketLabel(v, station.code))}">↺</button>`;
       if (step.vitalsCalledAt) return `<span class="tag vitals" title="Called ${formatTime(step.vitalsCalledAt)}">🩺 Called for vitals${step.vitalsCalls > 1 ? ` ×${step.vitalsCalls}` : ""}</span><button class="btn sm outline" data-act="callVitalsOne" data-station="${esc(station.code)}" data-id="${v.id}" title="Call again for vital signs">🔔</button><button class="btn sm" data-act="vitalsDone" data-station="${esc(station.code)}" data-id="${v.id}">✓ Done</button>`;
@@ -3891,7 +3893,7 @@ function downloadQueueReport(xlsx, state, now) {
             }).join(`<hr style="border:0;border-top:1px solid #4a3d27;margin:18px 0">`) : `<p style="color:#e8dec7;font-size:17px;margin:20px 0 0">No patient called yet.</p>`}
           </section>
           <button class="callnext" data-act="callNext" data-station="${esc(station.code)}" ${next ? "" : "disabled"}>🔔 ${next ? `Call next · <span class="mono">${esc(ticketLabel(next, station.code))}</span>` : "No one waiting"}</button>
-          ${consult ? `<button class="callnext vitals" data-act="callVitals" data-station="${esc(station.code)}" ${nextVitals ? "" : "disabled"}>🩺 ${nextVitals ? `Call next for vital signs · <span class="mono">${esc(ticketLabel(nextVitals, station.code))}</span>` : "Everyone waiting was called for vital signs"}</button>` : ""}
+          ${vitals ? `<button class="callnext vitals" data-act="callVitals" data-station="${esc(station.code)}" ${nextVitals ? "" : "disabled"}>🩺 ${nextVitals ? `Call next for vital signs · <span class="mono">${esc(ticketLabel(nextVitals, station.code))}</span>` : "Everyone waiting was called for vital signs"}</button>` : ""}
           ${serving.length && next ? `<p class="hint">${consult ? `Choose <b>Professional fee</b> or <b>No charge</b> first — calling the next patient completes ${esc(ticketLabel(serving[0], station.code))} with no charges recorded.` : `Calling the next patient marks ${esc(ticketLabel(serving[0], station.code))} as complete.`}</p>` : ""}
         </div>
         <div class="col">
