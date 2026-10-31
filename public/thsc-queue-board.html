@@ -130,14 +130,23 @@ a.btn { text-decoration: none; }
 .cfg-foot span { margin-right: auto; font-size: 13px; color: var(--muted); } .cfg-foot span.dirty { color: #b4233c; font-weight: 700; }
 @media (max-width: 560px) { .cfg-grid { grid-template-columns: 1fr; } .cfg-foot { flex-wrap: wrap; } .cfg-foot span { flex-basis: 100%; } .cfg-foot .btn { flex: 1; } }
 .desk-bar { display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
-.desk-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; flex: 1 1 100%; padding-bottom: 12px; }
-@media (max-width: 1000px) { .desk-tabs { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } }
-.cat-card { display: flex; align-items: center; gap: 10px; min-width: 0; text-align: left; border: 1px solid color-mix(in srgb, var(--c) 25%, transparent); border-left: 6px solid var(--c); background: var(--cs); color: var(--ink); border-radius: 14px; padding: 10px 12px; transition: transform .15s, box-shadow .15s, background .15s; }
+.desk-tabs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; flex: 1 1 100%; padding-bottom: 12px; }
+@media (max-width: 1200px) { .desk-tabs { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); } }
+.nurse-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .nurse-grid { grid-template-columns: 1fr; } }
+.nurse-calls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.nurse-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.nurse-list li { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: center; border: 1px solid #e8dfce; border-radius: 12px; padding: 10px 12px; background: #fff; }
+.nurse-list li.now { border-color: #2f7d4f; background: #f1faf3; }
+.nurse-list .mono { font-size: 18px; font-weight: 800; }
+.nurse-list .who b { display: block; } .nurse-list .who span { color: var(--muted); font-size: 12px; }
+.nurse-list .acts { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+.cat-card { display: flex; align-items: center; gap: 8px; min-width: 0; text-align: left; border: 1px solid color-mix(in srgb, var(--c) 25%, transparent); border-left: 6px solid var(--c); background: var(--cs); color: var(--ink); border-radius: 14px; padding: 10px 12px; transition: transform .15s, box-shadow .15s, background .15s; }
 .cat-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(47,40,28,.12); }
 .cat-card .grip { cursor: grab; color: var(--c); opacity: .55; font-size: 18px; line-height: 1; padding: 2px; }
 .cat-card .ic { font-size: 22px; }
-.cat-card .tx { min-width: 0; } .cat-card .tx b { display: block; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .cat-card .tx small { color: var(--muted); font-size: 12px; font-weight: 600; }
-.cat-card .count { margin-left: auto; min-width: 42px; text-align: center; border-radius: 10px; padding: 2px 8px; background: #fff; color: var(--c); font-size: 22px; font-weight: 800; }
+.cat-card .tx { min-width: 0; } .cat-card .tx b { display: block; font-size: 14px; line-height: 1.2; overflow-wrap: anywhere; } .cat-card .tx small { color: var(--muted); font-size: 12px; font-weight: 600; }
+.cat-card .count { margin-left: auto; flex: none; min-width: 38px; text-align: center; border-radius: 10px; padding: 2px 8px; background: #fff; color: var(--c); font-size: 22px; font-weight: 800; }
 .cat-card.on { background: var(--c); color: #fff; border-color: var(--c); box-shadow: 0 6px 16px color-mix(in srgb, var(--c) 35%, transparent); }
 .cat-card.on .grip, .cat-card.on .tx small { color: rgba(255,255,255,.85); }
 .cat-card.dragging { opacity: .45; }
@@ -2460,10 +2469,11 @@ function downloadQueueReport(xlsx, state, now) {
   let latestArrival = null;
   // Front desk tab: "regular" (walk-in and scheduled), "hmo" (HMO patients, HMO-01 …) or "P1"–"P3"
   // (pre-scheduled Clinic 1–3 patients, CL1-01 …). Remembered per computer.
-  const DESK_TABS = [["regular", "Regular patients"], ["hmo", "HMO patients"], ["P1", "Clinic 1"], ["P2", "Clinic 2"], ["P3", "Clinic 3"]];
+  // "nursing" is the Nursing station: the patients of the clinics who need their vital signs taken.
+  const DESK_TABS = [["regular", "Regular patients"], ["hmo", "HMO patients"], ["P1", "Clinic 1"], ["P2", "Clinic 2"], ["P3", "Clinic 3"], ["nursing", "Nursing station"]];
   const deskTabOf = (value) => (DESK_TABS.some(([key]) => key === value) ? value : "regular");
   /** Each category's color, its light tint and icon, for its card and the front desk's panels. */
-  const DESK_COLORS = { regular: ["#8b6512", "#fff4d6", "🎫"], hmo: ["#6b48a8", "#efe8fb", "🏥"], P1: ["#1f6f6b", "#dff1ef", "🩺"], P2: ["#2d5d9a", "#e4edf8", "🩺"], P3: ["#a33c55", "#fbe6eb", "🩺"] };
+  const DESK_COLORS = { regular: ["#8b6512", "#fff4d6", "🎫"], hmo: ["#6b48a8", "#efe8fb", "🏥"], P1: ["#1f6f6b", "#dff1ef", "🩺"], P2: ["#2d5d9a", "#e4edf8", "🩺"], P3: ["#a33c55", "#fbe6eb", "🩺"], nursing: ["#2f7d4f", "#e3f4e8", "💉"] };
   const DESK_ORDER_KEY = "thsc-queue-desk-order";
   /** The categories in the order staff dragged them to on this computer (new ones at the end). */
   function orderedDeskTabs() {
@@ -2582,13 +2592,39 @@ function downloadQueueReport(xlsx, state, now) {
   let filter = "active";
   let search = "";
 
-  function mountDesk() {
-    // The front desk's panels take the color of the open category.
-    const main = $("#main");
-    main.classList.add("desk-cat");
-    main.style.setProperty("--cat", DESK_COLORS[deskTab][0]);
-    main.style.setProperty("--cat-soft", DESK_COLORS[deskTab][1]);
-    main.innerHTML = `
+  // ---- 💉 Nursing station: the clinics' patients and their vital signs ----
+  /** Everyone waiting for a clinic (consultation station), with their step there. */
+  function nursingRows() {
+    return state.settings.stations.filter((st) => st.active && st.service === "consultation")
+      .flatMap((st) => waitingFor(state, st.code).map((v) => ({ v, st, step: currentStep(v) })));
+  }
+  function renderNursing() {
+    const box = $("#nursing");
+    if (!box) return;
+    const rows = nursingRows();
+    const called = rows.filter((r) => r.step.vitalsCalledAt && !r.step.vitalsDoneAt).sort((a, b) => a.step.vitalsCalledAt - b.step.vitalsCalledAt);
+    const waiting = rows.filter((r) => !r.step.vitalsCalledAt && !r.step.vitalsDoneAt);
+    const done = rows.filter((r) => r.step.vitalsDoneAt).sort((a, b) => b.step.vitalsDoneAt - a.step.vitalsDoneAt);
+    const clinics = state.settings.stations.filter((st) => st.active && st.service === "consultation");
+    const now = Date.now();
+    const item = ({ v, st, step }, kind) => `<li class="${kind === "called" ? "now" : ""}"><span class="mono">${esc(ticketLabel(v, st.code))}</span><div class="who"><b>${esc(v.name)}${groupTag(v) ? ` ${groupTag(v)}` : ""}</b><span>${esc(st.name)}${patientFacts(v) ? ` · ${patientFacts(v)}` : ""} · ${kind === "called" ? `called ${formatTime(step.vitalsCalledAt)}${step.vitalsCalls > 1 ? ` (${step.vitalsCalls}×)` : ""}` : kind === "done" ? `taken ${formatTime(step.vitalsDoneAt)}` : `waiting ${formatWait(minutesSince(step.queuedAt, now))}`}</span></div>
+      <div class="acts">${kind === "called"
+        ? `<button class="btn sm" data-act="vitalsDone" data-station="${esc(st.code)}" data-id="${v.id}" style="background:#2f7d4f">✓ Vitals done</button><button class="btn sm outline" data-act="callVitalsOne" data-station="${esc(st.code)}" data-id="${v.id}">📢 Call again</button>`
+        : kind === "done" ? `<button class="btn sm ghost" data-act="vitalsUndo" data-station="${esc(st.code)}" data-id="${v.id}">↺ Undo</button>`
+        : `<button class="btn sm outline" data-act="callVitalsOne" data-station="${esc(st.code)}" data-id="${v.id}">🩺 Call for vitals</button><button class="btn sm ghost" data-act="vitalsDone" data-station="${esc(st.code)}" data-id="${v.id}">✓ Vitals done</button>`}</div></li>`;
+    const list = (items, kind, empty) => (items.length ? `<ul class="nurse-list">${items.map((row) => item(row, kind)).join("")}</ul>` : `<p class="empty">${empty}</p>`);
+    box.innerHTML = `
+      <div class="nurse-calls">${clinics.map((st) => { const left = rows.filter((r) => r.st.code === st.code && !r.step.vitalsCalledAt && !r.step.vitalsDoneAt).length; return `<button class="btn" data-act="callVitals" data-station="${esc(st.code)}" ${left ? "" : "disabled"} style="background:#2f7d4f">🩺 Call next for vitals · ${esc(st.name)}${left ? ` (${left})` : ""}</button>`; }).join("")}</div>
+      <div class="nurse-grid">
+        <section class="panel"><div class="panel-h"><div><h2>Called for vital signs · ${called.length}</h2><p>Coming to ${esc(vitalsPlaceOf(state.settings))} now. Tap ✓ when their vital signs are taken.</p></div></div><div class="panel-b">${list(called, "called", "No one is called for vital signs right now.")}</div></section>
+        <section class="panel"><div class="panel-h"><div><h2>Waiting · no vital signs yet · ${waiting.length}</h2><p>In the clinics' lines, in calling order. Call one, or use the buttons above for the next of each clinic.</p></div></div><div class="panel-b">${list(waiting, "waiting", "Everyone waiting has had their vital signs taken.")}</div></section>
+        <section class="panel"><div class="panel-h"><div><h2>Vital signs done · ${done.length}</h2><p>Waiting for the doctor. ↺ Undo if tapped by mistake.</p></div></div><div class="panel-b">${list(done, "done", "None yet.")}</div></section>
+      </div>`;
+  }
+
+  /** The top of the front desk: the sync note and the category cards (with the TV sound control). */
+  function deskTopHtml(withSound) {
+    return `
       <p class="note" id="storage-note">${sync.mode === "server"
         ? `<b>Synced queue.</b> Every computer that opens this file with the sync server <b>${esc(serverHost(syncServer()))}</b> shares this queue: front desk, stations and the lobby TV. Change it in <a href="#setup">Sync setup</a>.`
         : `<b>This computer only.</b> Everything is saved in this browser on this computer. Open the <b>TV display</b> in a second window on the TV screen, and stations in other windows or tabs — they all stay in sync. Use the same browser every day; clearing browsing data erases the queue. To share the queue with other computers, use <a href="#setup">Sync setup</a>.`}</p>
@@ -2596,8 +2632,23 @@ function downloadQueueReport(xlsx, state, now) {
         <nav class="desk-tabs" role="tablist" aria-label="Patient group">
           ${orderedDeskTabs().map(([key, label]) => `<button type="button" role="tab" class="cat-card" draggable="true" data-act="deskTab" data-tab="${key}" style="--c:${DESK_COLORS[key][0]};--cs:${DESK_COLORS[key][1]}" title="Drag ⠿ to change the order"><span class="grip" aria-hidden="true">⠿</span><span class="ic" aria-hidden="true">${DESK_COLORS[key][2]}</span><span class="tx"><b>${label}</b><small>Today</small></span><span class="count" id="tab-count-${key}"></span></button>`).join("")}
         </nav>
-        <div class="tv-sound" id="tv-sound"><span>📺 TV video sound</span><button type="button" class="btn sm outline" data-act="videoMute" id="tv-mute"></button><input type="range" min="0" max="100" step="5" id="tv-volume" aria-label="TV video volume"><span class="vol mono" id="tv-vol-text"></span></div>
+        ${withSound ? `<div class="tv-sound" id="tv-sound"><span>📺 TV video sound</span><button type="button" class="btn sm outline" data-act="videoMute" id="tv-mute"></button><input type="range" min="0" max="100" step="5" id="tv-volume" aria-label="TV video volume"><span class="vol mono" id="tv-vol-text"></span></div>` : ""}
       </div>
+`;
+  }
+
+  function mountDesk() {
+    // The front desk's panels take the color of the open category.
+    const main = $("#main");
+    main.classList.add("desk-cat");
+    main.style.setProperty("--cat", DESK_COLORS[deskTab][0]);
+    main.style.setProperty("--cat-soft", DESK_COLORS[deskTab][1]);
+    if (deskTab === "nursing") {
+      main.innerHTML = `${deskTopHtml(false)}<div id="nursing"></div>`;
+      return;
+    }
+    main.innerHTML = `
+      ${deskTopHtml(true)}
       <section class="stats" id="stats"></section>
       <div class="grid">
         <div class="col">
@@ -2854,9 +2905,11 @@ function downloadQueueReport(xlsx, state, now) {
     const inClinic = (v) => !v.cancelled && !["completed", "cancelled"].includes(visitStatus(v));
     document.querySelectorAll('[data-act="deskTab"]').forEach((b) => { const on = b.dataset.tab === deskTab; b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); });
     DESK_TABS.forEach(([key]) => {
+      if (key === "nursing") { $("#tab-count-nursing").textContent = nursingRows().filter((row) => !row.step.vitalsDoneAt).length; return; }
       const mine = key === "regular" ? (v) => numberGroup(v.kind) === "R" : key === "hmo" ? (v) => v.kind === "H" : (v) => clinicOf(v.kind) === clinicOf(key);
       $(`#tab-count-${key}`).textContent = state.visits.filter((v) => mine(v) && inClinic(v)).length;
     });
+    if (deskTab === "nursing") { renderNursing(); return; }
     if ($("#arr-reg")) $("#arr-reg").textContent = `🎫 Queue number (next: ${pad2(nextNumber(state, false))})`;
     if ($("#arr-hmo")) $("#arr-hmo").textContent = `🎫 HMO number (next: ${nextLabel("H")})`;
     if ($("#arr-clinic")) $("#arr-clinic").textContent = `🎫 ${clinicOf(deskTab)} number (next: ${nextLabel(tabKind())})`;
