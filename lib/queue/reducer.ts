@@ -365,6 +365,7 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
       location: clean(raw.location, 60),
       selfCheckIn: Boolean(raw.selfCheckIn),
       active: raw.active !== false,
+      ...(clean(raw.group, 40) ? { group: clean(raw.group, 40) } : {}),
     });
   }
   if (!stations.length) return "Add at least one station.";

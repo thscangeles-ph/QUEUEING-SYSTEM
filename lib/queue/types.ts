@@ -22,6 +22,8 @@ export type Station = {
   /** Scheduled patients may choose this station on the QR self check-in page. */
   selfCheckIn: boolean;
   active: boolean;
+  /** Stations with the same group (e.g. "Procedures") also share one screen on the Stations page, with one combined line. */
+  group?: string;
 };
 
 export type Step = {
