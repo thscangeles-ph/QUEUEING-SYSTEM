@@ -3624,6 +3624,8 @@ function downloadQueueReport(xlsx, state, now) {
     </div>`;
   }
 
+  // Whether the list of all stations is open (⇄ Change station); it closes when a station is chosen.
+  let stationPicker = false;
   function updateStation() {
     // Not while a patient is being dragged in the line, or the drag would be lost.
     if (preregDrag) return;
@@ -3663,10 +3665,12 @@ function downloadQueueReport(xlsx, state, now) {
       return `<button class="btn sm outline" data-act="callVitalsOne" data-station="${esc(station.code)}" data-id="${v.id}" title="Call to ${esc(vitalsPlaceOf(state.settings))}">🩺 Vitals</button>`;
     };
     const cashier = stations.find((s) => s.service === "cashier");
+    // Only this computer's station is shown; ⇄ Change station opens the list of all of them.
+    const othersWaiting = stations.filter((s) => s.code !== station.code && waitingFor(state, s.code).length).length;
     // The screen is redrawn on every update; starting the blink part-way through keeps it smooth across redraws.
     const blinkDelay = -(Date.now() % 2400);
     box.innerHTML = `
-      <nav class="tabs" aria-label="Choose station">${stations.map((s) => { const n = waitingFor(state, s.code).length; return `<a href="#station/${encodeURIComponent(s.code)}" class="${s.code === station.code ? "on" : ""}${n ? " queued" : ""}"${n ? ` style="animation-delay:${blinkDelay}ms" title="${n} waiting"` : ""}><b class="mono">${esc(s.code)}</b><span class="n">${esc(s.name)}</span><span class="count ${n ? "has" : ""}">${n}</span></a>`; }).join("")}</nav>
+      <nav class="tabs" aria-label="Choose station">${(stationPicker ? stations : [station]).map((s) => { const n = waitingFor(state, s.code).length; return `<a href="#station/${encodeURIComponent(s.code)}" data-act="pickStation" class="${s.code === station.code ? "on" : ""}${n ? " queued" : ""}"${n ? ` style="animation-delay:${blinkDelay}ms" title="${n} waiting"` : ""}><b class="mono">${esc(s.code)}</b><span class="n">${esc(s.name)}</span><span class="count ${n ? "has" : ""}">${n}</span></a>`; }).join("")}${stations.length > 1 ? `<button type="button" class="btn sm ${stationPicker ? "ghost" : "outline"}" data-act="toggleStations" style="align-self:center">${stationPicker ? "Close" : `⇄ Change station${othersWaiting ? ` · ${othersWaiting} other${othersWaiting === 1 ? "" : "s"} with patients waiting` : ""}`}</button>` : ""}</nav>
       <div class="st-grid">
         <div>
           <section class="serving"><p class="k">Now serving · ${esc(station.name)}</p>
@@ -4215,6 +4219,8 @@ function downloadQueueReport(xlsx, state, now) {
     const { act, id, station, send, index, code } = el.dataset;
     switch (act) {
       case "openTv": void openTv(); break;
+      case "toggleStations": stationPicker = !stationPicker; updateStation(); break;
+      case "pickStation": stationPicker = false; setTimeout(updateStation); break;
       case "histRange": $("#hist-from").value = el.dataset.from; $("#hist-to").value = el.dataset.to; void loadHistory(); break;
       case "histVisit": void openHistoryVisit(el.dataset.day, el.dataset.id); break;
       case "histClose": $("#hist-visit").innerHTML = ""; break;
