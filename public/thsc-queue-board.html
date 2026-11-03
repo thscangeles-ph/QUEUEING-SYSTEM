@@ -1601,7 +1601,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-03.5";
+const BOARD_VERSION = "2026-11-03.6";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -1992,6 +1992,11 @@ function downloadQueueReport(xlsx, state, now) {
   const $ = (selector) => document.querySelector(selector);
   let storageOk = true;
 
+  // A smart TV's own browser (Samsung Tizen, LG webOS, Android/Google TV …): it cannot download or run a startup file, and
+  // the clinic server's address opens the TV display on it.
+  const SMART_TV = /SMART-TV|SmartTV|Tizen|Web0S|webOS|NetCast|BRAVIA|Android TV|GoogleTV|AFT[A-Z]|HbbTV|CrKey|VIDAA|Roku/i.test(navigator.userAgent);
+  // The TV area this browser last showed (System configuration → TV screens), so the plain address opens it again.
+  const TV_SCREEN_KEY = "thsc-queue-tv-screen";
   const readSetting = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
   const writeSetting = (key, value) => { try { if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value); } catch { storageOk = false; } };
   /** Sync server address for this computer; an empty string keeps the queue on this computer only. */
@@ -2150,11 +2155,13 @@ function downloadQueueReport(xlsx, state, now) {
   const KIOSK_KEY = "thsc-queue-kiosk";
   const kioskLocked = () => { try { return sessionStorage.getItem(KIOSK_KEY) === "1"; } catch { return false; } };
   const setKioskLock = (on) => { try { if (on) sessionStorage.setItem(KIOSK_KEY, "1"); else sessionStorage.removeItem(KIOSK_KEY); } catch { /* private mode: not locked */ } };
+  /** The short address /tv, or the plain address on a smart TV's browser: the TV display, with no setup each time. */
+  const autoTv = () => location.pathname.replace(/\/+$/, "") === "/tv" || (SMART_TV && (location.pathname === "/" || location.pathname === "/queue" || location.pathname === "/queue/"));
   function route() {
     // Served by the website at /queue/station?s=C1 or /queue/display, the path picks the screen until a #screen link is used.
     // A kiosk tablet stays on the kiosk: patients must not reach the staff screens (see leaveKiosk).
     if (kioskLocked()) return { name: "kiosk", arg: "" };
-    const fromPath = location.pathname.startsWith("/queue/station") ? `station/${new URLSearchParams(location.search).get("s") ?? ""}` : location.pathname.startsWith("/queue/display") ? "display" : location.pathname.startsWith("/queue/config") ? "config" : location.pathname.startsWith("/queue/kiosk") ? "kiosk" : "";
+    const fromPath = location.pathname.startsWith("/queue/station") ? `station/${new URLSearchParams(location.search).get("s") ?? ""}` : location.pathname.startsWith("/queue/display") ? "display" : location.pathname.startsWith("/queue/config") ? "config" : location.pathname.startsWith("/queue/kiosk") ? "kiosk" : autoTv() ? "display" : "";
     const [name, arg] = (location.hash.replace(/^#/, "") || fromPath).split("/");
     // History is in System configuration (an older #history link opens it there).
     if (name === "history") return { name: "config", arg: "history" };
@@ -3399,8 +3406,6 @@ function downloadQueueReport(xlsx, state, now) {
     const match = (serverAddresses ?? []).find((s) => s.connection === (draft?.displayConnection === "lan" ? "lan" : "wifi"));
     return match ? `${server.protocol}//${match.address}${server.port ? `:${server.port}` : ""}` : base;
   }
-  // A smart TV's own browser (Samsung Tizen, LG webOS, Android/Google TV …): it cannot download or run a startup file.
-  const SMART_TV = /SMART-TV|SmartTV|Tizen|Web0S|webOS|NetCast|BRAVIA|Android TV|GoogleTV|AFT[A-Z]|HbbTV|CrKey|VIDAA|Roku/i.test(navigator.userAgent);
   const smartTvNote = (what) => `<p class="note" style="margin:10px 0 0;border-color:#cfe3f7;background:#f2f8fe">📺 <b>This is a smart TV's browser.</b> The startup file is for a Windows computer plugged into a TV, so it cannot be downloaded here. On this TV: ${what}, then <b>bookmark</b> it (or set it as the browser's home page) and press <b>OK</b> on the remote once so the chime and voice can play.</p>`;
   const tvSlug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "tv";
   // The TV whose stations are being chosen (System configuration → TV screens), or null.
@@ -4186,6 +4191,8 @@ function downloadQueueReport(xlsx, state, now) {
 
   function mountDisplay() {
     seen = state.announcements[state.announcements.length - 1]?.id ?? null;
+    // Remember this TV's area, so the plain address (or /tv) opens it next time.
+    if (location.pathname.startsWith("/queue/display") || new URLSearchParams(location.search).has("tv")) writeSetting(TV_SCREEN_KEY, tvId() || null);
     mountedVideo = currentVideo();
     const body = mountedVideo
       ? `<div class="tv-body video">
@@ -4279,7 +4286,7 @@ function downloadQueueReport(xlsx, state, now) {
   window.addEventListener("resize", () => { if (view === "display") fitNumbers(); });
 
   // ---- TV screens: a TV opened at /queue/display?tv=<id> shows only its own stations (System configuration → TV screens) ----
-  const tvId = () => (new URLSearchParams(location.search).get("tv") || (route().name === "display" ? route().arg : "") || "").toLowerCase();
+  const tvId = () => (new URLSearchParams(location.search).get("tv") || (route().name === "display" ? route().arg : "") || (autoTv() && !location.hash ? readSetting(TV_SCREEN_KEY) : "") || "").toLowerCase();
   /** This TV's screen, or null when it shows everything (no ?tv=, an unknown one, or "Same on all TVs"). */
   function tvScreen() {
     if (state.settings.tvSameOnAll) return null;
