@@ -169,7 +169,8 @@ export function staffPinConfigured() {
   return Boolean(process.env.QUEUE_STAFF_PIN);
 }
 
-export function isStaff(request: Request) {
+/** Whether a request carries the old shared staff PIN (QUEUE_STAFF_PIN). Staff accounts: see isStaff in users.ts. */
+export function staffPinOk(request: Request) {
   const pin = process.env.QUEUE_STAFF_PIN;
   const given = request.headers.get("x-queue-pin");
   return Boolean(pin && given && timingSafeEqual(digest(pin), digest(given)));

@@ -3,7 +3,8 @@ import path from "node:path";
 import { isPagePaper, PREREG_SLIP_MESSAGE, SLIP_MESSAGE, slipBytes, slipTime, slipWidthOf } from "@/lib/queue/escpos";
 import { listPrinters, printingAvailable, printPage, printRaw } from "@/lib/queue/printer";
 import { arrivalLabel, clinicNameOf, clinicOf, ensureDay } from "@/lib/queue/reducer";
-import { getBackend, isStaff } from "@/lib/queue/server-store";
+import { getBackend } from "@/lib/queue/server-store";
+import { isStaff } from "@/lib/queue/users";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,7 @@ export function OPTIONS() {
 /** The printers and COM ports of the server computer, for System configuration. */
 export async function GET(request: Request) {
   if (!printingAvailable()) return json({ available: false, printers: [] });
-  if (!isStaff(request)) return json({ error: "Staff PIN required." }, 401);
+  if (!(await isStaff(request))) return json({ error: "Staff PIN required." }, 401);
   return json({ available: true, printers: await listPrinters() });
 }
 
@@ -39,7 +40,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const backend = getBackend();
   if (!printingAvailable() || !backend) return json({ ok: false, reason: "unavailable", error: UNAVAILABLE });
-  if (!isStaff(request)) return json({ ok: false, error: "Staff PIN required." }, 401);
+  if (!(await isStaff(request))) return json({ ok: false, error: "Staff PIN required." }, 401);
   let body: { visitId?: unknown; test?: unknown; printer?: unknown; width?: unknown };
   try {
     body = (await request.json()) as typeof body;

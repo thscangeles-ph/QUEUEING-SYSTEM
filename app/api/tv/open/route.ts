@@ -2,7 +2,8 @@ import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isClinicServer, isStaff } from "@/lib/queue/server-store";
+import { isClinicServer } from "@/lib/queue/server-store";
+import { isStaff } from "@/lib/queue/users";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,7 @@ export function OPTIONS() {
  */
 export async function POST(request: Request) {
   if (process.platform !== "win32" || !isClinicServer()) return json({ ok: false, reason: "unavailable" });
-  if (!isStaff(request)) return json({ ok: false, error: "Staff PIN required." }, 401);
+  if (!(await isStaff(request))) return json({ ok: false, error: "Staff PIN required." }, 401);
   const screen = await tvScreen();
   if (!screen) return json({ ok: false, reason: "no-tv", error: "The server computer has no extended screen. On it, press Windows+P and choose Extend, then try again." });
   // Close a TV window opened earlier, so the new one gets the position and full screen.

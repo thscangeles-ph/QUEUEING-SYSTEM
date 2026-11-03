@@ -169,6 +169,7 @@ body.tv:not(.show-ctl) .tv-ctl { display: none; }
 .tv-pick { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 60; display: grid; place-items: center; background: rgba(31,26,18,.55); padding: 16px; }
 .tv-pick-box { background: var(--card, #fff); border-radius: 16px; padding: 20px; width: min(640px, 100%); max-height: 90vh; overflow: auto; } .tv-pick-box h2 { margin: 0 0 4px; } .tv-pick-box p { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
 .tv-pick-box .chips button.on { background: var(--primary, #8b6512); border-color: var(--primary, #8b6512); color: #fff; } .tv-pick-box .chips button.on span { color: #fff; }
+.users-add { display: grid; grid-template-columns: 1.4fr 1fr 1fr .8fr auto; gap: 8px; align-items: end; } @media (max-width: 760px) { .users-add { grid-template-columns: 1fr 1fr; } }
 .cfg-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .cfg-tabs .tools { margin-left: auto; } .cfg-tabs button { font: inherit; cursor: pointer; }
 .cfg-tabs a, .cfg-tabs button { text-decoration: none; padding: 8px 16px; border-radius: 999px; font-weight: 700; color: var(--muted); border: 1px solid var(--line); background: var(--card); }
@@ -1604,7 +1605,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-03.12";
+const BOARD_VERSION = "2026-11-03.13";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2008,7 +2009,10 @@ function downloadQueueReport(xlsx, state, now) {
 
   // ---------- State: shared through the sync server, or kept in this browser ("This computer only") ----------
   // mode: "connecting" until the server first answers, then "server"; "local" keeps the queue in this browser.
-  const sync = { mode: syncServer() ? "connecting" : "local", staff: false, online: true, error: "", warning: "", version: null };
+  // users: staff sign in with their own accounts (System configuration → Users); user: who is signed in here.
+  const sync = { mode: syncServer() ? "connecting" : "local", staff: false, online: true, error: "", warning: "", version: null, users: false, user: null };
+  const isAdmin = () => !sync.users || sync.user?.role === "admin";
+  const syncKey = () => `${sync.mode}|${sync.staff}|${sync.users}|${sync.user?.username ?? ""}|${sync.user?.role ?? ""}`;
   const locked = () => sync.mode === "server" && !sync.staff;
   let actionCount = 0;
 
@@ -2037,6 +2041,7 @@ function downloadQueueReport(xlsx, state, now) {
 
   function receive(body) {
     sync.staff = Boolean(body.staff);
+    if (typeof body.users === "boolean") { sync.users = body.users; sync.user = body.user ?? null; }
     if (typeof body.version === "number") sync.version = body.version;
     if (body.state) state = body.state;
   }
@@ -2080,7 +2085,7 @@ function downloadQueueReport(xlsx, state, now) {
   async function poll() {
     clearTimeout(pollTimer);
     if (sync.mode === "local") return;
-    const before = `${sync.mode}|${sync.staff}`;
+    const before = syncKey();
     const started = actionCount;
     let changed = false;
     try {
@@ -2111,7 +2116,7 @@ function downloadQueueReport(xlsx, state, now) {
     }
     showTvOffline();
     if (remountTv) { remountTv = false; mount(); }
-    else if (`${sync.mode}|${sync.staff}` !== before || (view === "connecting" && state)) mount();
+    else if (syncKey() !== before || (view === "connecting" && state)) mount();
     else if (changed) update();
     else refreshSync();
     pollTimer = setTimeout(poll, POLL_MS);
@@ -2204,12 +2209,13 @@ function downloadQueueReport(xlsx, state, now) {
     const [name, arg] = (location.hash.replace(/^#/, "") || fromPath).split("/");
     // History is in System configuration (an older #history link opens it there).
     if (name === "history") return { name: "config", arg: "history" };
-    return { name: ["station", "display", "setup", "config", "kiosk", "history"].includes(name) ? name : "desk", arg: arg ? decodeURIComponent(arg) : "" };
+    return { name: ["station", "display", "setup", "config", "kiosk", "history", "admin"].includes(name) ? name : "desk", arg: arg ? decodeURIComponent(arg) : "" };
   }
   function mount() {
     const r = route();
     // System configuration asks for its PIN again every time it is opened.
     if (r.name !== "config") configUnlocked = null;
+    if (r.name === "admin") { view = "admin"; document.body.className = ""; document.title = "Administrator · THSC Queue Board"; mountAdminSetup(); refreshSync(); return; }
     if (r.name === "setup") { view = "setup"; document.body.className = ""; document.title = "Sync Setup · THSC Queue Board"; mountSetup(); refreshSync(); return; }
     if (!state) { view = "connecting"; document.body.className = ""; document.title = "THSC Queue Board"; mountConnecting(); refreshSync(); return; }
     if (r.name !== "display" && locked()) { view = "gate"; document.body.className = ""; document.title = "Staff PIN · THSC Queue Board"; mountGate(); refreshSync(); return; }
@@ -2465,9 +2471,9 @@ function downloadQueueReport(xlsx, state, now) {
       <header class="top"><div class="top-in">
         <div class="top-row">
           <div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state?.settings).toUpperCase())}</small><b>Queue Board · ${{ desk: "Front Desk", station: "Stations", config: "System Configuration", history: "History" }[view]}</b></div></div>
-          <div class="top-actions"><button type="button" class="badge-device msg-badge hidden" data-act="openMessages" title="Messages patients sent to the clinic's Telegram bot">💬 Messages</button><span class="badge-device tv-badge"></span><span class="badge-device sync-badge"></span></div>
+          <div class="top-actions">${sync.user ? `<span class="badge-device" style="background:#3a3022;color:#f4e8c7" title="Signed in as ${esc(sync.user.username)}">👤 ${esc(sync.user.name)} · ${sync.user.role === "admin" ? "Admin" : "Staff"}</span><button type="button" class="badge-device" data-act="signOut" style="background:transparent;color:#f0c864;border:1px solid #5c4b2d;cursor:pointer">Sign out</button>` : ""}<button type="button" class="badge-device msg-badge hidden" data-act="openMessages" title="Messages patients sent to the clinic's Telegram bot">💬 Messages</button><span class="badge-device tv-badge"></span><span class="badge-device sync-badge"></span></div>
         </div>
-        <nav class="nav">${nav.map(link).join("")}${link(["config", "#config", "⚙ System configuration"])}</nav>
+        <nav class="nav">${nav.map(link).join("")}${isAdmin() ? link(["config", "#config", "⚙ System configuration"]) : ""}</nav>
       </div></header>
       <main class="wrap"><p class="sync-banner hidden" id="sync-banner" role="alert"></p><div id="main"></div></main><div id="messages-box"></div>`;
     showInbox();
@@ -2488,7 +2494,82 @@ function downloadQueueReport(xlsx, state, now) {
       <p style="color:var(--muted);font-size:13px">The queue appears as soon as the server answers. <a href="#setup">Sync setup</a></p></div></section></main>`;
   }
 
+  /** Asks the clinic server's staff accounts (/api/auth). */
+  async function authRequest(body) {
+    const pin = readSetting(PIN_KEY);
+    try {
+      const response = await fetch(`${syncServer()}/api/auth`, { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json", ...(pin ? { "x-queue-pin": pin } : {}) }, body: JSON.stringify(body) });
+      return await response.json().catch(() => ({ ok: false, error: `The queue server answered with error ${response.status}. Update the queue server.` }));
+    } catch {
+      return { ok: false, error: "No connection to the queue server." };
+    }
+  }
+  function mountSignIn() {
+    const ended = (readSetting(PIN_KEY) ?? "").startsWith("session:");
+    app.innerHTML = `${plainHeader("Sign in")}<main class="wrap" style="max-width:460px"><p class="sync-banner hidden" id="sync-banner" role="alert"></p>
+      <section class="panel"><div class="panel-h"><div><h2>🔐 Sign in</h2><p>Use the username and PIN the administrator gave you. Each staff member has their own.</p></div></div>
+      <div class="panel-b"><form id="signin-form" style="display:grid;gap:12px">
+        <label class="field">Username<input type="text" id="signin-user" autocomplete="username" autocapitalize="off" spellcheck="false" required></label>
+        <label class="field">PIN<input type="password" id="signin-pin" inputmode="numeric" autocomplete="current-password" required></label>
+        <label style="display:flex;gap:8px;align-items:center;font-size:14px"><input type="checkbox" id="signin-remember" checked> Stay signed in on this computer</label>
+        <p class="yt-hint err" id="signin-error" role="alert">${ended ? "You were signed out. Sign in again." : ""}</p>
+        <button class="btn" type="submit" style="min-height:44px">Sign in</button>
+      </form>
+      <p style="color:var(--muted);font-size:13px;margin:14px 0 0">Forgot your PIN? Ask the administrator to reset it. The <a href="#display">TV display</a> needs no sign-in. · <a href="#setup">Sync setup</a></p></div></section></main>`;
+    $("#signin-user").focus();
+    $("#signin-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const error = $("#signin-error");
+      error.textContent = "";
+      const r = await authRequest({ type: "signIn", username: $("#signin-user").value, pin: $("#signin-pin").value, remember: $("#signin-remember").checked });
+      if (!r.ok) { error.textContent = r.error; $("#signin-pin").select(); return; }
+      writeSetting(PIN_KEY, r.token);
+      sync.version = null;
+      void poll();
+    });
+  }
+  async function signOut() {
+    await authRequest({ type: "signOut" });
+    writeSetting(PIN_KEY, null);
+    sync.staff = false; sync.user = null; sync.version = null;
+    configUnlocked = null; draft = null;
+    mount();
+    void poll();
+  }
+  /** The first administrator: opened on the clinic server with the THSC Queue Admin icon (#admin). */
+  function mountAdminSetup() {
+    if (!state) { mountConnecting(); return; }
+    if (sync.users) { location.hash = "#config/users"; return; }
+    const viaConfig = configPinSet();
+    app.innerHTML = `${plainHeader("Administrator")}<main class="wrap" style="max-width:520px"><p class="sync-banner hidden" id="sync-banner" role="alert"></p>
+      <section class="panel"><div class="panel-h"><div><h2>👤 Create the administrator</h2><p>The administrator makes the staff accounts (username and PIN for each person) and opens System configuration. After this, everyone signs in with their own account and the old shared staff PIN stops working.</p></div></div>
+      <div class="panel-b"><form id="admin-form" style="display:grid;gap:12px">
+        <label class="field">Full name<input type="text" id="admin-name" maxlength="60" placeholder="e.g. Dr. Ana Reyes" required></label>
+        <label class="field">Username<em>2 to 30 letters or numbers, no spaces.</em><input type="text" id="admin-user" maxlength="30" autocapitalize="off" spellcheck="false" placeholder="e.g. anareyes" required></label>
+        <label class="field">PIN<em>4 to 8 digits.</em><input type="password" id="admin-pin" inputmode="numeric" maxlength="8" autocomplete="new-password" required></label>
+        <label class="field">Type the PIN again<input type="password" id="admin-pin2" inputmode="numeric" maxlength="8" autocomplete="new-password" required></label>
+        <label class="field">${viaConfig ? "Current configuration PIN" : "Current staff PIN"}<em>${viaConfig ? "The PIN that opened System configuration until now." : "The PIN the staff used until now."}</em><input type="password" id="admin-proof" inputmode="numeric" autocomplete="off" required></label>
+        <p class="yt-hint err" id="admin-error" role="alert"></p>
+        <button class="btn" type="submit" style="min-height:44px">Create the administrator and sign in</button>
+      </form></div></section></main>`;
+    $("#admin-name").focus();
+    $("#admin-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const error = $("#admin-error");
+      if ($("#admin-pin").value !== $("#admin-pin2").value) { error.textContent = "The two PINs are not the same."; return; }
+      const proof = $("#admin-proof").value.trim();
+      // The old staff PIN goes in the header, as before; the configuration PIN in the body.
+      if (!viaConfig) writeSetting(PIN_KEY, proof);
+      const r = await authRequest({ type: "setupAdmin", name: $("#admin-name").value, username: $("#admin-user").value, pin: $("#admin-pin").value, configPin: viaConfig ? proof : undefined });
+      if (!r.ok) { error.textContent = r.error; return; }
+      writeSetting(PIN_KEY, r.token);
+      sync.version = null;
+      location.hash = "#config/users";
+      void poll();
+    });
+  }
   function mountGate() {
+    if (sync.users) { mountSignIn(); return; }
     const rejected = Boolean(readSetting(PIN_KEY));
     app.innerHTML = `${plainHeader("Staff access")}<main class="wrap" style="max-width:460px"><p class="sync-banner hidden" id="sync-banner" role="alert"></p>
       <section class="panel"><div class="panel-h"><div><h2>Enter the staff PIN</h2><p>Staff screens show patient names, so they are protected. The PIN is remembered on this computer.</p></div></div>
@@ -3241,13 +3322,90 @@ function downloadQueueReport(xlsx, state, now) {
     });
   }
   function mountConfig() {
+    if (sync.users) {
+      if (sync.user?.role !== "admin") { $("#main").innerHTML = `<section class="panel" style="max-width:520px;margin:24px auto 0"><div class="panel-h"><div><h2>🔒 Administrators only</h2><p>Only an administrator can open System configuration. Ask the administrator if something needs to change.</p></div></div></section>`; return; }
+      configUnlocked = "admin";
+    }
     if (configUnlocked === null) { mountConfigGate(); return; }
     // An unsaved draft is kept when moving between screens, until it is saved or discarded.
     if (!draft) resetDraft();
     // Two parts: the settings, and the 📅 History of every visit.
     const history = route().arg === "history";
-    $("#main").innerHTML = `<nav class="cfg-tabs" aria-label="System configuration"><a href="#config" class="${history ? "" : "on"}">⚙ Settings</a><a href="#config/history" class="${history ? "on" : ""}">📅 History</a><button type="button" class="tools" data-act="openTv" title="Open the lobby TV screen in a new window">📺 TV display ↗</button><button type="button" data-act="openPoster" title="The QR code poster for patients' self check-in">📱 Check-in QR ↗</button><a href="#setup" title="How this computer shares the queue">🔄 Sync setup</a></nav><div id="${history ? "history" : "settings"}"></div>`;
-    if (history) mountHistory(); else renderSettings();
+    const users = route().arg === "users";
+    $("#main").innerHTML = `<nav class="cfg-tabs" aria-label="System configuration"><a href="#config" class="${history || users ? "" : "on"}">⚙ Settings</a><a href="#config/history" class="${history ? "on" : ""}">📅 History</a>${sync.mode === "server" ? `<a href="#config/users" class="${users ? "on" : ""}">👥 Users</a>` : ""}<button type="button" class="tools" data-act="openTv" title="Open the lobby TV screen in a new window">📺 TV display ↗</button><button type="button" data-act="openPoster" title="The QR code poster for patients' self check-in">📱 Check-in QR ↗</button><a href="#setup" title="How this computer shares the queue">🔄 Sync setup</a></nav><div id="${history ? "history" : users ? "users" : "settings"}"></div>`;
+    if (history) mountHistory(); else if (users) mountUsers(); else renderSettings();
+  }
+  // ---- 👥 Users (System configuration): staff accounts, made by an administrator ----
+  let usersData = null;
+  const ACTIVITY_NAMES = { register: "Registered", arrive: "Issued a number", call: "Called", callReg: "Called to register", complete: "Completed", recall: "Called again", miss: "Did not respond", callBack: "Called back", callVitals: "Called for vital signs", vitalsDone: "Vital signs done", setRoute: "Changed a route", cancel: "Removed a number", updateVisit: "Changed a patient", updateSettings: "Saved System configuration", resetDay: "Cleared today's queue", moveInLine: "Moved in line", verify: "Verified a QR check-in" };
+  async function mountUsers() {
+    const box = $("#users");
+    if (!box) return;
+    if (!sync.users) {
+      box.innerHTML = `<section class="panel"><div class="panel-h"><div><h2>👥 Users</h2><p>Staff accounts are not set up yet: everyone uses the shared staff PIN. Create the administrator first; then add a username and PIN for each staff member.</p></div></div>
+        <div class="panel-b"><a class="btn" href="#admin" style="color:#fff;text-decoration:none">👤 Create the administrator</a></div></section>`;
+      return;
+    }
+    box.innerHTML = `<p class="empty">Loading users…</p>`;
+    // The server's network addresses, for the staff computers' desktop icon (not "localhost").
+    if (serverAddresses === null && sync.mode === "server") {
+      serverAddresses = [];
+      await fetch(`${queueServerBase()}/api/server-info`, { cache: "no-store" }).then((r) => r.json()).then((body) => { serverAddresses = Array.isArray(body.servers) ? body.servers : []; serverAwake = typeof body.awake === "boolean" ? body.awake : null; }).catch(() => undefined);
+    }
+    usersData = await authRequest({ type: "list" });
+    renderUsers();
+  }
+  function renderUsers(message = "") {
+    const box = $("#users");
+    if (!box) return;
+    if (!usersData?.ok) { box.innerHTML = `<p class="empty">${esc(usersData?.error || "The users could not be loaded.")}</p>`; return; }
+    const when = (at) => (at ? `${new Date(at).toDateString() === new Date().toDateString() ? "Today" : new Date(at).toLocaleDateString()} ${formatTime(at)}` : "Never");
+    const row = (u) => `<tr${u.active ? "" : ' style="opacity:.55"'}><td><b>${esc(u.name)}</b>${u.username === sync.user?.username ? ` <span class="tag">you</span>` : ""}</td><td class="mono">${esc(u.username)}</td>
+      <td><select data-users-role="${esc(u.id)}" aria-label="Role of ${esc(u.name)}"><option value="admin" ${u.role === "admin" ? "selected" : ""}>Admin</option><option value="staff" ${u.role === "staff" ? "selected" : ""}>Staff</option></select></td>
+      <td>${u.active ? `<span class="tag" style="background:var(--ok-bg);color:var(--ok)">Active</span>` : `<span class="tag">Disabled</span>`}</td><td style="font-size:13px;color:var(--muted)">${esc(when(u.lastSignIn))}</td>
+      <td style="white-space:nowrap"><button type="button" class="btn sm outline" data-act="usersResetPin" data-id="${esc(u.id)}">🔑 Reset PIN</button> <button type="button" class="btn sm outline" data-act="usersActive" data-id="${esc(u.id)}" data-on="${u.active ? "0" : "1"}">${u.active ? "⏸ Disable" : "▶ Enable"}</button> <button type="button" class="btn icon ghost" data-act="usersRemove" data-id="${esc(u.id)}" aria-label="Remove ${esc(u.name)}">✕</button></td></tr>`;
+    const activity = usersData.activity ?? [];
+    box.innerHTML = `
+      <section class="panel"><div class="panel-h"><div><h2>👥 Users</h2><p>Only people listed here can open the front desk, stations and System configuration. <b>Admin</b>: everything, including users and System configuration (no configuration PIN). <b>Staff</b>: front desk and stations.</p></div></div>
+      <div class="panel-b"><div class="table-wrap"><table class="set-table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead><tbody>${usersData.users.map(row).join("")}</tbody></table></div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)"><h3 style="margin:0 0 8px;font-size:15px">＋ Add a user</h3>
+        <div class="users-add"><label class="field">Full name<input type="text" id="user-name" maxlength="60" placeholder="e.g. Maria Santos"></label><label class="field">Username<input type="text" id="user-username" maxlength="30" autocapitalize="off" spellcheck="false" placeholder="e.g. maria"></label><label class="field">PIN (4–8 digits)<input type="password" id="user-pin" inputmode="numeric" maxlength="8" autocomplete="new-password"></label><label class="field">Role<select id="user-role"><option value="staff">Staff</option><option value="admin">Admin</option></select></label><button type="button" class="btn" data-act="usersAdd">Add user</button></div>
+        <p class="yt-hint ${message.startsWith("✓") ? "ok" : "err"}" id="users-msg" role="alert" style="margin-top:8px">${esc(message)}</p></div>
+        <p class="note" style="margin:12px 0 0">PINs are stored scrambled (hashed): nobody can read them, an administrator can only reset them. Five wrong PINs in a row lock that username for 5 minutes. A disabled user is signed out at once.</p></div></section>
+      <section class="panel" style="margin-top:16px"><div class="panel-h"><div><h2>🖥 Desktop icon for staff computers</h2><p>Puts a <b>THSC Queue Board</b> icon on a staff computer's desktop. It opens the queue on the clinic network (<span class="mono">${esc(displayBaseUrl("lan") || displayBaseUrl("wifi") || queueServerBase())}</span>) at the sign-in screen.</p></div></div>
+        <div class="panel-b"><button type="button" class="btn" data-act="usersIcon">⬇ Download the desktop icon installer</button> <span style="font-size:13px;color:var(--muted)">Run it once on each staff computer (front desk, stations, cashier).</span></div></section>
+      <section class="panel" style="margin-top:16px"><div class="panel-h"><div><h2>📋 Today's activity</h2><p>Who did what today, newest first.</p></div></div>
+        <div class="panel-b">${activity.length ? `<div class="table-wrap"><table class="set-table"><thead><tr><th>Time</th><th>User</th><th>What</th><th>Number</th></tr></thead><tbody>${activity.map((a) => `<tr><td style="white-space:nowrap">${formatTime(a.at)}</td><td>${esc(a.user)}</td><td>${esc(ACTIVITY_NAMES[a.action] ?? a.action)}</td><td class="mono">${esc(a.label ?? "")}</td></tr>`).join("")}</tbody></table></div>` : `<p class="empty">Nothing yet today.</p>`}</div></section>`;
+    box.querySelectorAll("[data-users-role]").forEach((select) => select.addEventListener("change", () => void usersChange({ type: "update", id: select.dataset.usersRole, role: select.value }, "Role changed.")));
+  }
+  async function usersChange(change, done = "Saved.") {
+    const r = await authRequest({ type: "manage", change });
+    if (r.ok) { usersData = r; renderUsers(`✓ ${done}`); void poll(); } else { renderUsers(r.error); }
+  }
+  async function usersAdd() {
+    const change = { type: "add", name: $("#user-name").value, username: $("#user-username").value, pin: $("#user-pin").value.trim(), role: $("#user-role").value };
+    const r = await authRequest({ type: "manage", change });
+    if (r.ok) { usersData = r; renderUsers(`✓ ${change.name} can now sign in as ${change.username.trim().toLowerCase()}.`); } else $("#users-msg").textContent = r.error;
+  }
+  /** A small Windows file that puts the THSC Queue Board icon (opening the sign-in on the clinic network) on a desktop. */
+  function downloadStaffIcon() {
+    const site = displayBaseUrl("lan") || displayBaseUrl("wifi") || queueServerBase();
+    const lines = [
+      "@echo off",
+      "rem THSC Queue Board - put the THSC Queue Board icon on this staff computer's desktop.",
+      `rem It opens the queue on the clinic network (${site}) at the sign-in screen. Run it once on each staff computer.`,
+      `set "SITE=${site}"`,
+      `powershell -NoProfile -ExecutionPolicy Bypass -Command "$dir = Join-Path $env:LOCALAPPDATA 'THSC-Queue-Icon'; New-Item -ItemType Directory -Force -Path $dir | Out-Null; $ico = Join-Path $dir 'thsc-queue.ico'; try { Invoke-WebRequest -UseBasicParsing ($env:SITE + '/thsc-queue.ico') -OutFile $ico -TimeoutSec 10 } catch { }; $d = [Environment]::GetFolderPath('Desktop'); $lines = @('[InternetShortcut]', ('URL=' + $env:SITE + '/')); if (Test-Path $ico) { $lines += ('IconFile=' + $ico); $lines += 'IconIndex=0' }; Set-Content -LiteralPath (Join-Path $d 'THSC Queue Board.url') -Encoding Default -Value $lines"`,
+      "if errorlevel 1 (echo The icon could not be added.) else (echo The THSC Queue Board icon is on the desktop. Double-click it, then sign in with your username and PIN.)",
+      "pause",
+      "",
+    ];
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([lines.join("\r\n")], { type: "application/octet-stream" }));
+    link.download = "add-thsc-queue-icon.cmd";
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+    toast("Desktop icon installer downloaded. Copy it to each staff computer and double-click it there.");
   }
   /** A save was refused because the PIN changed on another computer: ask for it again. */
   function relockIfPinRefused(result) {
@@ -3256,6 +3414,8 @@ function downloadQueueReport(xlsx, state, now) {
     mountConfig();
   }
   function updateConfig() {
+    if (sync.users && sync.user?.role !== "admin") return;
+    if ($("#users")) return;
     // Locked: only the PIN screen is shown; switch to "create" or "unlock" if a PIN was set or removed elsewhere.
     if (configUnlocked === null) { if (gateMode !== (configPinSet() ? "unlock" : "create")) mountConfigGate(); return; }
     if ($("#history")) return;
@@ -3364,13 +3524,13 @@ function downloadQueueReport(xlsx, state, now) {
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><label class="field" style="flex:1 1 180px">Test cellphone number<em>The number must have linked the bot first (open its link, Start, Share my phone number).</em><input type="tel" id="sms-test-phone" placeholder="0917 123 4567" inputmode="tel"></label><button type="button" class="btn sm outline" data-act="testSms" id="sms-test-btn" style="min-height:40px">✈️ Send test</button></div>
             <p class="yt-hint" id="sms-hint"></p>
           </div></section>
-        <section class="panel"><div class="panel-h"><div><h2>Configuration PIN</h2><p>Needed every time System configuration is opened. Staff with only the staff PIN still use the front desk, stations and the TV sound control.</p></div></div>
+        ${sync.users ? "" : `<section class="panel"><div class="panel-h"><div><h2>Configuration PIN</h2><p>Needed every time System configuration is opened. Staff with only the staff PIN still use the front desk, stations and the TV sound control.</p></div></div>
           <div class="panel-b" style="display:grid;gap:10px">
             <label class="field">New configuration PIN<em>4 to 8 digits.</em><input type="password" id="cfg-pin-new" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="new-password"></label>
             <label class="field">Type it again<input type="password" id="cfg-pin-again" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="new-password"></label>
             <div><button type="button" class="btn sm outline" data-act="changeConfigPin">Change PIN</button></div>
             <p style="margin:0;font-size:12px;color:var(--muted)">Forgot it? On the queue server computer, double-click <b>reset-config-pin.cmd</b> in the Queue Board folder (local-server).</p>
-          </div></section>
+          </div></section>`}
         <section class="panel"><div class="panel-h"><div><h2>QR code poster</h2><p>The address inside the QR code at the Concierge. Patients' phones open it, so it must be the queue server's address that the clinic Wi-Fi can reach.</p></div><button type="button" class="btn sm outline" data-act="openPoster">Open poster ↗</button></div>
           <div class="panel-b" style="display:grid;gap:10px">
             <label class="field">QR code address<em>For example http://172.16.100.62:3000. Leave empty to use the server's Wi-Fi address automatically.</em><input type="text" maxlength="200" spellcheck="false" class="mono" value="${esc(draft.qrAddress ?? "")}" placeholder="${esc(autoQrAddress() || "http://172.16.100.62:3000")}" data-set="qrAddress" id="cfg-qr"></label>
@@ -4761,6 +4921,13 @@ function downloadQueueReport(xlsx, state, now) {
         speak(announcementSpeech({ kind: "ticket", label: `07-${sample.code}-W`, destination: sample.name ?? sample.code }, draft?.announceLanguage ?? state.settings.announceLanguage));
         break;
       }
+      case "signOut": void signOut(); break;
+      case "usersAdd": void usersAdd(); break;
+      case "usersRole": break;
+      case "usersActive": void usersChange({ type: "update", id, active: el.dataset.on === "1" }); break;
+      case "usersResetPin": { const pin = prompt("New PIN for this user (4 to 8 digits). Tell it to the person; they can sign in with it right away."); if (pin !== null) void usersChange({ type: "resetPin", id, pin: pin.trim() }, "PIN changed."); break; }
+      case "usersRemove": if (confirm("Remove this user? They can no longer sign in.")) void usersChange({ type: "remove", id }, "User removed."); break;
+      case "usersIcon": downloadStaffIcon(); break;
       case "deskTab":
         if (el.dataset.tab === deskTab) break;
         deskTab = deskTabOf(el.dataset.tab);
