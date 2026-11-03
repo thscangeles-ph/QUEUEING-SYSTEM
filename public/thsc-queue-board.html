@@ -1605,7 +1605,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-03.14";
+const BOARD_VERSION = "2026-11-03.15";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -3432,7 +3432,7 @@ function downloadQueueReport(xlsx, state, now) {
     const services = [["consultation", "Consultation"], ["procedure", "Procedure"], ["laboratory", "Laboratory"], ["imaging", "Imaging"], ["cashier", "Cashier"], ["hmo", "HMO desk"], ["other", "Other"]];
     const volume = videoVolumeOf(draft);
     box.innerHTML = `
-      <div class="cfg-head"><div><h1>System configuration <small style="font-size:13px;font-weight:600;color:var(--muted)">· version ${BOARD_VERSION}<span id="cfg-awake"></span></small></h1><p>Every Queue Board setting in one place. Saved changes reach every computer, the stations and the lobby TV within a few seconds.</p></div><button type="button" class="btn sm outline" data-act="lockConfig" title="Lock System configuration on this computer">🔒 Lock</button></div>
+      <div class="cfg-head"><div><h1>System configuration <small style="font-size:13px;font-weight:600;color:var(--muted)">· version ${BOARD_VERSION}<span id="cfg-awake"></span></small></h1><p>Every Queue Board setting in one place. Saved changes reach every computer, the stations and the lobby TV within a few seconds.</p></div><div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end">${isAdmin() ? `<button type="button" class="btn danger sm" data-act="resetDay" title="Remove all of today's queue numbers and calls on every computer (settings and History are kept)">🧹 Clear today's queue</button>` : ""}<button type="button" class="btn sm outline" data-act="lockConfig" title="Lock System configuration on this computer">🔒 Lock</button></div></div>
       <section class="panel"><div class="panel-h"><div><h2>Stations</h2><p>Station codes become part of the queue number, e.g. C1 in 01-C1-W. Set a station inactive to hide it without losing it.</p></div></div>
         <div class="panel-b">
           <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th title="Stations with the same group share one screen on the Stations page">Group</th><th title="Patients are called for vital signs (Nursing station) before they go in">🩺 Vitals first</th><th>Active</th><th></th></tr></thead><tbody>
@@ -3859,8 +3859,7 @@ function downloadQueueReport(xlsx, state, now) {
     const visits = state.visits.filter((v) => !v.cancelled);
     const open = visits.filter((v) => visitStatus(v) !== "completed").length;
     const row = (k, v) => `<div class="cfg-row"><span>${k}</span><b>${v}</b></div>`;
-    today.innerHTML = `${row("Date", esc(longDate.format(Date.now())))}${row("Next queue number", `<span class="mono">${pad2(nextNumber(state, false))}</span>`)}${row("Next HMO number", `<span class="mono">${nextLabel("H")}</span>`)}${CLINIC_KINDS.map((kind) => row(`Next ${clinicOf(kind)} numbers`, `<span class="mono">${nextLabel(kind)} · ${nextLabel(prescheduledKind(kind))}</span>`)).join("")}${row("Patients today", `${visits.length} <small>(${open} still in the clinic)</small>`)}
-      <div style="margin-top:12px"><button class="btn danger sm" data-act="resetDay">Clear today's queue</button></div>`;
+    today.innerHTML = `${row("Date", esc(longDate.format(Date.now())))}${row("Next queue number", `<span class="mono">${pad2(nextNumber(state, false))}</span>`)}${row("Next HMO number", `<span class="mono">${nextLabel("H")}</span>`)}${CLINIC_KINDS.map((kind) => row(`Next ${clinicOf(kind)} numbers`, `<span class="mono">${nextLabel(kind)} · ${nextLabel(prescheduledKind(kind))}</span>`)).join("")}${row("Patients today", `${visits.length} <small>(${open} still in the clinic)</small>`)}`;
     const [text, tone] = syncLabel();
     $("#cfg-computer").innerHTML = `${row("Sharing", sync.mode === "server" ? "Synced with other computers" : sync.mode === "local" ? "This computer only" : "Connecting…")}${sync.mode !== "local" ? row("Sync server", `<span class="mono">${esc(serverHost(syncServer()))}</span>`) : ""}${row("Status", `<span class="badge-device ${tone}">${esc(text)}</span>`)}${row("Staff PIN", sync.mode === "server" ? "Accepted on this computer" : "Not needed (this computer only)")}`;
     refreshDirty();
