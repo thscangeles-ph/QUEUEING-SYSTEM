@@ -1601,7 +1601,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-03.3";
+const BOARD_VERSION = "2026-11-03.4";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -4352,11 +4352,25 @@ function downloadQueueReport(xlsx, state, now) {
     });
   }
   const NO_FILIPINO_VOICE = "This computer has no Filipino voice, so the Tagalog announcement uses its default voice. For a natural Filipino voice, open the board in Microsoft Edge (it includes Filipino voices).";
+  // Smart TV browsers (Samsung, LG …) have no voice of their own: there the queue server (Windows) makes the sound
+  // of each call (/api/tts) and the TV plays it. The same <audio> is unlocked by the start click, so it may play later.
+  const tvVoice = new Audio();
+  const SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+  const browserCanSpeak = () => "speechSynthesis" in window && !SMART_TV && speechSynthesis.getVoices().length > 0;
+  function speakOnServer(item, lines) {
+    const base = queueServerBase();
+    if (!base) { if ("speechSynthesis" in window) speak(lines); return; }
+    tvVoice.src = `${base}/api/tts?id=${encodeURIComponent(item.id)}`;
+    tvVoice.volume = 1;
+    // No sound from the server (not Windows, or an older server): use the browser's own voice if it has one.
+    tvVoice.play().catch(() => { if ("speechSynthesis" in window) speak(lines); });
+    tvVoice.onerror = () => { tvVoice.onerror = null; if ("speechSynthesis" in window) speak(lines); };
+  }
   function announce(item) {
     chime();
-    if (!("speechSynthesis" in window)) return;
     const lines = announcementSpeech(item, state.settings.announceLanguage);
-    setTimeout(() => speak(lines), 900);
+    if (browserCanSpeak()) setTimeout(() => speak(lines), 900);
+    else setTimeout(() => speakOnServer(item, lines), 900);
   }
   /** Turns sound on without a click when the browser allows it (e.g. Edge started with the TV startup file). */
   function autoStartSound() {
@@ -4411,6 +4425,9 @@ function downloadQueueReport(xlsx, state, now) {
       if (!audio && Ctx) audio = new Ctx();
       audio?.resume();
       if ("speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance(" "));
+      // Unlock the server voice's player with this click (TV browsers play sound only after one).
+      tvVoice.src = SILENT_WAV;
+      tvVoice.play().catch(() => undefined);
       // Voices load in the background; check for a Filipino one once they are in.
       if ((state.settings.announceLanguage ?? "en") !== "en") setTimeout(() => { if (view === "display" && "speechSynthesis" in window && !filipinoVoice()) toast(NO_FILIPINO_VOICE, true); }, 1500);
     }
