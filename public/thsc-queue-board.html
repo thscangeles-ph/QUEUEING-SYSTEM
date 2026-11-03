@@ -163,6 +163,9 @@ a.btn { text-decoration: none; }
 .desk-cat .panel { border-top: 4px solid var(--cat); }
 .desk-cat .panel-h { background: var(--cat-soft); border-radius: 12px 12px 0 0; }
 .desk-cat .panel-h h2 { color: var(--cat); }
+.tv-pick { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: rgba(31,26,18,.55); padding: 16px; }
+.tv-pick-box { background: var(--card, #fff); border-radius: 16px; padding: 20px; width: min(640px, 100%); max-height: 90vh; overflow: auto; } .tv-pick-box h2 { margin: 0 0 4px; } .tv-pick-box p { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+.tv-pick-box .chips button.on { background: var(--primary, #8b6512); border-color: var(--primary, #8b6512); color: #fff; } .tv-pick-box .chips button.on span { color: #fff; }
 .cfg-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .cfg-tabs .tools { margin-left: auto; } .cfg-tabs button { font: inherit; cursor: pointer; }
 .cfg-tabs a, .cfg-tabs button { text-decoration: none; padding: 8px 16px; border-radius: 999px; font-weight: 700; color: var(--muted); border: 1px solid var(--line); background: var(--card); }
@@ -737,6 +740,23 @@ function prefixOf(settings, kind) {
 /** The tag of a visit: the one it got when the number was given (numbers already given keep theirs when the tags change). */
 const prefixOfVisit = (visit) => visit.prefix ?? LABEL_PREFIX[numberGroup(visit.kind)] ?? "";
 /** Checks the number tags from System configuration: 1 to 5 letters or digits, starting with a letter, each used once. */
+/** The TV screens list: up to 12 TVs, each with a short id for its address, a name and its stations. */
+function tvScreensOf(input, codes) {
+    const used = new Set();
+    const screens = [];
+    for (const raw of Array.isArray(input) ? input.slice(0, 12) : []) {
+        const name = clean(raw?.name, 40);
+        if (!name)
+            continue;
+        let id = clean(raw?.id, 24).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "tv";
+        for (let n = 2; used.has(id); n++)
+            id = `${id.replace(/-\d+$/, "")}-${n}`;
+        used.add(id);
+        const stations = Array.isArray(raw?.stations) ? [...new Set(raw.stations.map((code) => String(code)).filter((code) => codes.includes(code)))] : [];
+        screens.push({ id, name, stations, registration: Boolean(raw?.registration) });
+    }
+    return screens;
+}
 function numberTagsOf(input) {
     const raw = input && typeof input === "object" ? input : {};
     const tags = {};
@@ -1002,7 +1022,7 @@ function sanitizeSettings(input) {
     const sms = smsSettingsOf(input.sms, input.sms);
     if (typeof sms === "string")
         return sms;
-    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth), qrAddress, numberTags, vitalsPlace: clean(input.vitalsPlace, 60), sms };
+    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth), qrAddress, numberTags, vitalsPlace: clean(input.vitalsPlace, 60), sms, tvScreens: tvScreensOf(input.tvScreens, stations.map((s) => s.code)), tvSameOnAll: Boolean(input.tvSameOnAll) };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -1577,7 +1597,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-10-31.10";
+const BOARD_VERSION = "2026-11-03.1";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -3132,6 +3152,8 @@ function downloadQueueReport(xlsx, state, now) {
     draft.slipWidth ??= 58;
     draft.qrAddress ??= "";
     draft.vitalsPlace ??= "";
+    draft.tvScreens = structuredClone(draft.tvScreens ?? []);
+    draft.tvSameOnAll = Boolean(draft.tvSameOnAll);
     draft.numberTags = { ...draft.numberTags };
     draft.sms = { ...DEFAULT_SMS, ...draft.sms };
     draftBase = JSON.stringify(draft);
@@ -3311,6 +3333,8 @@ function downloadQueueReport(xlsx, state, now) {
             <label class="check"><input type="radio" name="display-conn" value="lan" data-set="displayConnection" ${draft.displayConnection === "lan" ? "checked" : ""}><span><b>🔌 LAN cable (Ethernet)</b><small>The TV computer is plugged into the clinic router or network switch with a cable</small></span></label>
             <div id="cfg-display"></div>
           </div></section>
+        <section class="panel" style="grid-column:1/-1"><div class="panel-h"><div><h2>📺 TV screens</h2><p>Show the same queue on every TV, or give each TV in the clinic its own area: its own Now calling, Now serving and Next in line, reading out only its own calls.</p></div></div>
+          <div class="panel-b" id="cfg-tvs"></div></section>
       </div>
       <div class="cfg-foot"><span id="cfg-dirty"></span><button class="btn ghost" data-act="discardSettings">Discard changes</button><button class="btn" data-act="saveSettings">Save configuration</button></div>`;
     box.querySelectorAll("[data-set]").forEach((input) => input.addEventListener(input.type === "checkbox" || input.tagName === "SELECT" ? "change" : "input", () => {
@@ -3362,7 +3386,62 @@ function downloadQueueReport(xlsx, state, now) {
   let serverAddresses = null;
   const queueServerBase = () => (sync.mode === "server" ? syncServer() : /^https?:$/.test(location.protocol) ? location.origin : "");
   const PRIVATE_HOST = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
+  /** The address the TVs open: the server's Wi-Fi or LAN cable address (System configuration → Display connection). */
+  function displayBaseUrl() {
+    const base = queueServerBase();
+    let server = null;
+    try { server = new URL(base); } catch { return ""; }
+    if (!PRIVATE_HOST.test(server.hostname)) return base;
+    const match = (serverAddresses ?? []).find((s) => s.connection === (draft?.displayConnection === "lan" ? "lan" : "wifi"));
+    return match ? `${server.protocol}//${match.address}${server.port ? `:${server.port}` : ""}` : base;
+  }
+  const tvSlug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "tv";
+  // The TV whose stations are being chosen (System configuration → TV screens), or null.
+  let tvPick = null;
+  /** System configuration → TV screens: Same on all TVs, or each TV with its own stations. */
+  function renderTvScreens() {
+    const box = $("#cfg-tvs");
+    if (!box || !draft) return;
+    const screens = draft.tvScreens;
+    const same = draft.tvSameOnAll;
+    const base = displayBaseUrl();
+    const codes = draft.stations.filter((st) => st.code).map((st) => st.code);
+    const nameOf = (code) => draft.stations.find((st) => st.code === code)?.name || code;
+    const shown = (screen) => (!screen.stations.length ? `<i style="color:var(--muted)">No stations yet</i>` : codes.every((code) => screen.stations.includes(code)) ? "<b>All stations</b>" : screen.stations.map((code) => `<b class="mono">${esc(code)}</b> ${esc(nameOf(code))}`).join(" · "));
+    const address = (screen) => (base ? `${base}/queue/display?tv=${screen.id}` : `/queue/display?tv=${screen.id}`);
+    const row = (screen, i) => `<tr>
+      <td><input type="text" maxlength="40" style="width:170px" value="${esc(screen.name)}" placeholder="e.g. Clinic area" data-tv-field="name" data-tv-index="${i}" aria-label="TV name"></td>
+      <td style="max-width:430px;font-size:13px"><span>${shown(screen)}</span> <button type="button" class="btn sm outline" data-act="tvPick" data-index="${i}">✎ Choose stations</button></td>
+      <td style="text-align:center"><input type="checkbox" ${screen.registration ? "checked" : ""} data-tv-field="registration" data-tv-index="${i}" aria-label="Registration calls (Concierge and HMO Desk)"></td>
+      <td><span class="mono" style="font-size:12px;word-break:break-all" data-tv-address="${i}">${esc(address(screen))}</span></td>
+      <td style="white-space:nowrap"><button type="button" class="btn sm outline" data-act="copyText" data-text="${esc(address(screen))}">📋 Copy</button> <button type="button" class="btn sm outline" data-act="downloadTvFile" data-url="${esc(base)}" data-conn="${draft.displayConnection === "lan" ? "lan" : "wifi"}" data-tv="${esc(screen.id)}" title="For a Windows computer plugged into this TV">⬇ Startup file</button> <button type="button" class="btn icon ghost" data-act="removeTv" data-index="${i}" aria-label="Remove TV">✕</button></td>
+    </tr>`;
+    box.innerHTML = `
+      <div class="toggles" style="margin-top:0">
+        <label class="check"><input type="radio" name="tv-mode" value="same" data-tv-mode ${same ? "checked" : ""}><span><b>🔁 Same on all TVs</b><small>Every TV shows all stations and reads out every call, in sync.</small></span></label>
+        <label class="check"><input type="radio" name="tv-mode" value="each" data-tv-mode ${same ? "" : "checked"}><span><b>📍 Each TV its own area</b><small>Each TV below shows only its own stations and reads out only their calls.</small></span></label>
+      </div>
+      ${same ? `<p class="note" style="margin:10px 0 0">Every TV shows everything now, whichever address it opened. The list below is kept: choose <b>Each TV its own area</b> to use it again.</p>` : ""}
+      ${screens.length ? `<div class="table-wrap" style="margin-top:10px${same ? ";opacity:.55" : ""}"><table class="set-table"><thead><tr><th>TV name (shown on the TV)</th><th>Stations shown</th><th title="Registration calls at the Concierge and HMO Desk">Registration calls</th><th>Address for the TV's browser</th><th></th></tr></thead><tbody>${screens.map(row).join("")}</tbody></table></div>` : `<p class="empty" style="margin-top:10px">No TVs listed yet. The TV display address without ?tv= always shows everything.</p>`}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button type="button" class="btn sm outline" data-act="addTv">＋ Add TV</button>${screens.length ? "" : `<button type="button" class="btn sm outline" data-act="addTvSuggested">＋ Add 5 suggested TVs (Lobby, Clinic area, 2D Echo, Procedures, Laboratory &amp; Cashier)</button>`}</div>
+      <p class="note" style="margin:10px 0 0">On each smart TV, open its address in the TV's browser and bookmark it; press OK on the remote once so the chime and voice can play. A new TV's address is ready after <b>Save configuration</b>. The plain address <span class="mono">/queue/display</span> always shows everything.</p>
+      ${tvPick !== null && screens[tvPick] ? `<div class="tv-pick" data-act="tvPickBg"><div class="tv-pick-box"><h2>Stations on “${esc(screens[tvPick].name || "this TV")}”</h2><p>Tap to add or remove. This TV shows only these stations.</p>
+        <div class="chips">${draft.stations.filter((st) => st.code).map((st) => { const on = screens[tvPick].stations.includes(st.code); return `<button type="button" class="${on ? "on" : ""}" aria-pressed="${on}" data-act="tvPickToggle" data-code="${esc(st.code)}">${on ? "✓" : "＋"} <b class="mono">${esc(st.code)}</b> <span>${esc(st.name)}</span></button>`; }).join(" ")}</div>
+        <div style="display:flex;justify-content:space-between;gap:8px;margin-top:16px;flex-wrap:wrap"><span><button type="button" class="btn sm ghost" data-act="tvPickAll">Select all</button><button type="button" class="btn sm ghost" data-act="tvPickNone">Clear</button></span><button type="button" class="btn" data-act="tvPickDone">Done</button></div></div></div>` : ""}`;
+    box.querySelectorAll("[data-tv-mode]").forEach((input) => input.addEventListener("change", () => { draft.tvSameOnAll = input.value === "same"; renderTvScreens(); refreshDirty(); }));
+    box.querySelectorAll("[data-tv-field]").forEach((input) => input.addEventListener(input.type === "checkbox" ? "change" : "input", () => {
+      const screen = screens[Number(input.dataset.tvIndex)];
+      if (input.dataset.tvField === "registration") screen.registration = input.checked;
+      else {
+        screen.name = input.value;
+        // A TV not saved yet takes its address from its name; a saved one keeps its address.
+        if (screen.fresh) { screen.id = tvSlug(input.value); const cell = box.querySelector(`[data-tv-address="${input.dataset.tvIndex}"]`); if (cell) cell.textContent = address(screen); }
+      }
+      refreshDirty();
+    }));
+  }
   function renderDisplayConnection() {
+    renderTvScreens();
     const box = $("#cfg-display");
     if (!box || !draft) return;
     const base = queueServerBase();
@@ -3517,22 +3596,22 @@ function downloadQueueReport(xlsx, state, now) {
   }
 
   /** A start-tv-display.cmd for the TV computer, set to the chosen address (same as tv-setup\\start-tv-display.cmd). */
-  function downloadTvFile(url, conn) {
+  function downloadTvFile(url, conn, tv = "") {
     const lines = [
       "@echo off",
-      `rem THSC Queue Board - lobby TV, connected by ${conn === "lan" ? "LAN cable" : "Wi-Fi"} to the queue server at ${url}.`,
+      `rem THSC Queue Board - ${tv ? `TV "${tv}"` : "lobby TV"}, connected by ${conn === "lan" ? "LAN cable" : "Wi-Fi"} to the queue server at ${url}.`,
       "rem Opens the TV display full screen in Microsoft Edge with sound allowed, so no one has to click.",
       "rem To start it whenever the TV computer turns on: press Windows+R, type shell:startup, press Enter,",
       "rem and copy this file into the folder that opens. To close the TV display, press Alt+F4.",
       `set "SITE=${url}"`,
       "rem Wait up to 90 seconds for the queue server (it may still be starting when the computers turn on).",
       `powershell -NoProfile -Command "for ($i = 0; $i -lt 45; $i++) { try { Invoke-WebRequest -UseBasicParsing '%SITE%/api/queue' -TimeoutSec 2 | Out-Null; exit 0 } catch { Start-Sleep 2 } }" >nul 2>nul`,
-      `start "" msedge --kiosk "%SITE%/queue/display" --edge-kiosk-type=fullscreen --no-first-run --autoplay-policy=no-user-gesture-required --user-data-dir="%LOCALAPPDATA%\\THSC-TV"`,
+      `start "" msedge --kiosk "%SITE%/queue/display${tv ? `?tv=${tv}` : ""}" --edge-kiosk-type=fullscreen --no-first-run --autoplay-policy=no-user-gesture-required --user-data-dir="%LOCALAPPDATA%\\THSC-TV"`,
       "",
     ];
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([lines.join("\r\n")], { type: "application/octet-stream" }));
-    link.download = "start-tv-display.cmd";
+    link.download = tv ? `start-tv-display-${tv}.cmd` : "start-tv-display.cmd";
     document.body.appendChild(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
     toast("TV startup file downloaded. Copy it to the TV computer's Startup folder (Windows+R → shell:startup).");
@@ -4110,7 +4189,7 @@ function downloadQueueReport(xlsx, state, now) {
         <section class="tv-next"><h2>Next in line</h2><div id="reg-call"></div><div id="next" style="margin-top:1.2vh;min-height:0;overflow:hidden"></div></section>
       </div>`;
     app.innerHTML = `<div class="tv-app">
-      <header class="tv-head"><div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state.settings).toUpperCase())}</small><b>Queue Board</b></div></div><div class="tv-clock"><b id="tv-time"></b><span id="tv-date"></span></div></header>
+      <header class="tv-head"><div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state.settings).toUpperCase())}</small><b>Queue Board<span id="tv-area" style="color:var(--gold-2)"></span></b></div></div><div class="tv-clock"><b id="tv-time"></b><span id="tv-date"></span></div></header>
       ${body}
       <footer class="tv-foot"><div class="ticker"><span id="ticker"></span></div><div class="tv-ctl"><button data-act="sound" id="sound-toggle">🔇 Sound off</button><button data-act="fullscreen">⛶ Full screen</button><span class="badge-device sync-badge" style="align-self:center"></span><a href="#desk">Front desk</a></div></footer>
     </div><button class="sound-btn" id="sound-btn" data-act="startTv">🔊 Click anywhere to start: full screen, chime &amp; voice announcements</button>`;
@@ -4191,6 +4270,21 @@ function downloadQueueReport(xlsx, state, now) {
   }
   window.addEventListener("resize", () => { if (view === "display") fitNumbers(); });
 
+  // ---- TV screens: a TV opened at /queue/display?tv=<id> shows only its own stations (System configuration → TV screens) ----
+  const tvId = () => (new URLSearchParams(location.search).get("tv") || (route().name === "display" ? route().arg : "") || "").toLowerCase();
+  /** This TV's screen, or null when it shows everything (no ?tv=, an unknown one, or "Same on all TVs"). */
+  function tvScreen() {
+    if (state.settings.tvSameOnAll) return null;
+    const id = tvId();
+    return id ? (state.settings.tvScreens ?? []).find((screen) => screen.id === id) ?? null : null;
+  }
+  const tvShowsStation = (code) => { const screen = tvScreen(); return !screen || screen.stations.includes(code); };
+  const tvShowsRegistration = () => { const screen = tvScreen(); return !screen || screen.registration; };
+  /** Whether this TV shows (and reads out) a call: registration and card calls only where registration is on. */
+  const tvShowsCall = (item) => (item.kind === "registration" || item.kind === "card" ? tvShowsRegistration() : tvShowsStation(item.station));
+  /** The latest open call this TV shows. */
+  const tvOpenCall = () => [...state.announcements].reverse().find((item) => callStillOpen(state, item) && tvShowsCall(item));
+
   /** "Please proceed to" with the destination in a highlighted box (calls made before this change may still end in "for registration"). */
   /** "PRIORITY LANE" under a called number when it is a priority lane patient's (Senior, PWD, pregnant). */
   const callPrioLane = (item) => {
@@ -4208,7 +4302,7 @@ function downloadQueueReport(xlsx, state, now) {
     const now = serverNow();
     $("#tv-time").textContent = clock.format(now);
     $("#tv-date").textContent = longDate.format(now);
-    const latest = openCall(state);
+    const latest = tvOpenCall();
     const fresh = Boolean(latest && now - latest.at < 15000);
     $("#hero").classList.toggle("fresh", fresh);
     // A new call covers the video so patients who are watching it don't miss their number.
@@ -4330,8 +4424,10 @@ function downloadQueueReport(xlsx, state, now) {
     // Announce calls made since the last update, oldest first.
     const list = state.announcements;
     const index = list.findIndex((a) => a.id === seen);
-    const fresh = list.slice(index + 1).filter((a) => serverNow() - a.at < 60000);
+    const fresh = list.slice(index + 1).filter((a) => serverNow() - a.at < 60000 && tvShowsCall(a));
     seen = list[list.length - 1]?.id ?? null;
+    const screen = tvScreen();
+    $("#tv-area").textContent = screen ? ` · ${screen.name}` : "";
     const gap = announcementGap(state.settings.announceLanguage);
     if (sound) fresh.forEach((item, i) => setTimeout(() => announce(item), i * gap));
     // A call came in but this TV is silent: make the start button impossible to miss.
@@ -4346,8 +4442,8 @@ function downloadQueueReport(xlsx, state, now) {
     // Sound on/off or volume changed at the front desk.
     if (`${sound}|${Boolean(state.settings.videoSound)}|${videoVolumeOf(state.settings)}` !== videoSoundKey) applyVideoSound();
 
-    const stations = state.settings.stations.filter((s) => s.active);
-    const latest = openCall(state);
+    const stations = state.settings.stations.filter((s) => s.active && tvShowsStation(s.code));
+    const latest = tvOpenCall();
     $("#hero").innerHTML = latest
       ? `<p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p>${callPrioLane(latest)}${goLine(latest)}`
       : `<p class="k">Welcome</p><p class="go" style="max-width:80%">Please wait for your queue number to appear on this screen.</p>`;
@@ -4368,12 +4464,13 @@ function downloadQueueReport(xlsx, state, now) {
       const mine = (v) => (clinicOf(key) ? clinicOf(v.kind) === clinicOf(key) : numberGroup(v.kind) === key);
       const waitingReg = toRegister.filter(mine);
       const rows = [];
-      if (waitingReg.length) rows.push(lineRow(`Registration · ${hmo ? "HMO Desk" : "Concierge"}`, waitingReg.filter((v) => v !== registering && !v.regCalledAt)));
+      if (waitingReg.length && tvShowsRegistration()) rows.push(lineRow(`Registration · ${hmo ? "HMO Desk" : "Concierge"}`, waitingReg.filter((v) => v !== registering && !v.regCalledAt)));
       stations.forEach((st) => {
         const waiting = waitingFor(state, st.code).filter(mine);
         if (waiting.length) rows.push(lineRow(st.name, waiting));
       });
-      if (clinicOf(key) && !rows.length) return "";
+      // Clinic groups, and every group on a TV that shows only some stations, appear only while someone waits in them.
+      if ((clinicOf(key) || tvScreen()) && !rows.length) return "";
       return `<div class="nl-group ${hmo ? "hmo" : clinicOf(key) ? "clinic" : "regular"}"><h3>${hmo ? "HMO patients" : clinicOf(key) ? `${clinicOf(key)} · pre-scheduled` : "Regular patients"}</h3>${rows.join("") || `<p class="none">No one is waiting.</p>`}</div>`;
     };
     $("#reg-call").innerHTML = "";
@@ -4386,6 +4483,7 @@ function downloadQueueReport(xlsx, state, now) {
       next.classList.toggle("two-col", twoCol);
       if (fits()) break;
     }
+    if (!next.innerHTML.trim()) next.innerHTML = `<p class="none" style="color:#8c7f66;font-size:1.3vw">No one is waiting.</p>`;
     const ticker = $("#ticker");
     if (ticker.textContent !== state.settings.ticker) ticker.textContent = state.settings.ticker;
     fitNumbers();
@@ -4565,7 +4663,7 @@ function downloadQueueReport(xlsx, state, now) {
         break;
       }
       case "verify": dispatch({ type: "verify", visitId: id }, "Check-in verified."); break;
-      case "downloadTvFile": downloadTvFile(el.dataset.url, el.dataset.conn); break;
+      case "downloadTvFile": downloadTvFile(el.dataset.url, el.dataset.conn, el.dataset.tv); break;
       case "copyText": { const text = el.dataset.text; navigator.clipboard?.writeText(text).then(() => toast("Copied."), () => window.prompt("Copy this address:", text)) ?? window.prompt("Copy this address:", text); break; }
       case "discardSettings": if (confirm("Discard the changes you have not saved?")) { resetDraft(); renderSettings(); } break;
       case "addStandard": {
@@ -4584,6 +4682,29 @@ function downloadQueueReport(xlsx, state, now) {
       };
       case "addStation": draft.stations.push({ code: "", name: "", location: "", service: "consultation", selfCheckIn: true, active: true }); renderSettings(); break;
       case "removeStation": draft.stations.splice(Number(index), 1); renderSettings(); break;
+      case "addTv": { const n = draft.tvScreens.length + 1; draft.tvScreens.push({ id: `tv-${n}`, name: `TV ${n}`, stations: [], registration: false, fresh: true }); tvPick = draft.tvScreens.length - 1; renderTvScreens(); refreshDirty(); break; }
+      case "addTvSuggested": {
+        const all = draft.stations.filter((st) => st.code);
+        const pick = (test) => all.filter(test).map((st) => st.code);
+        const echo = (st) => /2d echo/i.test(st.name) || /^E\d$/.test(st.code);
+        const list = [
+          ["Lobby", all.map((st) => st.code), true],
+          ["Clinic area", pick((st) => st.service === "consultation"), false],
+          ["2D Echo", pick(echo), false],
+          ["Procedures", pick((st) => st.service === "procedure" && !echo(st)), false],
+          ["Laboratory & Cashier", pick((st) => st.service === "laboratory" || st.service === "cashier"), false],
+        ];
+        draft.tvScreens = list.map(([name, stations, registration]) => ({ id: tvSlug(name), name, stations, registration, fresh: true }));
+        draft.tvSameOnAll = false;
+        renderTvScreens(); refreshDirty(); break;
+      }
+      case "removeTv": { const screen = draft.tvScreens[Number(index)]; if (screen && (screen.fresh || confirm(`Remove the TV "${screen.name}"? Its address then shows everything.`))) { draft.tvScreens.splice(Number(index), 1); renderTvScreens(); refreshDirty(); } break; }
+      case "tvPick": tvPick = Number(index); renderTvScreens(); break;
+      case "tvPickToggle": { const screen = draft.tvScreens[tvPick]; if (!screen) break; const at = screen.stations.indexOf(code); if (at < 0) screen.stations.push(code); else screen.stations.splice(at, 1); renderTvScreens(); refreshDirty(); break; }
+      case "tvPickAll": { const screen = draft.tvScreens[tvPick]; if (screen) { screen.stations = draft.stations.filter((st) => st.code).map((st) => st.code); renderTvScreens(); refreshDirty(); } break; }
+      case "tvPickNone": { const screen = draft.tvScreens[tvPick]; if (screen) { screen.stations = []; renderTvScreens(); refreshDirty(); } break; }
+      case "tvPickDone": tvPick = null; renderTvScreens(); break;
+      case "tvPickBg": if (event.target === el) { tvPick = null; renderTvScreens(); } break;
       case "videoMute": {
         const on = !state.settings.videoSound;
         const videoVolume = on && videoVolumeOf(state.settings) === 0 ? 60 : videoVolumeOf(state.settings);

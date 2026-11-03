@@ -1,4 +1,4 @@
-import type { ActionResult, AnnounceLanguage, Announcement, Billing, NumberGroup, PatientKind, TaggedGroup, QueueAction, QueueState, Settings, SmsSettings, Station, Step, Visit, VisitInput } from "./types";
+import type { ActionResult, AnnounceLanguage, Announcement, Billing, NumberGroup, PatientKind, TaggedGroup, QueueAction, QueueState, Settings, SmsSettings, Station, Step, Visit, VisitInput, TvScreen } from "./types";
 import { slipWidthOf } from "./escpos";
 import { configPinOk, hashConfigPin } from "./pin";
 import { smsSettingsOf, smsTextOf } from "./sms";
@@ -61,6 +61,22 @@ export function purposeStations(settings: Settings, purposes: string[] = []): st
 }
 
 /** Checks the number tags from System configuration: 1 to 5 letters or digits, starting with a letter, each used once. */
+/** The TV screens list: up to 12 TVs, each with a short id for its address, a name and its stations. */
+export function tvScreensOf(input: unknown, codes: string[]): TvScreen[] {
+  const used = new Set<string>();
+  const screens: TvScreen[] = [];
+  for (const raw of Array.isArray(input) ? input.slice(0, 12) : []) {
+    const name = clean(raw?.name, 40);
+    if (!name) continue;
+    let id = clean(raw?.id, 24).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "tv";
+    for (let n = 2; used.has(id); n++) id = `${id.replace(/-\d+$/, "")}-${n}`;
+    used.add(id);
+    const stations = Array.isArray(raw?.stations) ? [...new Set(raw.stations.map((code: unknown) => String(code)).filter((code: string) => codes.includes(code)))] as string[] : [];
+    screens.push({ id, name, stations, registration: Boolean(raw?.registration) });
+  }
+  return screens;
+}
+
 export function numberTagsOf(input: unknown): Partial<Record<TaggedGroup, string>> | string {
   const raw = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
   const tags: Partial<Record<TaggedGroup, string>> = {};
@@ -398,7 +414,7 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   if (typeof sms === "string") return sms;
   // The configuration PIN only changes with setConfigPin, never from the settings form.
   const configPin = previous.configPin ? { configPin: previous.configPin } : {};
-  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, qrAddress, numberTags, vitalsPlace, sms, ...configPin };
+  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, qrAddress, numberTags, vitalsPlace, sms, tvScreens: tvScreensOf(input.tvScreens ?? previous.tvScreens, stations.map((s) => s.code)), tvSameOnAll: Boolean(input.tvSameOnAll ?? previous.tvSameOnAll), ...configPin };
 }
 
 export const CONFIG_PIN_NEEDED = "Enter the configuration PIN to change System configuration.";
