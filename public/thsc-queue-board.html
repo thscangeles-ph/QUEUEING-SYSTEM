@@ -1602,7 +1602,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-03.8";
+const BOARD_VERSION = "2026-11-03.9";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2161,7 +2161,8 @@ function downloadQueueReport(xlsx, state, now) {
       document.querySelectorAll(".tv-badge").forEach((el) => { el.textContent = tv.text; el.className = `badge-device tv-badge ${tv.tone}`; el.title = tv.warn || "Calls are chimed and read out on the TV."; });
     }
     const [text, tone, title] = syncLabel();
-    document.querySelectorAll(".sync-badge").forEach((el) => { el.textContent = text; el.className = `badge-device sync-badge ${tone}`; el.title = title; });
+    // On the TV the badge shows only when something is wrong (Reconnecting…), not the server address while all is well.
+    document.querySelectorAll(".sync-badge").forEach((el) => { el.textContent = text; el.className = `badge-device sync-badge ${tone}${view === "display" && tone === "ok" ? " hidden" : ""}`; el.title = title; });
     const banner = $("#sync-banner");
     if (banner) { banner.textContent = sync.error || sync.warning; banner.classList.toggle("hidden", !(sync.error || sync.warning)); }
   }
