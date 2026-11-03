@@ -1,4 +1,6 @@
 import os from "node:os";
+import { keepingAwake } from "@/lib/queue/keep-awake";
+import { isClinicServer } from "@/lib/queue/server-store";
 
 export const dynamic = "force-dynamic";
 
@@ -21,5 +23,7 @@ export function GET() {
     .sort((a, b) => Number(isPrivate(b.address)) - Number(isPrivate(a.address)));
   // Phones use Wi-Fi, so the Wi-Fi address comes first in the plain list the QR poster uses.
   const addresses = [...servers].sort((a, b) => Number(b.connection === "wifi") - Number(a.connection === "wifi")).map((item) => item.address);
-  return Response.json({ addresses, servers }, { headers: { "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" } });
+  // awake: this Windows clinic server keeps the computer from sleeping (null where it does not apply).
+  const awake = process.platform === "win32" && isClinicServer() ? keepingAwake() : null;
+  return Response.json({ addresses, servers, awake }, { headers: { "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" } });
 }
