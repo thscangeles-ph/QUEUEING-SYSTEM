@@ -1604,7 +1604,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-03.10";
+const BOARD_VERSION = "2026-11-03.11";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -3260,7 +3260,7 @@ function downloadQueueReport(xlsx, state, now) {
     const services = [["consultation", "Consultation"], ["procedure", "Procedure"], ["laboratory", "Laboratory"], ["imaging", "Imaging"], ["cashier", "Cashier"], ["hmo", "HMO desk"], ["other", "Other"]];
     const volume = videoVolumeOf(draft);
     box.innerHTML = `
-      <div class="cfg-head"><div><h1>System configuration <small style="font-size:13px;font-weight:600;color:var(--muted)">· version ${BOARD_VERSION}</small></h1><p>Every Queue Board setting in one place. Saved changes reach every computer, the stations and the lobby TV within a few seconds.</p></div><button type="button" class="btn sm outline" data-act="lockConfig" title="Lock System configuration on this computer">🔒 Lock</button></div>
+      <div class="cfg-head"><div><h1>System configuration <small style="font-size:13px;font-weight:600;color:var(--muted)">· version ${BOARD_VERSION}<span id="cfg-awake"></span></small></h1><p>Every Queue Board setting in one place. Saved changes reach every computer, the stations and the lobby TV within a few seconds.</p></div><button type="button" class="btn sm outline" data-act="lockConfig" title="Lock System configuration on this computer">🔒 Lock</button></div>
       <section class="panel"><div class="panel-h"><div><h2>Stations</h2><p>Station codes become part of the queue number, e.g. C1 in 01-C1-W. Set a station inactive to hide it without losing it.</p></div></div>
         <div class="panel-b">
           <div class="table-wrap"><table class="set-table"><thead><tr><th>Code</th><th>Station name</th><th>Where to go (read on TV)</th><th>Service</th><th title="Stations with the same group share one screen on the Stations page">Group</th><th title="Patients are called for vital signs (Nursing station) before they go in">🩺 Vitals first</th><th>Active</th><th></th></tr></thead><tbody>
@@ -3486,8 +3486,17 @@ function downloadQueueReport(xlsx, state, now) {
       refreshDirty();
     }));
   }
+  // Whether the Windows clinic server keeps the computer from sleeping (null: does not apply, or not known yet).
+  let serverAwake = null;
+  function showServerAwake() {
+    const box = $("#cfg-awake");
+    if (!box) return;
+    box.innerHTML = serverAwake === true ? ` · <span style="color:var(--ok)" title="While the queue server runs, Windows does not sleep (the screen can still turn off)">🖥 Server kept awake (no sleep) ✓</span>`
+      : serverAwake === false ? ` · <span style="color:#b4233c" title="In Windows Settings, System, Power: set Sleep to Never">⚠ The server cannot stop Windows from sleeping: set Sleep to Never</span>` : "";
+  }
   function renderDisplayConnection() {
     renderTvScreens();
+    showServerAwake();
     const box = $("#cfg-display");
     if (!box || !draft) return;
     const base = queueServerBase();
@@ -3498,7 +3507,7 @@ function downloadQueueReport(xlsx, state, now) {
     if (serverAddresses === null) {
       box.innerHTML = `<p class="note" style="margin:0">Looking up the server's addresses…</p>`;
       serverAddresses = [];
-      fetch(`${base}/api/server-info`, { cache: "no-store" }).then((r) => r.json()).then((body) => { serverAddresses = Array.isArray(body.servers) ? body.servers : []; }).catch(() => { serverAddresses = []; }).finally(() => { renderDisplayConnection(); renderKioskLink(); showQrHint(); });
+      fetch(`${base}/api/server-info`, { cache: "no-store" }).then((r) => r.json()).then((body) => { serverAddresses = Array.isArray(body.servers) ? body.servers : []; serverAwake = typeof body.awake === "boolean" ? body.awake : null; }).catch(() => { serverAddresses = []; }).finally(() => { renderDisplayConnection(); renderKioskLink(); showQrHint(); });
       return;
     }
     const want = draft.displayConnection === "lan" ? "lan" : "wifi";
