@@ -1601,7 +1601,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-03.4";
+const BOARD_VERSION = "2026-11-03.6";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -1992,6 +1992,11 @@ function downloadQueueReport(xlsx, state, now) {
   const $ = (selector) => document.querySelector(selector);
   let storageOk = true;
 
+  // A smart TV's own browser (Samsung Tizen, LG webOS, Android/Google TV …): it cannot download or run a startup file, and
+  // the clinic server's address opens the TV display on it.
+  const SMART_TV = /SMART-TV|SmartTV|Tizen|Web0S|webOS|NetCast|BRAVIA|Android TV|GoogleTV|AFT[A-Z]|HbbTV|CrKey|VIDAA|Roku/i.test(navigator.userAgent);
+  // The TV area this browser last showed (System configuration → TV screens), so the plain address opens it again.
+  const TV_SCREEN_KEY = "thsc-queue-tv-screen";
   const readSetting = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
   const writeSetting = (key, value) => { try { if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value); } catch { storageOk = false; } };
   /** Sync server address for this computer; an empty string keeps the queue on this computer only. */
@@ -2150,11 +2155,13 @@ function downloadQueueReport(xlsx, state, now) {
   const KIOSK_KEY = "thsc-queue-kiosk";
   const kioskLocked = () => { try { return sessionStorage.getItem(KIOSK_KEY) === "1"; } catch { return false; } };
   const setKioskLock = (on) => { try { if (on) sessionStorage.setItem(KIOSK_KEY, "1"); else sessionStorage.removeItem(KIOSK_KEY); } catch { /* private mode: not locked */ } };
+  /** The short address /tv, or the plain address on a smart TV's browser: the TV display, with no setup each time. */
+  const autoTv = () => location.pathname.replace(/\/+$/, "") === "/tv" || (SMART_TV && (location.pathname === "/" || location.pathname === "/queue" || location.pathname === "/queue/"));
   function route() {
     // Served by the website at /queue/station?s=C1 or /queue/display, the path picks the screen until a #screen link is used.
     // A kiosk tablet stays on the kiosk: patients must not reach the staff screens (see leaveKiosk).
     if (kioskLocked()) return { name: "kiosk", arg: "" };
-    const fromPath = location.pathname.startsWith("/queue/station") ? `station/${new URLSearchParams(location.search).get("s") ?? ""}` : location.pathname.startsWith("/queue/display") ? "display" : location.pathname.startsWith("/queue/config") ? "config" : location.pathname.startsWith("/queue/kiosk") ? "kiosk" : "";
+    const fromPath = location.pathname.startsWith("/queue/station") ? `station/${new URLSearchParams(location.search).get("s") ?? ""}` : location.pathname.startsWith("/queue/display") ? "display" : location.pathname.startsWith("/queue/config") ? "config" : location.pathname.startsWith("/queue/kiosk") ? "kiosk" : autoTv() ? "display" : "";
     const [name, arg] = (location.hash.replace(/^#/, "") || fromPath).split("/");
     // History is in System configuration (an older #history link opens it there).
     if (name === "history") return { name: "config", arg: "history" };
@@ -3271,7 +3278,7 @@ function downloadQueueReport(xlsx, state, now) {
         <section class="panel"><div class="panel-h"><div><h2>Announcements</h2><p>The chime plays first, then the queue number is read out on the TV.</p></div></div>
           <div class="panel-b" style="display:grid;gap:10px">
             <label class="field">Spoken language<select data-set="announceLanguage">${[["en", "English only"], ["en+fil", "English, then Tagalog"], ["fil", "Tagalog only"]].map(([v, l]) => `<option value="${v}" ${(draft.announceLanguage ?? "en") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn sm outline" data-act="testVoice">▶ Test announcement</button><span style="font-size:12px;color:var(--muted)">Plays on this computer.</span></div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn sm outline" data-act="testVoice">▶ Test announcement</button><span style="font-size:12px;color:var(--muted)">Plays on this computer.</span><button type="button" class="btn sm outline" data-act="testServerVoice" title="The voice the queue server makes for smart TVs (Samsung, LG …), which have no voice of their own">🔊 Test the smart TV voice</button></div><p class="yt-hint" id="server-voice-hint"></p>
             <p class="yt-hint" id="voice-hint"></p>
           </div></section>
         <section class="panel"><div class="panel-h"><div><h2>Today's queue</h2><p>Numbers start at 01 every day and restart automatically at midnight (Philippine time).</p></div></div>
@@ -3399,8 +3406,6 @@ function downloadQueueReport(xlsx, state, now) {
     const match = (serverAddresses ?? []).find((s) => s.connection === (draft?.displayConnection === "lan" ? "lan" : "wifi"));
     return match ? `${server.protocol}//${match.address}${server.port ? `:${server.port}` : ""}` : base;
   }
-  // A smart TV's own browser (Samsung Tizen, LG webOS, Android/Google TV …): it cannot download or run a startup file.
-  const SMART_TV = /SMART-TV|SmartTV|Tizen|Web0S|webOS|NetCast|BRAVIA|Android TV|GoogleTV|AFT[A-Z]|HbbTV|CrKey|VIDAA|Roku/i.test(navigator.userAgent);
   const smartTvNote = (what) => `<p class="note" style="margin:10px 0 0;border-color:#cfe3f7;background:#f2f8fe">📺 <b>This is a smart TV's browser.</b> The startup file is for a Windows computer plugged into a TV, so it cannot be downloaded here. On this TV: ${what}, then <b>bookmark</b> it (or set it as the browser's home page) and press <b>OK</b> on the remote once so the chime and voice can play.</p>`;
   const tvSlug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "tv";
   // The TV whose stations are being chosen (System configuration → TV screens), or null.
@@ -4186,6 +4191,8 @@ function downloadQueueReport(xlsx, state, now) {
 
   function mountDisplay() {
     seen = state.announcements[state.announcements.length - 1]?.id ?? null;
+    // Remember this TV's area, so the plain address (or /tv) opens it next time.
+    if (location.pathname.startsWith("/queue/display") || new URLSearchParams(location.search).has("tv")) writeSetting(TV_SCREEN_KEY, tvId() || null);
     mountedVideo = currentVideo();
     const body = mountedVideo
       ? `<div class="tv-body video">
@@ -4199,7 +4206,7 @@ function downloadQueueReport(xlsx, state, now) {
     app.innerHTML = `<div class="tv-app">
       <header class="tv-head"><div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state.settings).toUpperCase())}</small><b>Queue Board<span id="tv-area" style="color:var(--gold-2)"></span></b></div></div><div class="tv-clock"><b id="tv-time"></b><span id="tv-date"></span></div></header>
       ${body}
-      <footer class="tv-foot"><div class="ticker"><span id="ticker"></span></div><div class="tv-ctl"><button data-act="sound" id="sound-toggle">🔇 Sound off</button><button data-act="fullscreen">⛶ Full screen</button><span class="badge-device sync-badge" style="align-self:center"></span><a href="#desk">Front desk</a></div></footer>
+      <footer class="tv-foot"><span id="tv-voice" class="hidden" style="color:#f4c3cc;font-size:1vw;max-width:40vw;margin-right:1vw"></span><div class="ticker"><span id="ticker"></span></div><div class="tv-ctl"><button data-act="sound" id="sound-toggle">🔇 Sound off</button><button data-act="fullscreen">⛶ Full screen</button><span class="badge-device sync-badge" style="align-self:center"></span><a href="#desk">Front desk</a></div></footer>
     </div><button class="sound-btn" id="sound-btn" data-act="startTv">🔊 Click anywhere to start: full screen, chime &amp; voice announcements</button>`;
     clearInterval(tvTimer);
     tvTimer = setInterval(() => { if (view === "display") tick(); else clearInterval(tvTimer); }, 1000);
@@ -4279,7 +4286,7 @@ function downloadQueueReport(xlsx, state, now) {
   window.addEventListener("resize", () => { if (view === "display") fitNumbers(); });
 
   // ---- TV screens: a TV opened at /queue/display?tv=<id> shows only its own stations (System configuration → TV screens) ----
-  const tvId = () => (new URLSearchParams(location.search).get("tv") || (route().name === "display" ? route().arg : "") || "").toLowerCase();
+  const tvId = () => (new URLSearchParams(location.search).get("tv") || (route().name === "display" ? route().arg : "") || (autoTv() && !location.hash ? readSetting(TV_SCREEN_KEY) : "") || "").toLowerCase();
   /** This TV's screen, or null when it shows everything (no ?tv=, an unknown one, or "Same on all TVs"). */
   function tvScreen() {
     if (state.settings.tvSameOnAll) return null;
@@ -4357,14 +4364,48 @@ function downloadQueueReport(xlsx, state, now) {
   const tvVoice = new Audio();
   const SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
   const browserCanSpeak = () => "speechSynthesis" in window && !SMART_TV && speechSynthesis.getVoices().length > 0;
-  function speakOnServer(item, lines) {
+  /**
+   * Plays the server's voice sound: through the same Web Audio as the chime (it already plays on the TV), or else an
+   * <audio> player. Resolves to "" when it played, or to what went wrong.
+   */
+  async function playServerVoice(url) {
+    let response;
+    try { response = await fetch(url, { cache: "no-store" }); } catch { return "The TV could not reach the queue server for the voice."; }
+    if (!response.ok) return (await response.json().catch(() => null))?.error || `The queue server has no voice for the TV (error ${response.status}). Update the queue server.`;
+    const data = await response.arrayBuffer();
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!audio && Ctx) audio = new Ctx();
+    if (audio) {
+      try {
+        await audio.resume?.();
+        const buffer = await new Promise((resolve, reject) => audio.decodeAudioData(data.slice(0), resolve, reject));
+        const source = audio.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audio.destination);
+        source.start();
+        return "";
+      } catch { /* this browser cannot decode it: try the <audio> player */ }
+    }
+    try {
+      tvVoice.src = URL.createObjectURL(new Blob([data], { type: "audio/wav" }));
+      await tvVoice.play();
+      return "";
+    } catch {
+      return "The TV browser would not play the voice. Press OK on the remote again so it allows sound.";
+    }
+  }
+  // Shown at the bottom of the TV when the server's voice did not play, so staff can see why.
+  function showVoiceProblem(problem) {
+    const box = document.getElementById("tv-voice");
+    if (box) { box.textContent = problem ? `🔇 No voice: ${problem}` : ""; box.classList.toggle("hidden", !problem); }
+  }
+  async function speakOnServer(item, lines) {
     const base = queueServerBase();
     if (!base) { if ("speechSynthesis" in window) speak(lines); return; }
-    tvVoice.src = `${base}/api/tts?id=${encodeURIComponent(item.id)}`;
-    tvVoice.volume = 1;
-    // No sound from the server (not Windows, or an older server): use the browser's own voice if it has one.
-    tvVoice.play().catch(() => { if ("speechSynthesis" in window) speak(lines); });
-    tvVoice.onerror = () => { tvVoice.onerror = null; if ("speechSynthesis" in window) speak(lines); };
+    const problem = await playServerVoice(`${base}/api/tts?id=${encodeURIComponent(item.id)}`);
+    showVoiceProblem(problem);
+    // No sound from the server: use the browser's own voice if it has one.
+    if (problem && "speechSynthesis" in window) speak(lines);
   }
   function announce(item) {
     chime();
@@ -4636,6 +4677,17 @@ function downloadQueueReport(xlsx, state, now) {
         if (sync.mode === "server") window.open(`${syncServer()}/queue/poster`, "_blank", "noopener");
         else toast("QR check-in needs a sync server: patients' phones cannot open this file. Turn on syncing in Sync setup.", true);
         break;
+      case "testServerVoice": {
+        const hint = $("#server-voice-hint");
+        hint.className = "yt-hint"; hint.textContent = "Asking the queue server for its voice…";
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!audio && Ctx) audio = new Ctx();
+        void playServerVoice(`${queueServerBase()}/api/tts?test=1&t=${Date.now()}`).then((problem) => {
+          hint.className = problem ? "yt-hint err" : "yt-hint ok";
+          hint.textContent = problem || "✓ The queue server's voice works. Smart TVs play this voice for each call (save the announcement language first if you changed it).";
+        });
+        break;
+      }
       case "testVoice": {
         if (!("speechSynthesis" in window)) { toast("This browser cannot speak announcements.", true); break; }
         const sample = state.settings.stations.find((s) => s.active) ?? { code: "C1", location: "Clinic Room 1" };
