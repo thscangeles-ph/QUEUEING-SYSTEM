@@ -25,5 +25,6 @@ export function GET() {
   const addresses = [...servers].sort((a, b) => Number(b.connection === "wifi") - Number(a.connection === "wifi")).map((item) => item.address);
   // awake: this Windows clinic server keeps the computer from sleeping (null where it does not apply).
   const awake = process.platform === "win32" && isClinicServer() ? keepingAwake() : null;
-  return Response.json({ addresses, servers, awake }, { headers: { "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" } });
+  // build: the build this server runs (the update files compare it with .next/BUILD_ID).
+  return Response.json({ addresses, servers, awake, build: process.env.THSC_BUILD ?? null }, { headers: { "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" } });
 }

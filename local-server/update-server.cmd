@@ -47,8 +47,8 @@ if not defined SRC goto bad_zip
 
 rem ---- 2. Stop the queue server ----
 echo Stopping the queue server (the screens reconnect by themselves when it is back)...
-taskkill /fi "WINDOWTITLE eq THSC Queue Server*" /t /f >nul 2>nul
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort %PORT% -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+rem The server window restarts the server by itself, so its window and any server on the port are stopped.
+if exist "%APP%\local-server\stop-queue-server.cmd" (call "%APP%\local-server\stop-queue-server.cmd" %PORT%) else (taskkill /fi "WINDOWTITLE eq THSC Queue Server*" /t /f >nul 2>nul)
 timeout /t 2 /nobreak >nul
 
 rem ---- 3. Copy the new version over this one, keeping this computer's settings ----
@@ -77,6 +77,7 @@ echo.
 echo  Updated. Starting the queue server again...
 start "THSC Queue Server" /min "%APP%\local-server\start-local-server.cmd"
 timeout /t 8 /nobreak >nul
+if exist "%APP%\local-server\check-server-version.cmd" call "%APP%\local-server\check-server-version.cmd" %PORT%
 echo.
 echo  Done. The front desk, stations and the TV pick up the new version by themselves within a minute.
 echo  If a screen looks old, press F5 on it (or Ctrl+F5).
