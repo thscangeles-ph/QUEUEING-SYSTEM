@@ -168,7 +168,8 @@ export type Settings = {
 };
 
 /** A TV in one area of the clinic: its name on the TV, the stations it shows, and whether it shows registration calls. */
-export type TvScreen = { id: string; name: string; stations: string[]; registration: boolean };
+/** connection: how this TV reaches the server (its Wi-Fi or LAN cable address); missing means the Display connection setting. */
+export type TvScreen = { id: string; name: string; stations: string[]; registration: boolean; connection?: "wifi" | "lan" };
 
 export type SmsSettings = {
   enabled: boolean;
