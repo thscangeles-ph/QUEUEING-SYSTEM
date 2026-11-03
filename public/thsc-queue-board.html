@@ -163,6 +163,7 @@ a.btn { text-decoration: none; }
 .desk-cat .panel { border-top: 4px solid var(--cat); }
 .desk-cat .panel-h { background: var(--cat-soft); border-radius: 12px 12px 0 0; }
 .desk-cat .panel-h h2 { color: var(--cat); }
+.tv-offline { position: fixed; left: 0; right: 0; top: 0; z-index: 80; background: #b4233c; color: #fff; font-weight: 700; font-size: 1.6vw; text-align: center; padding: 1vh 1vw; }
 .tv-pick { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 60; display: grid; place-items: center; background: rgba(31,26,18,.55); padding: 16px; }
 .tv-pick-box { background: var(--card, #fff); border-radius: 16px; padding: 20px; width: min(640px, 100%); max-height: 90vh; overflow: auto; } .tv-pick-box h2 { margin: 0 0 4px; } .tv-pick-box p { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
 .tv-pick-box .chips button.on { background: var(--primary, #8b6512); border-color: var(--primary, #8b6512); color: #fff; } .tv-pick-box .chips button.on span { color: #fff; }
@@ -1601,7 +1602,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-03.7";
+const BOARD_VERSION = "2026-11-03.8";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2047,6 +2048,23 @@ function downloadQueueReport(xlsx, state, now) {
   }
 
   let pollTimer;
+  // When this screen lost the queue server, and whether the TV screen must be rebuilt now that it is back.
+  let offlineSince = null;
+  let remountTv = false;
+  /** On the TV, a bar saying the connection is lost (after 10 seconds), so old numbers are not taken as current. */
+  function showTvOffline() {
+    let bar = document.getElementById("tv-offline");
+    if (view !== "display") { bar?.classList.add("hidden"); return; }
+    const lost = offlineSince !== null && Date.now() - offlineSince > 10000;
+    if (!bar && lost) { bar = document.createElement("div"); bar.id = "tv-offline"; bar.className = "tv-offline"; document.body.appendChild(bar); }
+    if (bar) { bar.textContent = "⚠ The TV lost its connection to the queue server (check the Wi-Fi). Reconnecting by itself…"; bar.classList.toggle("hidden", !lost); }
+  }
+  // A TV screen that lost its queue panels (seen on smart TVs after the Wi-Fi dropped, with only the video left) is rebuilt.
+  setInterval(() => {
+    if (view !== "display" || !state) return;
+    const missing = ["hero", "tiles", "next"].some((id) => { const el = document.getElementById(id); return !el || !el.isConnected || el.getClientRects().length === 0; });
+    if (missing) mount();
+  }, 30000);
   async function poll() {
     clearTimeout(pollTimer);
     if (sync.mode === "local") return;
@@ -2054,13 +2072,18 @@ function downloadQueueReport(xlsx, state, now) {
     const started = actionCount;
     let changed = false;
     try {
-      const { response, body } = await request(undefined, state ? sync.version : null);
+      // Give up after 15 seconds, so a dropped Wi-Fi is noticed instead of waiting on a request that never ends.
+      const stop = new AbortController();
+      const timer = setTimeout(() => stop.abort(), 15000);
+      const { response, body } = await request({ signal: stop.signal }, state ? sync.version : null).finally(() => clearTimeout(timer));
       // Without shared storage the server cannot sync computers: keep a queue on this computer and say why.
       if (body.mode === "local" || (sync.mode === "connecting" && response.status === 404)) {
         useLocal(`The sync server ${serverHost(syncServer())} has no shared storage set up, so this computer is keeping its own queue. Set up shared storage on the server (see the README) and reopen this file, or choose This computer only in Sync setup.`);
         return;
       }
       sync.online = true;
+      // Back after the TV lost its connection (e.g. the Wi-Fi dropped): rebuild the TV screen so it is never left half drawn.
+      if (offlineSince !== null) { const away = Date.now() - offlineSince; offlineSince = null; if (view === "display" && away > 15000) remountTv = true; }
       if (!response.ok) sync.error = body.error || `The sync server answered with error ${response.status}.`;
       else if (started === actionCount) {
         // Skip a poll that raced an action on this computer; the action's answer is newer.
@@ -2071,9 +2094,12 @@ function downloadQueueReport(xlsx, state, now) {
       }
     } catch {
       sync.online = false;
+      offlineSince ??= Date.now();
       sync.error = `No connection to the sync server (${serverHost(syncServer())}). Check the internet connection. Retrying…`;
     }
-    if (`${sync.mode}|${sync.staff}` !== before || (view === "connecting" && state)) mount();
+    showTvOffline();
+    if (remountTv) { remountTv = false; mount(); }
+    else if (`${sync.mode}|${sync.staff}` !== before || (view === "connecting" && state)) mount();
     else if (changed) update();
     else refreshSync();
     pollTimer = setTimeout(poll, POLL_MS);
@@ -4194,7 +4220,8 @@ function downloadQueueReport(xlsx, state, now) {
   const videoFrameSrc = (src) => (location.protocol === "file:" ? `${syncServer() || DEFAULT_SERVER}/youtube-frame.html#${encodeURIComponent(src)}` : src);
 
   function mountDisplay() {
-    seen = state.announcements[state.announcements.length - 1]?.id ?? null;
+    // Only the first time: a TV rebuilt after a lost connection still reads out the calls made meanwhile (up to a minute old).
+    if (seen === undefined) seen = state.announcements[state.announcements.length - 1]?.id ?? null;
     // Remember this TV's area, so the plain address (or /tv) opens it next time.
     if (location.pathname.startsWith("/queue/display") || new URLSearchParams(location.search).has("tv")) writeSetting(TV_SCREEN_KEY, tvId() || null);
     mountedVideo = currentVideo();
