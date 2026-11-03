@@ -161,7 +161,14 @@ export type Settings = {
   announceLanguage?: AnnounceLanguage;
   /** Reminders and messages to pre-registered patients, by the clinic's Telegram bot. */
   sms?: SmsSettings;
+  /** TVs that each show only some stations, opened at /queue/display?tv=<id>. */
+  tvScreens?: TvScreen[];
+  /** All TVs show every station (the TV screens list is kept but not used). */
+  tvSameOnAll?: boolean;
 };
+
+/** A TV in one area of the clinic: its name on the TV, the stations it shows, and whether it shows registration calls. */
+export type TvScreen = { id: string; name: string; stations: string[]; registration: boolean };
 
 export type SmsSettings = {
   enabled: boolean;
