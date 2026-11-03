@@ -1605,7 +1605,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-03.13";
+const BOARD_VERSION = "2026-11-03.14";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2494,12 +2494,14 @@ function downloadQueueReport(xlsx, state, now) {
       <p style="color:var(--muted);font-size:13px">The queue appears as soon as the server answers. <a href="#setup">Sync setup</a></p></div></section></main>`;
   }
 
+  // The page is new but the program on the server is not (it was not rebuilt, or an old one is still running).
+  const OLD_SERVER = "The queue server is still running its old version (error 404). Restart the server computer; if this stays, run APPLY-UPDATE.cmd there again and wait for \"Checked: the queue server runs the new version.\"";
   /** Asks the clinic server's staff accounts (/api/auth). */
   async function authRequest(body) {
     const pin = readSetting(PIN_KEY);
     try {
       const response = await fetch(`${syncServer()}/api/auth`, { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json", ...(pin ? { "x-queue-pin": pin } : {}) }, body: JSON.stringify(body) });
-      return await response.json().catch(() => ({ ok: false, error: `The queue server answered with error ${response.status}. Update the queue server.` }));
+      return await response.json().catch(() => ({ ok: false, error: response.status === 404 ? OLD_SERVER : `The queue server answered with error ${response.status}.` }));
     } catch {
       return { ok: false, error: "No connection to the queue server." };
     }
@@ -4585,7 +4587,7 @@ function downloadQueueReport(xlsx, state, now) {
   async function playServerVoice(url) {
     let response;
     try { response = await fetch(url, { cache: "no-store" }); } catch { return "The TV could not reach the queue server for the voice."; }
-    if (!response.ok) return (await response.json().catch(() => null))?.error || `The queue server has no voice for the TV (error ${response.status}). Update the queue server.`;
+    if (!response.ok) return (await response.json().catch(() => null))?.error || (response.status === 404 ? OLD_SERVER : `The queue server has no voice for the TV (error ${response.status}).`);
     const data = await response.arrayBuffer();
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!audio && Ctx) audio = new Ctx();
