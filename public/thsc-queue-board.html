@@ -163,6 +163,8 @@ a.btn { text-decoration: none; }
 .desk-cat .panel { border-top: 4px solid var(--cat); }
 .desk-cat .panel-h { background: var(--cat-soft); border-radius: 12px 12px 0 0; }
 .desk-cat .panel-h h2 { color: var(--cat); }
+/* On the TV the buttons at the bottom (Sound, Full screen, Front desk) show only for 10 seconds after the remote or mouse is used. */
+body.tv:not(.show-ctl) .tv-ctl { display: none; }
 .tv-offline { position: fixed; left: 0; right: 0; top: 0; z-index: 80; background: #b4233c; color: #fff; font-weight: 700; font-size: 1.6vw; text-align: center; padding: 1vh 1vw; }
 .tv-pick { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 60; display: grid; place-items: center; background: rgba(31,26,18,.55); padding: 16px; }
 .tv-pick-box { background: var(--card, #fff); border-radius: 16px; padding: 20px; width: min(640px, 100%); max-height: 90vh; overflow: auto; } .tv-pick-box h2 { margin: 0 0 4px; } .tv-pick-box p { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
@@ -1602,7 +1604,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-03.8";
+const BOARD_VERSION = "2026-11-03.10";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2161,7 +2163,8 @@ function downloadQueueReport(xlsx, state, now) {
       document.querySelectorAll(".tv-badge").forEach((el) => { el.textContent = tv.text; el.className = `badge-device tv-badge ${tv.tone}`; el.title = tv.warn || "Calls are chimed and read out on the TV."; });
     }
     const [text, tone, title] = syncLabel();
-    document.querySelectorAll(".sync-badge").forEach((el) => { el.textContent = text; el.className = `badge-device sync-badge ${tone}`; el.title = title; });
+    // On the TV the badge shows only when something is wrong (Reconnecting…), not the server address while all is well.
+    document.querySelectorAll(".sync-badge").forEach((el) => { el.textContent = text; el.className = `badge-device sync-badge ${tone}${view === "display" && tone === "ok" ? " hidden" : ""}`; el.title = title; });
     const banner = $("#sync-banner");
     if (banner) { banner.textContent = sync.error || sync.warning; banner.classList.toggle("hidden", !(sync.error || sync.warning)); }
   }
@@ -4648,6 +4651,17 @@ function downloadQueueReport(xlsx, state, now) {
     setSound(true);
     if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => undefined);
   }
+  // On the TV, the buttons at the bottom appear for 10 seconds when the remote, keyboard or mouse is used.
+  let tvControlsTimer;
+  const showTvControls = () => {
+    if (view !== "display") return;
+    document.body.classList.add("show-ctl");
+    clearTimeout(tvControlsTimer);
+    tvControlsTimer = setTimeout(() => document.body.classList.remove("show-ctl"), 10000);
+  };
+  ["keydown", "mousemove", "pointerdown", "touchstart"].forEach((type) => document.addEventListener(type, showTvControls, { passive: true }));
+  // The remote's OK button (Enter) also starts sound and full screen, on TVs whose browser sends no click for it.
+  document.addEventListener("keydown", (event) => { if (view === "display" && event.key === "Enter" && (!sound || !document.fullscreenElement)) startTv(); });
   // On the TV, a click anywhere (not just the gold button) starts full screen and sound.
   document.addEventListener("click", (event) => {
     if (view === "display" && !event.target.closest("[data-act]") && (!sound || !document.fullscreenElement)) startTv();
