@@ -101,7 +101,7 @@ rem ---- 3. Windows startup, desktop icons and the TV browser profiles ----
 echo  3. Removing it from Windows startup and deleting the desktop icons...
 del /q "%STARTUP%\THSC Queue Server.cmd" 2>nul
 del /q "%STARTUP%\start-desk-and-tv.cmd" 2>nul
-powershell -NoProfile -Command "$d = [Environment]::GetFolderPath('Desktop'); foreach ($n in 'THSC Queue Board.url', 'THSC Front Desk + TV.lnk', 'THSC Queue Server.lnk') { Remove-Item -LiteralPath (Join-Path $d $n) -Force -ErrorAction SilentlyContinue }"
+powershell -NoProfile -Command "$d = [Environment]::GetFolderPath('Desktop'); foreach ($n in 'THSC Queue Board.url', 'THSC Queue Admin.url', 'THSC Front Desk + TV.lnk', 'THSC Queue Server.lnk') { Remove-Item -LiteralPath (Join-Path $d $n) -Force -ErrorAction SilentlyContinue }"
 rd /s /q "%LOCALAPPDATA%\THSC-TV-Screen" >nul 2>nul
 rd /s /q "%LOCALAPPDATA%\THSC-TV" >nul 2>nul
 

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { getBackend, isStaff, staffPinConfigured } from "@/lib/queue/server-store";
+import { getBackend, staffPinConfigured } from "@/lib/queue/server-store";
+import { isStaff } from "@/lib/queue/users";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export function OPTIONS() {
 export async function POST(request: Request) {
   const backend = getBackend();
   if (!backend) return json({ error: "Pictures need the queue server (shared mode)." }, 404);
-  if (!staffPinConfigured() || !isStaff(request)) return json({ error: "Staff PIN required." }, 401);
+  if (!staffPinConfigured() || !(await isStaff(request))) return json({ error: "Staff PIN required." }, 401);
   let data = "";
   try {
     data = String(((await request.json()) as { data?: unknown }).data ?? "");

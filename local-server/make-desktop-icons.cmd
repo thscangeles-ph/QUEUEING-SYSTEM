@@ -2,6 +2,7 @@
 setlocal
 rem THSC Queue Board - put Queue Board icons on this computer's desktop (the queue server):
 rem   THSC Queue Board      opens the front desk
+rem   THSC Queue Admin      the administrator: staff accounts (users) and System configuration
 rem   THSC Front Desk + TV  opens the front desk, and the TV display full screen on the extended (second) screen
 rem   THSC Queue Server     starts the queue server if it is not running
 rem Double-click it again any time to put back an icon that was deleted.
@@ -19,12 +20,13 @@ set "PORT=3000"
 if exist "settings.cmd" call "settings.cmd"
 set "ICON=%CD%\thsc-queue.ico"
 set "DESK_TV=%ROOT%\tv-setup\start-desk-and-tv.cmd"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$d = [Environment]::GetFolderPath('Desktop'); $url = 'http://localhost:' + $env:PORT + '/'; Set-Content -LiteralPath (Join-Path $d 'THSC Queue Board.url') -Encoding Default -Value @('[InternetShortcut]', ('URL=' + $url), ('IconFile=' + $env:ICON), 'IconIndex=0'); $shell = New-Object -ComObject WScript.Shell; foreach ($i in @(@('THSC Front Desk + TV', $env:DESK_TV, 'Open the front desk, and the TV display on the extended screen'), @('THSC Queue Server', $env:SERVER, 'Start the THSC queue server'))) { $s = $shell.CreateShortcut((Join-Path $d ($i[0] + '.lnk'))); $s.TargetPath = $i[1]; $s.WorkingDirectory = Split-Path $i[1]; $s.IconLocation = $env:ICON + ',0'; $s.WindowStyle = 7; $s.Description = $i[2]; $s.Save() }; Write-Host ('Icons added to ' + $d)"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$d = [Environment]::GetFolderPath('Desktop'); $url = 'http://localhost:' + $env:PORT + '/'; Set-Content -LiteralPath (Join-Path $d 'THSC Queue Board.url') -Encoding Default -Value @('[InternetShortcut]', ('URL=' + $url), ('IconFile=' + $env:ICON), 'IconIndex=0'); Set-Content -LiteralPath (Join-Path $d 'THSC Queue Admin.url') -Encoding Default -Value @('[InternetShortcut]', ('URL=' + $url + '#admin'), ('IconFile=' + $env:ICON), 'IconIndex=0'); $shell = New-Object -ComObject WScript.Shell; foreach ($i in @(@('THSC Front Desk + TV', $env:DESK_TV, 'Open the front desk, and the TV display on the extended screen'), @('THSC Queue Server', $env:SERVER, 'Start the THSC queue server'))) { $s = $shell.CreateShortcut((Join-Path $d ($i[0] + '.lnk'))); $s.TargetPath = $i[1]; $s.WorkingDirectory = Split-Path $i[1]; $s.IconLocation = $env:ICON + ',0'; $s.WindowStyle = 7; $s.Description = $i[2]; $s.Save() }; Write-Host ('Icons added to ' + $d)"
 if errorlevel 1 (
   echo The icons could not be added.
 ) else (
   echo.
   echo  THSC Queue Board      - the front desk
+  echo  THSC Queue Admin      - the administrator: staff accounts and System configuration
   echo  THSC Front Desk + TV  - the front desk, and the TV full screen on the second screen
   echo  THSC Queue Server     - starts the queue server if it is not running
 )

@@ -1,5 +1,6 @@
 import { ensureDay } from "@/lib/queue/reducer";
-import { getBackend, isStaff } from "@/lib/queue/server-store";
+import { getBackend } from "@/lib/queue/server-store";
+import { isStaff } from "@/lib/queue/users";
 import { smsPhone } from "@/lib/queue/sms";
 import { queueSms, smsAvailable } from "@/lib/queue/sms-sender";
 import { sendTelegram, telegramBotOf, telegramChatOf } from "@/lib/queue/telegram";
@@ -29,7 +30,7 @@ export function GET() {
 export async function POST(request: Request) {
   const backend = getBackend();
   if (!smsAvailable() || !backend) return json({ ok: false, reason: "unavailable", error: UNAVAILABLE });
-  if (!isStaff(request)) return json({ ok: false, error: "Staff PIN required." }, 401);
+  if (!(await isStaff(request))) return json({ ok: false, error: "Staff PIN required." }, 401);
   let body: { telegramCheck?: unknown; token?: unknown; test?: unknown; phone?: unknown; visitIds?: unknown; kind?: unknown };
   try {
     body = (await request.json()) as typeof body;

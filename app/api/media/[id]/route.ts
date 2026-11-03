@@ -1,4 +1,5 @@
-import { getBackend, isStaff, staffPinConfigured } from "@/lib/queue/server-store";
+import { getBackend, staffPinConfigured } from "@/lib/queue/server-store";
+import { isStaff } from "@/lib/queue/users";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ export async function DELETE(request: Request, { params }: Context) {
   const { id } = await params;
   const backend = getBackend();
   if (!backend) return Response.json({ error: "Pictures need the queue server (shared mode)." }, { status: 404, headers: CORS });
-  if (!staffPinConfigured() || !isStaff(request)) return Response.json({ error: "Staff PIN required." }, { status: 401, headers: CORS });
+  if (!staffPinConfigured() || !(await isStaff(request))) return Response.json({ error: "Staff PIN required." }, { status: 401, headers: CORS });
   if (ID.test(id)) await backend.deleteMedia(id);
   return Response.json({ ok: true }, { headers: CORS });
 }

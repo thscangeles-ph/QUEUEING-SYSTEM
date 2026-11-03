@@ -1,4 +1,5 @@
-import { getBackend, isStaff } from "@/lib/queue/server-store";
+import { getBackend } from "@/lib/queue/server-store";
+import { isStaff } from "@/lib/queue/users";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export function OPTIONS() {
 export async function GET(request: Request) {
   const backend = getBackend();
   if (!backend?.history || !backend.historyVisit) return json({ available: false, error: "History needs the clinic server's database (local-server)." });
-  if (!isStaff(request)) return json({ error: "Staff PIN required." }, 401);
+  if (!(await isStaff(request))) return json({ error: "Staff PIN required." }, 401);
   const params = new URL(request.url).searchParams;
   const day = params.get("day");
   if (day) {

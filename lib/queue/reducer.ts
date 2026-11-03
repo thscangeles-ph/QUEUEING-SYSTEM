@@ -424,14 +424,18 @@ const withoutVideoSound = (settings: Settings) => JSON.stringify({ ...settings, 
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
  * Returns a new state; the input is never mutated.
  */
-export function applyAction(previous: QueueState | null | undefined, action: QueueAction, now: number): { state: QueueState; result: ActionResult } {
+/** configOk: the server already knows whether this person may change System configuration (staff accounts). */
+export type ActionOptions = { configOk?: boolean };
+export function applyAction(previous: QueueState | null | undefined, action: QueueAction, now: number, options: ActionOptions = {}): { state: QueueState; result: ActionResult } {
   const base = ensureDay(previous, now);
   const state = structuredClone(base);
-  const result = run(state, action, now);
+  const result = run(state, action, now, options);
   return { state: result.ok ? state : base, result };
 }
 
-function run(state: QueueState, action: QueueAction, now: number): ActionResult {
+function run(state: QueueState, action: QueueAction, now: number, options: ActionOptions = {}): ActionResult {
+  // An administrator signed in on the clinic server needs no configuration PIN.
+  const configAllowed = (pin: unknown) => options.configOk ?? configPinOk(state.settings.configPin, pin as string | undefined);
   const findVisit = (id: string) => state.visits.find((visit) => visit.id === id && !visit.cancelled);
 
   switch (action.type) {
@@ -777,7 +781,7 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       const settings = sanitizeSettings(action.settings, state.settings);
       if (typeof settings === "string") return fail(settings);
       // Without the configuration PIN, only the video's sound and volume may change (the front desk's TV sound control).
-      if (!configPinOk(state.settings.configPin, action.configPin)) {
+      if (!configAllowed(action.configPin)) {
         const before = sanitizeSettings(state.settings, state.settings);
         if (typeof before === "string" || withoutVideoSound(before) !== withoutVideoSound(settings)) return fail(CONFIG_PIN_NEEDED);
       }
@@ -785,18 +789,18 @@ function run(state: QueueState, action: QueueAction, now: number): ActionResult 
       return { ok: true };
     }
     case "resetDay":
-      if (!configPinOk(state.settings.configPin, action.configPin)) return fail(CONFIG_PIN_NEEDED);
+      if (!configAllowed(action.configPin)) return fail(CONFIG_PIN_NEEDED);
       Object.assign(state, emptyState(now, state.settings));
       return { ok: true };
     case "setConfigPin": {
-      if (!configPinOk(state.settings.configPin, action.current)) return fail("The current configuration PIN is not right.");
+      if (!configAllowed(action.current)) return fail("The current configuration PIN is not right.");
       const pin = String(action.pin ?? "").trim();
       if (!/^\d{4,8}$/.test(pin)) return fail("The configuration PIN must be 4 to 8 digits.");
       state.settings.configPin = hashConfigPin(pin, newId());
       return { ok: true };
     }
     case "checkConfigPin":
-      return configPinOk(state.settings.configPin, action.pin) ? { ok: true } : fail("That configuration PIN is not right.");
+      return configAllowed(action.pin) ? { ok: true } : fail("That configuration PIN is not right.");
     default:
       return fail("Unknown action.");
   }

@@ -1,5 +1,6 @@
 import { arrivalLabel, clinicOf, ensureDay } from "@/lib/queue/reducer";
-import { getBackend, isStaff } from "@/lib/queue/server-store";
+import { getBackend } from "@/lib/queue/server-store";
+import { isStaff } from "@/lib/queue/users";
 import { smsPhone } from "@/lib/queue/sms";
 import { smsAvailable } from "@/lib/queue/sms-sender";
 import { markTelegramRead, saveTelegramMessage, sendTelegram, telegramContacts, telegramMessages } from "@/lib/queue/telegram";
@@ -31,7 +32,7 @@ export function OPTIONS() {
 export async function GET(request: Request) {
   const backend = getBackend();
   if (!smsAvailable() || !backend) return json({ available: false, chats: [] });
-  if (!isStaff(request)) return json({ error: "Staff PIN required." }, 401);
+  if (!(await isStaff(request))) return json({ error: "Staff PIN required." }, 401);
   const [messages, contacts, stored] = await Promise.all([telegramMessages(), telegramContacts(), backend.load()]);
   const state = ensureDay(stored.state, Date.now());
   const phoneOf = new Map(Object.entries(contacts).map(([phone, contact]) => [contact.chatId, phone]));
@@ -57,7 +58,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const backend = getBackend();
   if (!smsAvailable() || !backend) return json({ ok: false, error: "Messages work only on the clinic's own queue server." });
-  if (!isStaff(request)) return json({ ok: false, error: "Staff PIN required." }, 401);
+  if (!(await isStaff(request))) return json({ ok: false, error: "Staff PIN required." }, 401);
   let body: { chatId?: unknown; text?: unknown; read?: unknown };
   try {
     body = (await request.json()) as typeof body;
