@@ -163,7 +163,7 @@ a.btn { text-decoration: none; }
 .desk-cat .panel { border-top: 4px solid var(--cat); }
 .desk-cat .panel-h { background: var(--cat-soft); border-radius: 12px 12px 0 0; }
 .desk-cat .panel-h h2 { color: var(--cat); }
-.tv-pick { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: rgba(31,26,18,.55); padding: 16px; }
+.tv-pick { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 60; display: grid; place-items: center; background: rgba(31,26,18,.55); padding: 16px; }
 .tv-pick-box { background: var(--card, #fff); border-radius: 16px; padding: 20px; width: min(640px, 100%); max-height: 90vh; overflow: auto; } .tv-pick-box h2 { margin: 0 0 4px; } .tv-pick-box p { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
 .tv-pick-box .chips button.on { background: var(--primary, #8b6512); border-color: var(--primary, #8b6512); color: #fff; } .tv-pick-box .chips button.on span { color: #fff; }
 .cfg-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
@@ -237,7 +237,7 @@ tr.cancelled td { opacity: .55; }
 .foot-note { color: var(--muted-2); font-size: 12px; margin: 14px 18px 16px; }
 
 /* Settings */
-.modal-bg { position: fixed; inset: 0; background: rgba(31,26,18,.55); display: grid; place-items: start center; padding: 40px 16px; overflow-y: auto; z-index: 40; }
+.modal-bg { position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: rgba(31,26,18,.55); display: grid; place-items: start center; padding: 40px 16px; overflow-y: auto; z-index: 40; }
 .modal { width: min(1000px, 100%); }
 .set-table { width: 100%; min-width: 820px; }
 .set-table td { padding: 6px 6px; border-top: 1px solid var(--line-soft); }
@@ -338,8 +338,8 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .tv-body.video { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 1.2vw; padding: 1.2vw; }
 .tv-body.video .tv-left, .tv-right { display: flex; flex-direction: column; gap: 1.2vw; min-height: 0; }
 .vid { position: relative; flex: 1; min-height: 0; overflow: hidden; border-radius: 1.2vw; border: 1px solid var(--brown-2); background: #000; }
-.vid iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-.vid-over { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(31,26,18,.85); text-align: center; }
+.vid iframe { position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: 100%; height: 100%; border: 0; }
+.vid-over { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: grid; place-items: center; background: rgba(31,26,18,.85); text-align: center; }
 .vid-over > div { border-radius: 1.5vw; border: .25vw solid var(--gold-2); background: #4a3612; padding: 4vh 4vw; animation: pulse 1.6s ease-out 6; }
 .vid-over .k { color: var(--gold-2); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 1.6vw; margin: 0; }
 .vid-over .num { white-space: nowrap; font-size: 10vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; } .vid-over .go { font-size: 2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; }
@@ -355,7 +355,7 @@ img.media-ico { background: #000; }
 .media-main { flex: 1; min-width: 0; display: grid; gap: 2px; } .media-main input { width: 100%; } .media-main .name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .media-btns { flex: none; display: flex; gap: 2px; }
 .media-empty { font-size: 13px; color: var(--muted); border: 1px dashed #e0d4bb; border-radius: 10px; padding: 10px 12px; margin: 0; }
-.vid .slide { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; animation: slide-in .8s ease-out; }
+.vid .slide { position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: 100%; height: 100%; object-fit: contain; background: #000; animation: slide-in .8s ease-out; }
 @keyframes slide-in { from { opacity: 0; } to { opacity: 1; } }
 body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 .kiosk-app { min-height: 100vh; min-height: 100dvh; display: grid; grid-template-rows: auto 1fr auto; gap: 3vh; padding: 4vh 5vw 2vh; text-align: center; user-select: none; -webkit-user-select: none; }
@@ -458,6 +458,10 @@ break;case"<bookViews":;case"<bookViews>":;case"</bookViews>":break;case"<workbo
 </script>
 <script>
 "use strict";
+// Smart TV browsers run older Chrome versions: add what they lack (structuredClone from Chrome 98, Array.at from Chrome 92).
+if (typeof structuredClone !== "function") window.structuredClone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
+if (!Array.prototype.at) Object.defineProperty(Array.prototype, "at", { configurable: true, writable: true, value(index) { const i = Math.trunc(index) || 0; return this[i < 0 ? this.length + i : i]; } });
+if (!String.prototype.at) Object.defineProperty(String.prototype, "at", { configurable: true, writable: true, value(index) { const i = Math.trunc(index) || 0; return this[i < 0 ? this.length + i : i]; } });
 // ---- from lib/queue/pin.ts ----
 const K = [
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -1597,7 +1601,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-03.1";
+const BOARD_VERSION = "2026-11-03.2";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
