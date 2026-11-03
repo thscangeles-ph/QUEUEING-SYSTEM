@@ -1604,7 +1604,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-03.11";
+const BOARD_VERSION = "2026-11-03.12";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2061,6 +2061,16 @@ function downloadQueueReport(xlsx, state, now) {
     if (!bar && lost) { bar = document.createElement("div"); bar.id = "tv-offline"; bar.className = "tv-offline"; document.body.appendChild(bar); }
     if (bar) { bar.textContent = "⚠ The TV lost its connection to the queue server (check the Wi-Fi). Reconnecting by itself…"; bar.classList.toggle("hidden", !lost); }
   }
+  // Smart TV browsers (seen on an LG TV) run short of memory after hours of a YouTube video: only the video is still
+  // drawn and the rest of the screen goes black. So the TV screen is rebuilt every hour (every 4 hours on a computer),
+  // between calls, without reloading the page, so the sound stays on.
+  let tvBuiltAt = Date.now();
+  setInterval(() => {
+    if (view !== "display" || !state || Date.now() - tvBuiltAt < (SMART_TV ? 1 : 4) * 3600000) return;
+    const last = state.announcements[state.announcements.length - 1];
+    if (last && serverNow() - last.at < 120000) return;
+    mount();
+  }, 60000);
   // A TV screen that lost its queue panels (seen on smart TVs after the Wi-Fi dropped, with only the video left) is rebuilt.
   setInterval(() => {
     if (view !== "display" || !state) return;
@@ -4232,6 +4242,7 @@ function downloadQueueReport(xlsx, state, now) {
   const videoFrameSrc = (src) => (location.protocol === "file:" ? `${syncServer() || DEFAULT_SERVER}/youtube-frame.html#${encodeURIComponent(src)}` : src);
 
   function mountDisplay() {
+    tvBuiltAt = Date.now();
     // Only the first time: a TV rebuilt after a lost connection still reads out the calls made meanwhile (up to a minute old).
     if (seen === undefined) seen = state.announcements[state.announcements.length - 1]?.id ?? null;
     // Remember this TV's area, so the plain address (or /tv) opens it next time.
@@ -4430,6 +4441,7 @@ function downloadQueueReport(xlsx, state, now) {
       } catch { /* this browser cannot decode it: try the <audio> player */ }
     }
     try {
+      if (tvVoice.src.startsWith("blob:")) URL.revokeObjectURL(tvVoice.src);
       tvVoice.src = URL.createObjectURL(new Blob([data], { type: "audio/wav" }));
       await tvVoice.play();
       return "";
