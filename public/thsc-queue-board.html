@@ -359,6 +359,7 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .vid-over > div { border-radius: 1.5vw; border: .25vw solid var(--gold-2); background: #4a3612; padding: 4vh 4vw; animation: pulse 1.6s ease-out 6; }
 .vid-over .k { color: var(--gold-2); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 1.6vw; margin: 0; }
 .vid-over .num { white-space: nowrap; font-size: 10vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; } .vid-over .go { font-size: 2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; }
+.num .sep { opacity: .45; margin: 0 .2em; } .together-note { margin: .6vh 0 0; color: #f4e8c7; font-size: 1.5vw; font-weight: 600; } .hero.compact .together-note { font-size: 1vw; }
 .hero .prio-lane, .vid-over .prio-lane { font-size: 1.9vw; margin: 1.5vh 0 0; } .hero.compact .prio-lane { font-size: 1.1vw; margin-top: 1vh; }
 .hero.compact { flex: none; padding: 2vh 1vw; } .hero.compact .k { font-size: 1.2vw; } .hero.compact .num { font-size: 6.4vw; } .hero.compact .go { font-size: 1.4vw; }
 .tiles.small { flex: none; padding: .8vw 1vw; } .tiles.small h2 { font-size: 1.1vw; margin-bottom: .6vh; } .tiles.small .tile { padding: 1.2vh .7vw; } .tiles.small .tile .s { font-size: .95vw; } .tiles.small .tile .num { font-size: 3vw; }
@@ -1636,7 +1637,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-07.3";
+const BOARD_VERSION = "2026-11-07.4";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -4605,6 +4606,18 @@ function downloadQueueReport(xlsx, state, now) {
   const tvShowsCall = (item) => (item.kind === "registration" || item.kind === "card" ? tvShowsRegistration() : tvShowsStation(item.station));
   /** The latest open call this TV shows. */
   const tvOpenCall = () => [...state.announcements].reverse().find((item) => callStillOpen(state, item) && tvShowsCall(item));
+  /** The calls made together with this one (Call together): the same station at the same moment, still open. */
+  const callGroup = (latest) => (latest.kind !== "ticket" ? [latest] : state.announcements.filter((item) => item.kind === "ticket" && item.station === latest.station && Math.abs(item.at - latest.at) < 2000 && callStillOpen(state, item)));
+  /** Now calling: the number, or all the numbers called in together, side by side. */
+  function callNumbers(latest) {
+    const group = callGroup(latest);
+    const seen = new Set();
+    const numbers = group.filter((item) => !seen.has(calledNumber(item.label)) && seen.add(calledNumber(item.label)));
+    const lane = group.map(callPrioLane).find(Boolean) ?? "";
+    // Called in together: a priority lane number among them is in gold.
+    const shown = numbers.map((item) => (numbers.length > 1 && callPrioLane(item) ? `<span style="color:#f5b301">${esc(calledNumber(item.label))}</span>` : esc(calledNumber(item.label))));
+    return `<p class="num mono${numbers.length > 1 ? " together" : ""}">${shown.join('<span class="sep">·</span>')}</p>${numbers.length > 1 ? `<p class="together-note">${numbers.length} patients together</p>` : ""}${lane}`;
+  }
 
   /** "Please proceed to" with the destination in a highlighted box (calls made before this change may still end in "for registration"). */
   /** "PRIORITY LANE" under a called number when it is a priority lane patient's (Senior, PWD, pregnant). */
@@ -4629,7 +4642,7 @@ function downloadQueueReport(xlsx, state, now) {
     // A new call covers the video so patients who are watching it don't miss their number.
     const over = $("#vid-over");
     if (over) {
-      const html = fresh ? `<div><p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p>${callPrioLane(latest)}${goLine(latest)}</div>` : "";
+      const html = fresh ? `<div><p class="k">Now calling</p>${callNumbers(latest)}${goLine(latest)}</div>` : "";
       if (over.dataset.label !== (fresh ? latest.id : "")) { over.innerHTML = html; over.dataset.label = fresh ? latest.id : ""; fitNumbers(); }
       over.classList.toggle("hidden", !fresh);
     }
@@ -4818,14 +4831,15 @@ function downloadQueueReport(xlsx, state, now) {
     const stations = state.settings.stations.filter((s) => s.active && tvShowsStation(s.code));
     const latest = tvOpenCall();
     $("#hero").innerHTML = latest
-      ? `<p class="k">Now calling</p><p class="num mono">${esc(calledNumber(latest.label))}</p>${callPrioLane(latest)}${goLine(latest)}`
+      ? `<p class="k">Now calling</p>${callNumbers(latest)}${goLine(latest)}`
       : `<p class="k">Welcome</p><p class="go" style="max-width:80%">Please wait for your queue number to appear on this screen.</p>`;
     if (fresh.length) { const hero = $("#hero"); hero.classList.remove("fresh"); void hero.offsetWidth; }
     // With more stations than fit (two rows, or one beside the video), show only the stations serving someone now.
     const maxTiles = mountedVideo ? 5 : 6;
     const tileStations = stations.length <= maxTiles ? stations : stations.filter((s) => servingAt(state, s.code).length).slice(0, maxTiles);
     const columns = Math.min(Math.max(tileStations.length, 1), mountedVideo ? 5 : 3);
-    const tiles = tileStations.length ? tileStations.map((s) => { const v = servingAt(state, s.code)[0]; return `<div class="tile"><p class="s"><b class="mono">${esc(s.code)}</b> · ${esc(s.name)}</p><p class="num mono ${v ? (v.priority ? "prio" : "") : "none"}">${v ? esc(arrivalLabel(v)) : "—"}</p></div>`; }).join("") : `<div class="tile"><p class="num mono none">—</p></div>`;
+    // A station serving several patients (called in together) shows all their numbers.
+    const tiles = tileStations.length ? tileStations.map((s) => { const serving = servingAt(state, s.code).slice().sort((x, y) => x.seq - y.seq); return `<div class="tile"><p class="s"><b class="mono">${esc(s.code)}</b> · ${esc(s.name)}</p><p class="num mono ${serving.length ? (serving.length === 1 && serving[0].priority ? "prio" : "") : "none"}">${serving.length ? serving.map((v) => (serving.length > 1 && v.priority ? `<span style="color:#f5b301">${esc(arrivalLabel(v))}</span>` : esc(arrivalLabel(v)))).join('<span class="sep">·</span>') : "—"}</p></div>`; }).join("") : `<div class="tile"><p class="num mono none">—</p></div>`;
     $("#tiles").innerHTML = `<h2>Now serving</h2><div class="ns-grid" style="grid-template-columns:repeat(${columns}, minmax(0, 1fr))">${tiles}</div>`;
     // Next in line, in two groups: regular patients (01, 02 …) and HMO patients (HMO-01 …), each with its own line to register.
     const toRegister = waitingToRegister(state);
