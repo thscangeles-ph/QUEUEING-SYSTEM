@@ -355,8 +355,8 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .tv-body.video .tv-left, .tv-right { display: flex; flex-direction: column; gap: 1.2vw; min-height: 0; }
 .vid { position: relative; flex: 1; min-height: 0; overflow: hidden; border-radius: 1.2vw; border: 1px solid var(--brown-2); background: #000; }
 .vid iframe { position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: 100%; height: 100%; border: 0; }
-.vid-over { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: grid; place-items: center; background: rgba(31,26,18,.85); text-align: center; }
-.vid-over > div { border-radius: 1.5vw; border: .25vw solid var(--gold-2); background: #4a3612; padding: 4vh 4vw; animation: pulse 1.6s ease-out 6; }
+.vid-over { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: center; background: rgba(31,26,18,.85); text-align: center; }
+.vid-over > div { max-width: 94%; min-width: 0; box-sizing: border-box; text-align: center; border-radius: 1.5vw; border: .25vw solid var(--gold-2); background: #4a3612; padding: 4vh 4vw; animation: pulse 1.6s ease-out 6; }
 .vid-over .k { color: var(--gold-2); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 1.6vw; margin: 0; }
 .vid-over .num { white-space: nowrap; font-size: 10vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; } .vid-over .go { font-size: 2vw; color: #f4e8c7; font-weight: 600; margin: 2vh 0 0; }
 .num .sep { opacity: .45; margin: 0 .2em; } .together-note { margin: .6vh 0 0; color: #f4e8c7; font-size: 1.5vw; font-weight: 600; } .hero.compact .together-note { font-size: 1vw; }
@@ -1637,7 +1637,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-07.4";
+const BOARD_VERSION = "2026-11-07.5";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -4582,7 +4582,7 @@ function downloadQueueReport(xlsx, state, now) {
     document.querySelectorAll(".hero .num, .tile .num, .vid-over .num").forEach((el) => {
       el.style.fontSize = "";
       const room = el.parentElement.clientWidth - parseFloat(getComputedStyle(el.parentElement).paddingLeft) - parseFloat(getComputedStyle(el.parentElement).paddingRight);
-      if (el.scrollWidth > room) el.style.fontSize = `${(parseFloat(getComputedStyle(el).fontSize) * room) / el.scrollWidth * 0.97}px`;
+      if (room > 0 && el.scrollWidth > room) el.style.fontSize = `${(parseFloat(getComputedStyle(el).fontSize) * room) / el.scrollWidth * 0.97}px`;
     });
   }
   window.addEventListener("resize", () => { if (view === "display") fitNumbers(); });
@@ -4643,8 +4643,11 @@ function downloadQueueReport(xlsx, state, now) {
     const over = $("#vid-over");
     if (over) {
       const html = fresh ? `<div><p class="k">Now calling</p>${callNumbers(latest)}${goLine(latest)}</div>` : "";
-      if (over.dataset.label !== (fresh ? latest.id : "")) { over.innerHTML = html; over.dataset.label = fresh ? latest.id : ""; fitNumbers(); }
+      // Shown first, then sized: a hidden overlay has no width to fit the numbers into.
+      const changed = over.dataset.label !== (fresh ? latest.id : "");
+      if (changed) { over.innerHTML = html; over.dataset.label = fresh ? latest.id : ""; }
       over.classList.toggle("hidden", !fresh);
+      if (changed && fresh) fitNumbers();
     }
   }
 
