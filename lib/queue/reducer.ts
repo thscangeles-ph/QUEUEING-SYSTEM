@@ -652,6 +652,24 @@ function run(state: QueueState, action: QueueAction, now: number, options: Actio
     case "call": {
       const station = findStation(state, action.station);
       if (!station) return fail("Unknown station.");
+      // Several patients called in together: each is shown and read out; those the station was serving are completed.
+      if (Array.isArray(action.visitIds) && action.visitIds.length > 1) {
+        const group = [...new Set(action.visitIds.map(String))].slice(0, 10).map((id) => findVisit(id));
+        if (group.some((visit) => { const step = visit && currentStep(visit); return !visit || !step || step.station !== station.code || !["waiting", "missed"].includes(step.status); })) return fail("Someone chosen is no longer waiting for this station.");
+        const visits = group as Visit[];
+        servingAt(state, station.code).forEach((visit) => { if (!visits.includes(visit)) finishStep(visit, now); });
+        const labels = visits.map((visit) => {
+          const step = currentStep(visit)!;
+          step.status = "called";
+          step.calledAt = now;
+          step.calls += 1;
+          delete step.lineOrder;
+          const label = ticketLabel(visit, station.code);
+          announce(state, { at: now, kind: "ticket", label, station: station.code });
+          return label;
+        });
+        return { ok: true, visitId: visits[0].id, visitIds: visits.map((visit) => visit.id), label: labels.join(", ") };
+      }
       let target: Visit | undefined;
       if (action.visitId) {
         target = findVisit(action.visitId);

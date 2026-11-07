@@ -260,7 +260,8 @@ export type QueueAction =
   | { type: "markMessaged"; visitId: string }
   /** Records an SMS sent (or not sent, with why) to a patient by the clinic server. */
   | { type: "smsResult"; visitId: string; kind: "assigned" | "issued" | "next" | "turn" | "vitals" | "thanks"; station?: string; ok: boolean; error?: string }
-  | { type: "call"; station: string; visitId?: string }
+  /** visitIds: call several patients in together (e.g. a family); the patients a station was serving are completed. */
+  | { type: "call"; station: string; visitId?: string; visitIds?: string[] }
   | { type: "recall"; visitId: string }
   | { type: "complete"; visitId: string; sendTo?: string; billing?: Billing }
   | { type: "miss"; visitId: string }
@@ -278,7 +279,7 @@ export type QueueAction =
   /** Only checks the configuration PIN (to open System configuration); nothing is saved. */
   | { type: "checkConfigPin"; pin: string };
 
-export type ActionResult = { ok: true; visitId?: string; label?: string; card?: number; count?: number } | { ok: false; error: string };
+export type ActionResult = { ok: true; visitId?: string; visitIds?: string[]; label?: string; card?: number; count?: number } | { ok: false; error: string };
 
 export const PUBLIC_ACTIONS: QueueAction["type"][] = ["qrArrive", "tvStatus"];
 /** Actions that only check something: the server answers them without saving. */
