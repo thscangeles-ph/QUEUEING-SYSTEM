@@ -143,6 +143,10 @@ a.btn { text-decoration: none; }
 @media (max-width: 1200px) { .desk-tabs { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); } }
 .nurse-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .nurse-grid { grid-template-columns: 1fr; } }
+.nurse-docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-bottom: 16px; }
+.nurse-doc { display: flex; flex-direction: column; gap: 8px; border: 1px solid #e8dfce; border-radius: 12px; background: #fff; padding: 10px 12px; }
+.nurse-doc .nm { font-weight: 700; } .nurse-doc .st { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; } .nurse-doc .st b { color: var(--ink); }
+.nurse-doc .btn { width: 100%; } .nurse-doc .empty-note { font-size: 12px; color: var(--muted-2, #9a8f7c); }
 .nurse-calls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
 .nurse-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .nurse-list li { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: center; border: 1px solid #e8dfce; border-radius: 12px; padding: 10px 12px; background: #fff; }
@@ -761,7 +765,7 @@ function tvScreensOf(input, codes) {
             id = `${id.replace(/-\d+$/, "")}-${n}`;
         used.add(id);
         const stations = Array.isArray(raw?.stations) ? [...new Set(raw.stations.map((code) => String(code)).filter((code) => codes.includes(code)))] : [];
-        screens.push({ id, name, stations, registration: Boolean(raw?.registration), ...(raw?.connection === "wifi" || raw?.connection === "lan" ? { connection: raw.connection } : {}) });
+        screens.push({ id, name, stations, registration: Boolean(raw?.registration), ...(raw?.connection === "wifi" || raw?.connection === "lan" ? { connection: raw.connection } : {}), ...(raw?.media === "pictures" || raw?.media === "none" ? { media: raw.media } : {}) });
     }
     return screens;
 }
@@ -1605,7 +1609,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-03.15";
+const BOARD_VERSION = "2026-11-07.1";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2823,8 +2827,20 @@ function downloadQueueReport(xlsx, state, now) {
     const item = ({ v, st, step }, kind, handle = "") => `<li class="${kind === "called" ? "now" : ""}${handle ? " draggable" : ""}" data-id="${v.id}">${handle}<span class="mono">${esc(ticketLabel(v, st.code))}</span><div class="who"><b>${esc(v.name)}${groupTag(v) ? ` ${groupTag(v)}` : ""}</b><span>${esc(st.name)}${patientFacts(v) ? ` · ${patientFacts(v)}` : ""} · ${kind === "called" ? `called ${formatTime(step.vitalsCalledAt)}${step.vitalsCalls > 1 ? ` (${step.vitalsCalls}×)` : ""}` : kind === "done" ? `taken ${formatTime(step.vitalsDoneAt)}` : `waiting ${formatWait(minutesSince(step.queuedAt, now))}`}</span></div>
       <div class="acts">${kind === "called"
         ? `<button class="btn sm" data-act="vitalsDone" data-station="${esc(st.code)}" data-id="${v.id}" style="background:#2f7d4f">✓ Vitals done</button><button class="btn sm outline" data-act="callVitalsOne" data-station="${esc(st.code)}" data-id="${v.id}">📢 Call again</button>`
-        : kind === "done" ? `<button class="btn sm ghost" data-act="vitalsUndo" data-station="${esc(st.code)}" data-id="${v.id}">↺ Undo</button>`
+        : kind === "done" ? `${callInButton(st, v)}<button class="btn sm ghost" data-act="vitalsUndo" data-station="${esc(st.code)}" data-id="${v.id}">↺ Undo</button>`
         : `<button class="btn sm outline" data-act="callVitalsOne" data-station="${esc(st.code)}" data-id="${v.id}">🩺 Call for vitals</button><button class="btn sm ghost" data-act="vitalsDone" data-station="${esc(st.code)}" data-id="${v.id}">✓ Vitals done</button>`}</div></li>`;
+    // The nurses can also call a patient in to the doctor, while the clinic is free (calling then completes no one).
+    const busyWith = (st) => servingAt(state, st.code)[0] ?? null;
+    function callInButton(st, v) {
+      const busy = busyWith(st);
+      return `<button class="btn sm" data-act="nurseCallIn" data-station="${esc(st.code)}" data-id="${v.id}" ${busy ? `disabled title="${esc(st.name)} is still with ${esc(ticketLabel(busy, st.code))}"` : `title="Call this patient in to ${esc(st.name)} (shown and read out on the TV)"`}>📢 Call in to ${esc(st.name)}</button>`;
+    }
+    const doctorCard = (st) => {
+      const busy = busyWith(st);
+      const next = waitingFor(state, st.code).find((x) => currentStep(x).vitalsDoneAt);
+      return `<div class="nurse-doc"><div><span class="nm">${esc(st.name)}</span><span class="st">${busy ? `🩺 With <b class="mono">${esc(ticketLabel(busy, st.code))}</b> since ${formatTime(currentStep(busy).calledAt)}` : `<b style="color:var(--ok)">✓ Free</b>`}</span></div>
+        ${next ? `<button class="btn sm" data-act="nurseCallIn" data-station="${esc(st.code)}" data-id="${next.id}" ${busy ? `disabled title="The doctor is still with ${esc(ticketLabel(busy, st.code))}"` : ""}>📢 Call in · <span class="mono">${esc(ticketLabel(next, st.code))}</span></button>` : `<span class="empty-note">No one with vital signs done</span>`}</div>`;
+    };
     const list = (items, kind, empty) => (items.length ? `<ul class="nurse-list">${items.map((row) => item(row, kind)).join("")}</ul>` : `<p class="empty">${empty}</p>`);
     // Waiting: one draggable list per clinic, in its calling order; dragging changes the clinic's line too.
     const waitingLists = waiting.length ? clinics.map((st) => {
@@ -2835,10 +2851,12 @@ function downloadQueueReport(xlsx, state, now) {
     }).join("") : `<p class="empty">Everyone waiting has had their vital signs taken.</p>`;
     box.innerHTML = `
       <div class="nurse-calls">${clinics.map((st) => { const left = rows.filter((r) => r.st.code === st.code && !r.step.vitalsCalledAt && !r.step.vitalsDoneAt).length; return `<button class="btn" data-act="callVitals" data-station="${esc(st.code)}" ${left ? "" : "disabled"} style="background:#2f7d4f">🩺 Call next for vitals · ${esc(st.name)}${left ? ` (${left})` : ""}</button>`; }).join("")}</div>
+      <p class="sub" style="margin:0 0 8px">Call in to the doctor</p>
+      <div class="nurse-docs">${clinics.map(doctorCard).join("")}</div>
       <div class="nurse-grid">
         <section class="panel"><div class="panel-h"><div><h2>Called for vital signs · ${called.length}</h2><p>Coming to ${esc(vitalsPlaceOf(state.settings))} now. Tap ✓ when their vital signs are taken.</p></div></div><div class="panel-b">${list(called, "called", "No one is called for vital signs right now.")}</div></section>
         <section class="panel"><div class="panel-h"><div><h2>Waiting · no vital signs yet · ${waiting.length}</h2><p>In each clinic's calling order. Drag ⠿ to change who is next (the clinic's line changes too). Call one, or use the buttons above for the next of each clinic.</p></div></div><div class="panel-b" style="padding-top:4px">${waitingLists}</div></section>
-        <section class="panel"><div class="panel-h"><div><h2>Vital signs done · ${done.length}</h2><p>Waiting for the doctor. ↺ Undo if tapped by mistake.</p></div></div><div class="panel-b">${list(done, "done", "None yet.")}</div></section>
+        <section class="panel"><div class="panel-h"><div><h2>Vital signs done · ${done.length}</h2><p>Waiting for the doctor. 📢 Call in when the clinic is free (shown and read out on the TV). ↺ Undo if tapped by mistake.</p></div></div><div class="panel-b">${list(done, "done", "None yet.")}</div></section>
       </div>`;
   }
 
@@ -3629,6 +3647,7 @@ function downloadQueueReport(xlsx, state, now) {
       <td style="max-width:430px;font-size:13px"><span>${shown(screen)}</span> <button type="button" class="btn sm outline" data-act="tvPick" data-index="${i}">✎ Choose stations</button></td>
       <td style="text-align:center"><input type="checkbox" ${screen.registration ? "checked" : ""} data-tv-field="registration" data-tv-index="${i}" aria-label="Registration calls (Concierge and HMO Desk)"></td>
       <td><select style="min-width:136px" data-tv-field="connection" data-tv-index="${i}" aria-label="How this TV connects to the network"><option value="lan" ${connOf(screen) === "lan" ? "selected" : ""}>🔌 LAN cable</option><option value="wifi" ${connOf(screen) === "wifi" ? "selected" : ""}>📶 Wi-Fi</option></select></td>
+      <td><select style="min-width:178px" data-tv-field="media" data-tv-index="${i}" aria-label="What this TV shows of the TV playlist"><option value="all" ${!screen.media ? "selected" : ""}>🎬 Videos &amp; pictures</option><option value="pictures" ${screen.media === "pictures" ? "selected" : ""}>🖼 Pictures only</option><option value="none" ${screen.media === "none" ? "selected" : ""}>— No playlist</option></select></td>
       <td>${address(screen) ? `<span class="mono" style="font-size:12px;word-break:break-all" data-tv-address="${i}">${esc(address(screen))}</span>` : noAddress(screen)}</td>
       <td style="white-space:nowrap">${address(screen) ? `<button type="button" class="btn sm outline" data-act="copyText" data-text="${esc(address(screen))}">📋 Copy</button> ${SMART_TV ? `<a class="btn sm" style="color:#fff;text-decoration:none;display:inline-flex;align-items:center" href="${esc(address(screen))}" title="Show this TV's display in this browser now">▶ Open on this TV</a>` : `<button type="button" class="btn sm outline" data-act="downloadTvFile" data-url="${esc(displayBaseUrl(connOf(screen)))}" data-conn="${connOf(screen)}" data-tv="${esc(screen.id)}" title="For a Windows computer plugged into this TV">⬇ Startup file</button>`} ` : ""}<button type="button" class="btn icon ghost" data-act="removeTv" data-index="${i}" aria-label="Remove TV">✕</button></td>
     </tr>`;
@@ -3637,11 +3656,11 @@ function downloadQueueReport(xlsx, state, now) {
         <label class="check"><input type="radio" name="tv-mode" value="same" data-tv-mode ${same ? "checked" : ""}><span><b>🔁 Same on all TVs</b><small>Every TV shows all stations and reads out every call, in sync.</small></span></label>
         <label class="check"><input type="radio" name="tv-mode" value="each" data-tv-mode ${same ? "" : "checked"}><span><b>📍 Each TV its own area</b><small>Each TV below shows only its own stations and reads out only their calls.</small></span></label>
       </div>
-      ${same ? `<p class="note" style="margin:10px 0 0">Every TV shows everything now, whichever address it opened. The list below is kept: choose <b>Each TV its own area</b> to use it again.</p>` : ""}
-      ${screens.length ? `<div class="table-wrap" style="margin-top:10px${same ? ";opacity:.55" : ""}"><table class="set-table"><thead><tr><th>TV name (shown on the TV)</th><th>Stations shown</th><th title="Registration calls at the Concierge and HMO Desk">Registration calls</th><th title="How this TV connects: a LAN cable or the clinic Wi-Fi">Connection</th><th>Address for the TV's browser</th><th></th></tr></thead><tbody>${screens.map(row).join("")}</tbody></table></div>` : `<p class="empty" style="margin-top:10px">No TVs listed yet. The TV display address without ?tv= always shows everything.</p>`}
+      ${same ? `<p class="note" style="margin:10px 0 0">Every TV shows all stations now, whichever address it opened; each TV's <b>Playlist</b> below still applies. The list is kept: choose <b>Each TV its own area</b> to use its stations again.</p>` : ""}
+      ${screens.length ? `<div class="table-wrap" style="margin-top:10px${same ? ";opacity:.55" : ""}"><table class="set-table"><thead><tr><th>TV name (shown on the TV)</th><th>Stations shown</th><th title="Registration calls at the Concierge and HMO Desk">Registration calls</th><th title="How this TV connects: a LAN cable or the clinic Wi-Fi">Connection</th><th title="What this TV shows of the TV playlist (System configuration → TV video &amp; slideshow)">Playlist</th><th>Address for the TV's browser</th><th></th></tr></thead><tbody>${screens.map(row).join("")}</tbody></table></div>` : `<p class="empty" style="margin-top:10px">No TVs listed yet. The TV display address without ?tv= always shows everything.</p>`}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button type="button" class="btn sm outline" data-act="addTv">＋ Add TV</button>${screens.length ? "" : `<button type="button" class="btn sm outline" data-act="addTvSuggested">＋ Add 5 suggested TVs (Lobby, Clinic area, 2D Echo, Procedures, Laboratory &amp; Cashier)</button>`}</div>
       ${SMART_TV && screens.length && !same ? smartTvNote("press <b>▶ Open on this TV</b> on this TV's row") : ""}
-      <p class="note" style="margin:10px 0 0">On each smart TV, open its address in the TV's browser and bookmark it; press OK on the remote once so the chime and voice can play. A new TV's address is ready after <b>Save configuration</b>. The plain address <span class="mono">/queue/display</span> always shows everything.</p>
+      <p class="note" style="margin:10px 0 0">On each smart TV, open its address in the TV's browser and bookmark it; press OK on the remote once so the chime and voice can play. A new TV's address is ready after <b>Save configuration</b>. The plain address <span class="mono">/queue/display</span> always shows everything.<br><b>LG TV:</b> its browser hides everything but the video after about 2 minutes without the remote, so choose <b>🖼 Pictures only</b> (or No playlist) for it.</p>
       ${tvPick !== null && screens[tvPick] ? `<div class="tv-pick" data-act="tvPickBg"><div class="tv-pick-box"><h2>Stations on “${esc(screens[tvPick].name || "this TV")}”</h2><p>Tap to add or remove. This TV shows only these stations.</p>
         <div class="chips">${draft.stations.filter((st) => st.code).map((st) => { const on = screens[tvPick].stations.includes(st.code); return `<button type="button" class="${on ? "on" : ""}" aria-pressed="${on}" data-act="tvPickToggle" data-code="${esc(st.code)}">${on ? "✓" : "＋"} <b class="mono">${esc(st.code)}</b> <span>${esc(st.name)}</span></button>`; }).join(" ")}</div>
         <div style="display:flex;justify-content:space-between;gap:8px;margin-top:16px;flex-wrap:wrap"><span><button type="button" class="btn sm ghost" data-act="tvPickAll">Select all</button><button type="button" class="btn sm ghost" data-act="tvPickNone">Clear</button></span><button type="button" class="btn" data-act="tvPickDone">Done</button></div></div></div>` : ""}`;
@@ -3650,6 +3669,7 @@ function downloadQueueReport(xlsx, state, now) {
       const screen = screens[Number(input.dataset.tvIndex)];
       if (input.dataset.tvField === "registration") screen.registration = input.checked;
       else if (input.dataset.tvField === "connection") { screen.connection = input.value; renderTvScreens(); }
+      else if (input.dataset.tvField === "media") { if (input.value === "all") delete screen.media; else screen.media = input.value; }
       else {
         screen.name = input.value;
         // A TV not saved yet takes its address from its name; a saved one keeps its address.
@@ -4390,7 +4410,10 @@ function downloadQueueReport(xlsx, state, now) {
   let videoSoundKey = "";
   /** The TV playlist, ready to play: YouTube embeds and picture addresses (unusable entries are left out). */
   function tvPlaylist() {
-    return tvMediaOf(state.settings).flatMap((item) => {
+    // A TV can show only the pictures, or nothing (System configuration → TV screens → Playlist), e.g. an LG TV.
+    const media = tvMediaChoice();
+    if (media === "none") return [];
+    return tvMediaOf(state.settings).filter((item) => media !== "pictures" || item.type === "picture").flatMap((item) => {
       if (item.type === "picture") return item.src && !pictureError(item.src) ? [{ type: "picture", src: pictureUrl(item.src) }] : [];
       const video = parseYouTube(item.link);
       return video && !("error" in video) ? [{ type: "youtube", src: video.src }] : [];
@@ -4503,6 +4526,11 @@ function downloadQueueReport(xlsx, state, now) {
   // ---- TV screens: a TV opened at /queue/display?tv=<id> shows only its own stations (System configuration → TV screens) ----
   const tvId = () => (new URLSearchParams(location.search).get("tv") || (route().name === "display" ? route().arg : "") || (autoTv() && !location.hash ? readSetting(TV_SCREEN_KEY) : "") || "").toLowerCase();
   /** This TV's screen, or null when it shows everything (no ?tv=, an unknown one, or "Same on all TVs"). */
+  /** This TV's Playlist choice: also with "Same on all TVs", which only makes the stations the same. */
+  function tvMediaChoice() {
+    const id = view === "display" ? tvId() : "";
+    return (id && (state.settings.tvScreens ?? []).find((screen) => screen.id === id)?.media) || "all";
+  }
   function tvScreen() {
     if (state.settings.tvSameOnAll) return null;
     const id = tvId();
@@ -5229,6 +5257,13 @@ function downloadQueueReport(xlsx, state, now) {
       case "callVitals": dispatch({ type: "callVitals", station }, (r) => `${r.label} called to ${vitalsPlaceOf(state.settings)}.`).then(warnIfSilent); break;
       case "callVitalsOne": dispatch({ type: "callVitals", station, visitId: id }, (r) => `${r.label} called to ${vitalsPlaceOf(state.settings)}.`).then(warnIfSilent); break;
       case "vitalsDone": dispatch({ type: "vitalsDone", station, visitId: id }); break;
+      case "nurseCallIn": {
+        // Only while the clinic is free: calling would otherwise complete the doctor's patient without charges.
+        const busy = servingAt(state, station)[0];
+        if (busy) { toast(`${stationName(state, station)} is still with ${ticketLabel(busy, station)}. Call in when the doctor is free.`, true); break; }
+        dispatch({ type: "call", station, visitId: id }, (r) => `${r.label} called in to ${stationName(state, station)}.`).then(warnIfSilent);
+        break;
+      }
       case "vitalsUndo": dispatch({ type: "vitalsDone", station, visitId: id, done: false }); break;
       case "callBack": dispatch({ type: "callBack", station, visitId: id }, (r) => `${r.label} called back — shown on the TV.`).then(warnIfSilent); break;
       case "recall": dispatch({ type: "recall", visitId: id }).then(warnIfSilent); break;

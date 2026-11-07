@@ -169,7 +169,8 @@ export type Settings = {
 
 /** A TV in one area of the clinic: its name on the TV, the stations it shows, and whether it shows registration calls. */
 /** connection: how this TV reaches the server (its Wi-Fi or LAN cable address); missing means the Display connection setting. */
-export type TvScreen = { id: string; name: string; stations: string[]; registration: boolean; connection?: "wifi" | "lan" };
+/** media: what this TV shows of the TV playlist; missing means videos and pictures. "pictures" helps LG TVs, whose browser hides the page while a video plays. */
+export type TvScreen = { id: string; name: string; stations: string[]; registration: boolean; connection?: "wifi" | "lan"; media?: "pictures" | "none" };
 
 export type SmsSettings = {
   enabled: boolean;

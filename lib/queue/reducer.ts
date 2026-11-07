@@ -72,7 +72,7 @@ export function tvScreensOf(input: unknown, codes: string[]): TvScreen[] {
     for (let n = 2; used.has(id); n++) id = `${id.replace(/-\d+$/, "")}-${n}`;
     used.add(id);
     const stations = Array.isArray(raw?.stations) ? [...new Set(raw.stations.map((code: unknown) => String(code)).filter((code: string) => codes.includes(code)))] as string[] : [];
-    screens.push({ id, name, stations, registration: Boolean(raw?.registration), ...(raw?.connection === "wifi" || raw?.connection === "lan" ? { connection: raw.connection } : {}) });
+    screens.push({ id, name, stations, registration: Boolean(raw?.registration), ...(raw?.connection === "wifi" || raw?.connection === "lan" ? { connection: raw.connection } : {}), ...(raw?.media === "pictures" || raw?.media === "none" ? { media: raw.media } : {}) });
   }
   return screens;
 }
