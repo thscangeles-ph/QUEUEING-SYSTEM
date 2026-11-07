@@ -1638,7 +1638,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-07.6";
+const BOARD_VERSION = "2026-11-07.7";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -4253,8 +4253,8 @@ function downloadQueueReport(xlsx, state, now) {
     const now = Date.now();
     const serving = servingAt(state, station.code);
     const waiting = waitingFor(state, station.code);
-    // Clinic (consultation) stations can drag their waiting line into a different order.
-    const reorder = station.service === "consultation";
+    // Every station can drag its waiting line into a different order (e.g. alternate priority lane and regular patients).
+    const reorder = true;
     const missed = state.visits.filter((v) => { const s = currentStep(v); return !v.cancelled && s?.station === station.code && s.status === "missed"; });
     // Patients this station already served today (latest first), kept so they can be called back.
     const lastDoneHere = (v) => Math.max(...v.steps.filter((s) => s.station === station.code && s.status === "done").map((s) => s.doneAt ?? 0));
