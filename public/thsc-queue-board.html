@@ -143,7 +143,12 @@ a.btn { text-decoration: none; }
 @media (max-width: 1200px) { .desk-tabs { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); } }
 .nurse-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .nurse-grid { grid-template-columns: 1fr; } }
-.nurse-docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-bottom: 16px; }
+.nurse-docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-bottom: 16px; align-items: start; }
+.nurse-line-h { margin: 4px 0 0; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--primary); } .nurse-line-h small { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--muted); }
+.nurse-line { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.nurse-line li { display: flex; align-items: center; gap: 8px; border: 1px solid #efe7d8; border-radius: 10px; padding: 6px 8px; background: #fffdf8; font-size: 13px; }
+.nurse-line .pos { width: 16px; text-align: right; color: var(--primary); font-weight: 700; } .nurse-line .num { font-weight: 800; font-size: 14px; } .nurse-line .num.prio { background: #f5b301; color: #2b2118; border-radius: 5px; padding: 0 5px; }
+.nurse-line .nm2 { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .nurse-line .drag-handle { width: 24px; font-size: 16px; }
 .nurse-doc { display: flex; flex-direction: column; gap: 8px; border: 1px solid #e8dfce; border-radius: 12px; background: #fff; padding: 10px 12px; }
 .nurse-doc .nm { font-weight: 700; } .nurse-doc .st { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; } .nurse-doc .st b { color: var(--ink); }
 .nurse-doc .btn { width: 100%; } .nurse-doc .empty-note { font-size: 12px; color: var(--muted-2, #9a8f7c); }
@@ -1609,7 +1614,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-07.1";
+const BOARD_VERSION = "2026-11-07.2";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2839,7 +2844,16 @@ function downloadQueueReport(xlsx, state, now) {
       const busy = busyWith(st);
       const next = waitingFor(state, st.code).find((x) => currentStep(x).vitalsDoneAt);
       return `<div class="nurse-doc"><div><span class="nm">${esc(st.name)}</span><span class="st">${busy ? `🩺 With <b class="mono">${esc(ticketLabel(busy, st.code))}</b> since ${formatTime(currentStep(busy).calledAt)}` : `<b style="color:var(--ok)">✓ Free</b>`}</span></div>
-        ${next ? `<button class="btn sm" data-act="nurseCallIn" data-station="${esc(st.code)}" data-id="${next.id}" ${busy ? `disabled title="The doctor is still with ${esc(ticketLabel(busy, st.code))}"` : ""}>📢 Call in · <span class="mono">${esc(ticketLabel(next, st.code))}</span></button>` : `<span class="empty-note">No one with vital signs done</span>`}</div>`;
+        ${next ? `<button class="btn sm" data-act="nurseCallIn" data-station="${esc(st.code)}" data-id="${next.id}" ${busy ? `disabled title="The doctor is still with ${esc(ticketLabel(busy, st.code))}"` : ""}>📢 Call in · <span class="mono">${esc(ticketLabel(next, st.code))}</span></button>` : `<span class="empty-note">No one with vital signs done</span>`}
+        ${nextInLine(st)}</div>`;
+    };
+    // The clinic's whole line in the doctor's calling order, with each patient's vital signs; drag ⠿ to change it.
+    const nextInLine = (st) => {
+      const line = waitingFor(state, st.code);
+      if (!line.length) return `<p class="nurse-line-h">Next in line · 0</p><p class="empty-note">No one is waiting.</p>`;
+      const vitals = (v) => { const step = currentStep(v); return step.vitalsDoneAt ? `<span class="tag vitals done">✓ Vitals</span>` : step.vitalsCalledAt ? `<span class="tag vitals">🩺 Called</span>` : `<span class="tag">No vitals yet</span>`; };
+      const drag = line.length > 1;
+      return `<p class="nurse-line-h">Next in line · ${line.length}${drag ? ` <small>drag ⠿ to change the order</small>` : ""}</p><ol class="nurse-line"${drag ? ` data-drag-list="line" data-station="${esc(st.code)}"` : ""}>${line.map((v, i) => `<li data-id="${v.id}">${drag ? `<button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, st.code))}, place ${i + 1} of ${line.length}. Use the up and down arrow keys.">⠿</button>` : ""}<span class="pos">${i + 1}</span><span class="mono num${v.priority ? " prio" : ""}">${esc(ticketLabel(v, st.code))}</span><span class="nm2">${esc(v.name)}</span>${vitals(v)}</li>`).join("")}</ol>`;
     };
     const list = (items, kind, empty) => (items.length ? `<ul class="nurse-list">${items.map((row) => item(row, kind)).join("")}</ul>` : `<p class="empty">${empty}</p>`);
     // Waiting: one draggable list per clinic, in its calling order; dragging changes the clinic's line too.
