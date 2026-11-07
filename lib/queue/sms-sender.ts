@@ -66,8 +66,9 @@ function callJobs(state: QueueState, action: Extract<QueueAction, { type: "call"
   const find = (id?: string) => state.visits.find((item) => item.id === id && !item.cancelled && smsPhone(item.mobile));
   const code = String(action.station).toUpperCase();
   const jobs: SmsJob[] = [];
-  const called = find(result.ok ? result.visitId : undefined);
-  if (called && sms.autoTurn !== false) jobs.push({ visitId: called.id, kind: action.type === "callVitals" ? "vitals" : "turn", station: code });
+  // Patients called in together each get "your turn".
+  const calledIds = result.ok ? (result.visitIds ?? [result.visitId]) : [];
+  for (const called of calledIds.map(find)) if (called && sms.autoTurn !== false) jobs.push({ visitId: called.id, kind: action.type === "callVitals" ? "vitals" : "turn", station: code });
   if (action.type === "call" && sms.autoNext) {
     const clinic = /^C([123])$/.exec(code);
     const next = [...waitingFor(state, code), ...(clinic ? preRegisteredList(state, `Clinic ${clinic[1]}`) : [])][0];

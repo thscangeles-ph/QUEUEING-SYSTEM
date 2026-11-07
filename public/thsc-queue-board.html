@@ -143,6 +143,9 @@ a.btn { text-decoration: none; }
 @media (max-width: 1200px) { .desk-tabs { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); } }
 .nurse-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .nurse-grid { grid-template-columns: 1fr; } }
+.together-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 8px; } .together-bar .hint { font-size: 12px; color: var(--muted); }
+.together-box { width: 18px; height: 18px; accent-color: var(--primary, #8b6512); flex: none; cursor: pointer; }
+.nurse-line + .together-bar { margin: 8px 0 0; }
 .nurse-docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-bottom: 16px; align-items: start; }
 .nurse-line-h { margin: 4px 0 0; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--primary); } .nurse-line-h small { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--muted); }
 .nurse-line { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
@@ -1285,6 +1288,25 @@ function run(state, action, now) {
             const station = findStation(state, action.station);
             if (!station)
                 return fail("Unknown station.");
+            // Several patients called in together: each is shown and read out; those the station was serving are completed.
+            if (Array.isArray(action.visitIds) && action.visitIds.length > 1) {
+                const visits = [...new Set(action.visitIds.map(String))].slice(0, 10).map((id) => findVisit(id));
+                if (visits.some((visit) => { const step = visit && currentStep(visit); return !visit || !step || step.station !== station.code || !["waiting", "missed"].includes(step.status); }))
+                    return fail("Someone chosen is no longer waiting for this station.");
+                servingAt(state, station.code).forEach((visit) => { if (!visits.includes(visit))
+                    finishStep(visit, now); });
+                const labels = visits.map((visit) => {
+                    const step = currentStep(visit);
+                    step.status = "called";
+                    step.calledAt = now;
+                    step.calls += 1;
+                    delete step.lineOrder;
+                    const label = ticketLabel(visit, station.code);
+                    announce(state, { at: now, kind: "ticket", label, station: station.code });
+                    return label;
+                });
+                return { ok: true, visitId: visits[0].id, visitIds: visits.map((visit) => visit.id), label: labels.join(", ") };
+            }
             let target;
             if (action.visitId) {
                 target = findVisit(action.visitId);
@@ -1614,7 +1636,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-07.2";
+const BOARD_VERSION = "2026-11-07.3";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2813,6 +2835,33 @@ function downloadQueueReport(xlsx, state, now) {
   let filter = "active";
   let search = "";
 
+  // ---- Call together: a doctor may call in several patients at once (e.g. a family), from the clinic or the nurses ----
+  // The patients chosen per station, kept while the screens refresh.
+  const together = {};
+  const chosenFor = (code) => {
+    const waiting = new Set(waitingFor(state, code).map((v) => v.id));
+    const list = (together[code] ?? []).filter((id) => waiting.has(id));
+    together[code] = list;
+    return list;
+  };
+  const togetherBox = (st, v) => `<input type="checkbox" class="together-box" data-together="${v.id}" data-station="${esc(st.code)}" ${chosenFor(st.code).includes(v.id) ? "checked" : ""} title="Choose to call together" aria-label="Call ${esc(ticketLabel(v, st.code))} together with others">`;
+  /** The "Call together" button for the chosen patients (the nurses only while the clinic is free). */
+  function togetherBar(st, nurse) {
+    const chosen = chosenFor(st.code).map((id) => state.visits.find((v) => v.id === id)).filter(Boolean);
+    const busy = nurse ? servingAt(state, st.code)[0] : null;
+    const ready = chosen.length >= 2 && !busy;
+    return `<div class="together-bar"><button type="button" class="btn sm${ready ? "" : " outline"}" data-act="callTogether" data-station="${esc(st.code)}" ${ready ? "" : "disabled"} title="${busy ? `The doctor is still with ${esc(ticketLabel(busy, st.code))}` : "Tick ☐ two or more patients, then call them in together"}">📢 Call together${chosen.length ? ` (${chosen.length}) · <span class="mono">${chosen.map((v) => esc(ticketLabel(v, st.code))).join(", ")}</span>` : ""}</button>${chosen.length ? `<button type="button" class="btn sm ghost" data-act="togetherClear" data-station="${esc(st.code)}">Clear</button>` : `<span class="hint">☐ Tick two or more patients to call them in together.</span>`}</div>`;
+  }
+  document.addEventListener("change", (event) => {
+    const box = event.target.closest?.("[data-together]");
+    if (!box) return;
+    const code = box.dataset.station;
+    const list = chosenFor(code).filter((id) => id !== box.dataset.together);
+    if (box.checked) list.push(box.dataset.together);
+    together[code] = list;
+    if (view === "desk") updateDesk(); else if (view === "station") updateStation();
+  });
+
   // ---- 💉 Nursing station: the clinics' patients and their vital signs ----
   /** Everyone waiting for a station with vital signs first (the clinics, 2D Echo …), with their step there. */
   function nursingRows() {
@@ -2853,7 +2902,7 @@ function downloadQueueReport(xlsx, state, now) {
       if (!line.length) return `<p class="nurse-line-h">Next in line · 0</p><p class="empty-note">No one is waiting.</p>`;
       const vitals = (v) => { const step = currentStep(v); return step.vitalsDoneAt ? `<span class="tag vitals done">✓ Vitals</span>` : step.vitalsCalledAt ? `<span class="tag vitals">🩺 Called</span>` : `<span class="tag">No vitals yet</span>`; };
       const drag = line.length > 1;
-      return `<p class="nurse-line-h">Next in line · ${line.length}${drag ? ` <small>drag ⠿ to change the order</small>` : ""}</p><ol class="nurse-line"${drag ? ` data-drag-list="line" data-station="${esc(st.code)}"` : ""}>${line.map((v, i) => `<li data-id="${v.id}">${drag ? `<button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, st.code))}, place ${i + 1} of ${line.length}. Use the up and down arrow keys.">⠿</button>` : ""}<span class="pos">${i + 1}</span><span class="mono num${v.priority ? " prio" : ""}">${esc(ticketLabel(v, st.code))}</span><span class="nm2">${esc(v.name)}</span>${vitals(v)}</li>`).join("")}</ol>`;
+      return `<p class="nurse-line-h">Next in line · ${line.length}${drag ? ` <small>drag ⠿ to change the order</small>` : ""}</p><ol class="nurse-line"${drag ? ` data-drag-list="line" data-station="${esc(st.code)}"` : ""}>${line.map((v, i) => `<li data-id="${v.id}">${drag ? `<button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, st.code))}, place ${i + 1} of ${line.length}. Use the up and down arrow keys.">⠿</button>` : ""}${drag ? togetherBox(st, v) : ""}<span class="pos">${i + 1}</span><span class="mono num${v.priority ? " prio" : ""}">${esc(ticketLabel(v, st.code))}</span><span class="nm2">${esc(v.name)}</span>${vitals(v)}</li>`).join("")}</ol>${drag ? togetherBar(st, true) : ""}`;
     };
     const list = (items, kind, empty) => (items.length ? `<ul class="nurse-list">${items.map((row) => item(row, kind)).join("")}</ul>` : `<p class="empty">${empty}</p>`);
     // Waiting: one draggable list per clinic, in its calling order; dragging changes the clinic's line too.
@@ -4259,7 +4308,7 @@ function downloadQueueReport(xlsx, state, now) {
         </div>
         <div class="col">
           <section class="panel"><div class="panel-h"><div><h2>Waiting for ${esc(station.name)}</h2><p>Priority lane patients are called first, then in arrival order.${reorder ? " Drag ⠿ to change who is called next." : ""}</p></div></div>
-            <div class="panel-b">${waiting.length ? `<ol class="wlist"${reorder ? ` data-drag-list="line" data-station="${esc(station.code)}"` : ""}>${waiting.map((v, i) => `<li data-id="${v.id}">${reorder && waiting.length > 1 ? `<button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, station.code))}, place ${i + 1} of ${waiting.length}. Use the up and down arrow keys.">⠿</button>` : ""}<span class="pos">${i + 1}</span><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${v.age !== null && v.age !== undefined ? ` · ${v.age} y` : ""}${groupTag(v) ? ` ${groupTag(v)}` : ""}${station.service === "cashier" && payItems(state, v).length ? ` <span class="tag pay">💳 ${payItems(state, v).map(esc).join(", ")}</span>` : ""}${station.service === "cashier" && payNotes(state, v).length ? ` <span class="tag prio" title="${esc(payNotes(state, v).map((n) => `${n.station}: ${n.note}`).join(" | "))}">📝 Doctor's note</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span>${vitalsCell(v)}<button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
+            <div class="panel-b">${consult && waiting.length > 1 ? togetherBar(station, false) : ""}${waiting.length ? `<ol class="wlist"${reorder ? ` data-drag-list="line" data-station="${esc(station.code)}"` : ""}>${waiting.map((v, i) => `<li data-id="${v.id}">${reorder && waiting.length > 1 ? `<button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, station.code))}, place ${i + 1} of ${waiting.length}. Use the up and down arrow keys.">⠿</button>` : ""}${consult && waiting.length > 1 ? togetherBox(station, v) : ""}<span class="pos">${i + 1}</span><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${v.age !== null && v.age !== undefined ? ` · ${v.age} y` : ""}${groupTag(v) ? ` ${groupTag(v)}` : ""}${station.service === "cashier" && payItems(state, v).length ? ` <span class="tag pay">💳 ${payItems(state, v).map(esc).join(", ")}</span>` : ""}${station.service === "cashier" && payNotes(state, v).length ? ` <span class="tag prio" title="${esc(payNotes(state, v).map((n) => `${n.station}: ${n.note}`).join(" | "))}">📝 Doctor's note</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span>${vitalsCell(v)}<button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
           </section>
           ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map((v) => `<li class="missed"><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
           <section class="panel"><div class="panel-h"><div><h2>Served here today</h2><p>Queue numbers stay here. Call again brings the patient back to ${esc(station.name)}.</p></div><span class="count">${served.length}</span></div>
@@ -5271,6 +5320,19 @@ function downloadQueueReport(xlsx, state, now) {
       case "callVitals": dispatch({ type: "callVitals", station }, (r) => `${r.label} called to ${vitalsPlaceOf(state.settings)}.`).then(warnIfSilent); break;
       case "callVitalsOne": dispatch({ type: "callVitals", station, visitId: id }, (r) => `${r.label} called to ${vitalsPlaceOf(state.settings)}.`).then(warnIfSilent); break;
       case "vitalsDone": dispatch({ type: "vitalsDone", station, visitId: id }); break;
+      case "togetherClear": together[station] = []; if (view === "desk") updateDesk(); else updateStation(); break;
+      case "callTogether": {
+        const ids = chosenFor(station);
+        if (ids.length < 2) break;
+        // From the Nursing station only while the clinic is free (calling completes the doctor's patient).
+        const busy = view === "desk" ? servingAt(state, station)[0] : null;
+        if (busy) { toast(`${stationName(state, station)} is still with ${ticketLabel(busy, station)}. Call in when the doctor is free.`, true); break; }
+        // At the clinic, the patients being served are completed with no charges recorded: ask first.
+        const serving = view === "station" ? servingAt(state, station).filter((v) => !ids.includes(v.id)) : [];
+        if (serving.length && !confirm(`Calling them in completes ${serving.map((v) => ticketLabel(v, station)).join(", ")} with no charges recorded. Choose Professional fee or No charge first if needed.\n\nCall them in together now?`)) break;
+        dispatch({ type: "call", station, visitIds: ids }, (r) => `${r.label} called in together to ${stationName(state, station)}.`).then((r) => { if (r.ok) together[station] = []; warnIfSilent(r); });
+        break;
+      }
       case "nurseCallIn": {
         // Only while the clinic is free: calling would otherwise complete the doctor's patient without charges.
         const busy = servingAt(state, station)[0];
