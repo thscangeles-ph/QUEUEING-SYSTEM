@@ -143,6 +143,10 @@ a.btn { text-decoration: none; }
 @media (max-width: 1200px) { .desk-tabs { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); } }
 .nurse-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .nurse-grid { grid-template-columns: 1fr; } }
+.nurse-docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-bottom: 16px; }
+.nurse-doc { display: flex; flex-direction: column; gap: 8px; border: 1px solid #e8dfce; border-radius: 12px; background: #fff; padding: 10px 12px; }
+.nurse-doc .nm { font-weight: 700; } .nurse-doc .st { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; } .nurse-doc .st b { color: var(--ink); }
+.nurse-doc .btn { width: 100%; } .nurse-doc .empty-note { font-size: 12px; color: var(--muted-2, #9a8f7c); }
 .nurse-calls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
 .nurse-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .nurse-list li { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: center; border: 1px solid #e8dfce; border-radius: 12px; padding: 10px 12px; background: #fff; }
@@ -1605,7 +1609,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-06.1";
+const BOARD_VERSION = "2026-11-07.1";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2823,8 +2827,20 @@ function downloadQueueReport(xlsx, state, now) {
     const item = ({ v, st, step }, kind, handle = "") => `<li class="${kind === "called" ? "now" : ""}${handle ? " draggable" : ""}" data-id="${v.id}">${handle}<span class="mono">${esc(ticketLabel(v, st.code))}</span><div class="who"><b>${esc(v.name)}${groupTag(v) ? ` ${groupTag(v)}` : ""}</b><span>${esc(st.name)}${patientFacts(v) ? ` · ${patientFacts(v)}` : ""} · ${kind === "called" ? `called ${formatTime(step.vitalsCalledAt)}${step.vitalsCalls > 1 ? ` (${step.vitalsCalls}×)` : ""}` : kind === "done" ? `taken ${formatTime(step.vitalsDoneAt)}` : `waiting ${formatWait(minutesSince(step.queuedAt, now))}`}</span></div>
       <div class="acts">${kind === "called"
         ? `<button class="btn sm" data-act="vitalsDone" data-station="${esc(st.code)}" data-id="${v.id}" style="background:#2f7d4f">✓ Vitals done</button><button class="btn sm outline" data-act="callVitalsOne" data-station="${esc(st.code)}" data-id="${v.id}">📢 Call again</button>`
-        : kind === "done" ? `<button class="btn sm ghost" data-act="vitalsUndo" data-station="${esc(st.code)}" data-id="${v.id}">↺ Undo</button>`
+        : kind === "done" ? `${callInButton(st, v)}<button class="btn sm ghost" data-act="vitalsUndo" data-station="${esc(st.code)}" data-id="${v.id}">↺ Undo</button>`
         : `<button class="btn sm outline" data-act="callVitalsOne" data-station="${esc(st.code)}" data-id="${v.id}">🩺 Call for vitals</button><button class="btn sm ghost" data-act="vitalsDone" data-station="${esc(st.code)}" data-id="${v.id}">✓ Vitals done</button>`}</div></li>`;
+    // The nurses can also call a patient in to the doctor, while the clinic is free (calling then completes no one).
+    const busyWith = (st) => servingAt(state, st.code)[0] ?? null;
+    function callInButton(st, v) {
+      const busy = busyWith(st);
+      return `<button class="btn sm" data-act="nurseCallIn" data-station="${esc(st.code)}" data-id="${v.id}" ${busy ? `disabled title="${esc(st.name)} is still with ${esc(ticketLabel(busy, st.code))}"` : `title="Call this patient in to ${esc(st.name)} (shown and read out on the TV)"`}>📢 Call in to ${esc(st.name)}</button>`;
+    }
+    const doctorCard = (st) => {
+      const busy = busyWith(st);
+      const next = waitingFor(state, st.code).find((x) => currentStep(x).vitalsDoneAt);
+      return `<div class="nurse-doc"><div><span class="nm">${esc(st.name)}</span><span class="st">${busy ? `🩺 With <b class="mono">${esc(ticketLabel(busy, st.code))}</b> since ${formatTime(currentStep(busy).calledAt)}` : `<b style="color:var(--ok)">✓ Free</b>`}</span></div>
+        ${next ? `<button class="btn sm" data-act="nurseCallIn" data-station="${esc(st.code)}" data-id="${next.id}" ${busy ? `disabled title="The doctor is still with ${esc(ticketLabel(busy, st.code))}"` : ""}>📢 Call in · <span class="mono">${esc(ticketLabel(next, st.code))}</span></button>` : `<span class="empty-note">No one with vital signs done</span>`}</div>`;
+    };
     const list = (items, kind, empty) => (items.length ? `<ul class="nurse-list">${items.map((row) => item(row, kind)).join("")}</ul>` : `<p class="empty">${empty}</p>`);
     // Waiting: one draggable list per clinic, in its calling order; dragging changes the clinic's line too.
     const waitingLists = waiting.length ? clinics.map((st) => {
@@ -2835,10 +2851,12 @@ function downloadQueueReport(xlsx, state, now) {
     }).join("") : `<p class="empty">Everyone waiting has had their vital signs taken.</p>`;
     box.innerHTML = `
       <div class="nurse-calls">${clinics.map((st) => { const left = rows.filter((r) => r.st.code === st.code && !r.step.vitalsCalledAt && !r.step.vitalsDoneAt).length; return `<button class="btn" data-act="callVitals" data-station="${esc(st.code)}" ${left ? "" : "disabled"} style="background:#2f7d4f">🩺 Call next for vitals · ${esc(st.name)}${left ? ` (${left})` : ""}</button>`; }).join("")}</div>
+      <p class="sub" style="margin:0 0 8px">Call in to the doctor</p>
+      <div class="nurse-docs">${clinics.map(doctorCard).join("")}</div>
       <div class="nurse-grid">
         <section class="panel"><div class="panel-h"><div><h2>Called for vital signs · ${called.length}</h2><p>Coming to ${esc(vitalsPlaceOf(state.settings))} now. Tap ✓ when their vital signs are taken.</p></div></div><div class="panel-b">${list(called, "called", "No one is called for vital signs right now.")}</div></section>
         <section class="panel"><div class="panel-h"><div><h2>Waiting · no vital signs yet · ${waiting.length}</h2><p>In each clinic's calling order. Drag ⠿ to change who is next (the clinic's line changes too). Call one, or use the buttons above for the next of each clinic.</p></div></div><div class="panel-b" style="padding-top:4px">${waitingLists}</div></section>
-        <section class="panel"><div class="panel-h"><div><h2>Vital signs done · ${done.length}</h2><p>Waiting for the doctor. ↺ Undo if tapped by mistake.</p></div></div><div class="panel-b">${list(done, "done", "None yet.")}</div></section>
+        <section class="panel"><div class="panel-h"><div><h2>Vital signs done · ${done.length}</h2><p>Waiting for the doctor. 📢 Call in when the clinic is free (shown and read out on the TV). ↺ Undo if tapped by mistake.</p></div></div><div class="panel-b">${list(done, "done", "None yet.")}</div></section>
       </div>`;
   }
 
@@ -5239,6 +5257,13 @@ function downloadQueueReport(xlsx, state, now) {
       case "callVitals": dispatch({ type: "callVitals", station }, (r) => `${r.label} called to ${vitalsPlaceOf(state.settings)}.`).then(warnIfSilent); break;
       case "callVitalsOne": dispatch({ type: "callVitals", station, visitId: id }, (r) => `${r.label} called to ${vitalsPlaceOf(state.settings)}.`).then(warnIfSilent); break;
       case "vitalsDone": dispatch({ type: "vitalsDone", station, visitId: id }); break;
+      case "nurseCallIn": {
+        // Only while the clinic is free: calling would otherwise complete the doctor's patient without charges.
+        const busy = servingAt(state, station)[0];
+        if (busy) { toast(`${stationName(state, station)} is still with ${ticketLabel(busy, station)}. Call in when the doctor is free.`, true); break; }
+        dispatch({ type: "call", station, visitId: id }, (r) => `${r.label} called in to ${stationName(state, station)}.`).then(warnIfSilent);
+        break;
+      }
       case "vitalsUndo": dispatch({ type: "vitalsDone", station, visitId: id, done: false }); break;
       case "callBack": dispatch({ type: "callBack", station, visitId: id }, (r) => `${r.label} called back — shown on the TV.`).then(warnIfSilent); break;
       case "recall": dispatch({ type: "recall", visitId: id }).then(warnIfSilent); break;
