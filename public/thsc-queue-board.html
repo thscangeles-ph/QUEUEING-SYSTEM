@@ -143,6 +143,7 @@ a.btn { text-decoration: none; }
 @media (max-width: 1200px) { .desk-tabs { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); } }
 .nurse-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .nurse-grid { grid-template-columns: 1fr; } }
+.tone-ctl { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; align-self: center; font-size: 13px; white-space: nowrap; } .tone-ctl label { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--muted); } .tone-ctl select { padding: 4px 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--card, #fff); font: inherit; }
 .together-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 8px; } .together-bar .hint { font-size: 12px; color: var(--muted); }
 .together-box { width: 18px; height: 18px; accent-color: var(--primary, #8b6512); flex: none; cursor: pointer; }
 .nurse-line + .together-bar { margin: 8px 0 0; }
@@ -1638,7 +1639,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-07.7";
+const BOARD_VERSION = "2026-11-08.1";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2836,6 +2837,62 @@ function downloadQueueReport(xlsx, state, now) {
   let issued = null;
   let filter = "active";
   let search = "";
+
+  // ---- 🔔 Station tones: a sound when a new patient joins the station's waiting line (each station chooses its own) ----
+  // [frequency, start s, length s, wave, [harmonic, loudness]…, sweep-to frequency]
+  const STATION_TONES = {
+    ding: { name: "1 · Ding", notes: [[1318.5, 0, 1.6, "sine", [[2, 0.25], [3, 0.1]]]] },
+    dingdong: { name: "2 · Ding-dong", notes: [[880, 0, 1.1, "sine", [[2, 0.2]]], [659.3, 0.45, 1.4, "sine", [[2, 0.2]]]] },
+    chime: { name: "3 · Triple chime", notes: [[523.3, 0, 0.9, "sine", [[2, 0.2]]], [659.3, 0.22, 0.9, "sine", [[2, 0.2]]], [784, 0.44, 1.3, "sine", [[2, 0.2]]]] },
+    marimba: { name: "4 · Marimba", notes: [[784, 0, 0.35, "triangle", []], [1046.5, 0.16, 0.5, "triangle", []]] },
+    bubble: { name: "5 · Bubble pop", notes: [[500, 0, 0.18, "sine", [], 1400], [700, 0.2, 0.2, "sine", [], 1800]] },
+    beep: { name: "6 · Alert beep", notes: [[1000, 0, 0.16, "square", [], null, 0.12], [1000, 0.24, 0.16, "square", [], null, 0.12]] },
+  };
+  const toneKey = (code) => `thsc-queue-tone-${code}`;
+  const toneOf = (code) => { const t = readSetting(toneKey(code)); return t === "off" || STATION_TONES[t] ? t : "ding"; };
+  function playTone(id) {
+    const tone = STATION_TONES[id];
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!tone || !Ctx) return;
+    if (!audio) audio = new Ctx();
+    audio.resume?.();
+    const at = audio.currentTime + 0.05;
+    tone.notes.forEach(([freq, start, length, type, harmonics, sweep, loud = 0.35]) => {
+      const gain = audio.createGain();
+      gain.gain.setValueAtTime(0.0001, at + start);
+      gain.gain.exponentialRampToValueAtTime(loud, at + start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + start + length);
+      gain.connect(audio.destination);
+      [[1, 1], ...harmonics].forEach(([mult, level]) => {
+        const osc = audio.createOscillator();
+        const part = audio.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq * mult, at + start);
+        if (sweep) osc.frequency.linearRampToValueAtTime(sweep * mult, at + start + length);
+        part.gain.value = level;
+        osc.connect(part).connect(gain);
+        osc.start(at + start);
+        osc.stop(at + start + length + 0.05);
+      });
+    });
+  }
+  /** The station's tone choice: Off or one of the tones, with ▶ to hear it (kept on this computer). */
+  const toneControl = (code) => `<span class="tone-ctl" title="A sound on this computer when a new patient joins this line"><label>🔔 New patient sound <select data-tone="${esc(code)}" aria-label="Sound for a new patient">${`<option value="off"${toneOf(code) === "off" ? " selected" : ""}>Off</option>`}${Object.entries(STATION_TONES).map(([id, t]) => `<option value="${id}"${toneOf(code) === id ? " selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label><button type="button" class="btn sm ghost" data-act="toneTest" data-tone-of="${esc(code)}" title="Hear it">▶</button></span>`;
+  // The patients already seen waiting at each station screen, to sound the tone only for new ones.
+  const stationSeen = {};
+  function toneForNewPatients(code, waitingIds) {
+    const before = stationSeen[code];
+    stationSeen[code] = new Set(waitingIds);
+    if (before && waitingIds.some((id) => !before.has(id)) && toneOf(code) !== "off") playTone(toneOf(code));
+  }
+  document.addEventListener("change", (event) => {
+    const select = event.target.closest?.("[data-tone]");
+    if (!select) return;
+    writeSetting(toneKey(select.dataset.tone), select.value);
+    if (select.value !== "off") playTone(select.value);
+  });
+  // Browsers play sound only after a click on the page: the first click on a station screen allows it.
+  document.addEventListener("pointerdown", () => { if (view === "station" && audio?.state === "suspended") audio.resume?.(); });
 
   // ---- Call together: a doctor may call in several patients at once (e.g. a family), from the clinic or the nurses ----
   // The patients chosen per station, kept while the screens refresh.
@@ -4206,10 +4263,11 @@ function downloadQueueReport(xlsx, state, now) {
       .sort((a, b) => doneAt(b) - doneAt(a)).map((v) => ({ v, code: [...v.steps].reverse().find((st) => codes.includes(st.station) && st.status === "done").station }));
     const next = waiting[0];
     const n = waiting.length;
+    toneForNewPatients(`group:${name}`, waiting.map(({ v }) => v.id));
     const others = (code) => stations.filter((st) => st.code !== code);
     box.innerHTML = `
       <nav class="tabs" aria-label="Choose station">${stationPicker ? groupChips(name) + stations.map((st) => `<a href="#station/${encodeURIComponent(st.code)}" data-act="pickStation"><b class="mono">${esc(st.code)}</b><span class="n">${esc(st.name)}</span><span class="count ${waitingFor(state, st.code).length ? "has" : ""}">${waitingFor(state, st.code).length}</span></a>`).join("")
-        : `<a href="#station/${encodeURIComponent(`group:${name}`)}" class="on${n ? " queued" : ""}"><b class="mono">▦</b><span class="n">${esc(name)} <small>(${codes.map(esc).join(", ")})</small></span><span class="count ${n ? "has" : ""}">${n}</span></a>`}<button type="button" class="btn sm ${stationPicker ? "ghost" : "outline"}" data-act="toggleStations" style="align-self:center">${stationPicker ? "Close" : "⇄ Change station"}</button></nav>
+        : `<a href="#station/${encodeURIComponent(`group:${name}`)}" class="on${n ? " queued" : ""}"><b class="mono">▦</b><span class="n">${esc(name)} <small>(${codes.map(esc).join(", ")})</small></span><span class="count ${n ? "has" : ""}">${n}</span></a>`}<button type="button" class="btn sm ${stationPicker ? "ghost" : "outline"}" data-act="toggleStations" style="align-self:center">${stationPicker ? "Close" : "⇄ Change station"}</button>${toneControl(`group:${name}`)}</nav>
       <div class="st-grid">
         <div>
           <section class="serving"><p class="k">Now serving · ${esc(name)}</p>
@@ -4255,6 +4313,7 @@ function downloadQueueReport(xlsx, state, now) {
     const waiting = waitingFor(state, station.code);
     // Every station can drag its waiting line into a different order (e.g. alternate priority lane and regular patients).
     const reorder = true;
+    toneForNewPatients(station.code, waiting.map((v) => v.id));
     const missed = state.visits.filter((v) => { const s = currentStep(v); return !v.cancelled && s?.station === station.code && s.status === "missed"; });
     // Patients this station already served today (latest first), kept so they can be called back.
     const lastDoneHere = (v) => Math.max(...v.steps.filter((s) => s.station === station.code && s.status === "done").map((s) => s.doneAt ?? 0));
@@ -4289,7 +4348,7 @@ function downloadQueueReport(xlsx, state, now) {
     // Keep typing in a doctor's note while the screen refreshes.
     const typing = document.activeElement?.dataset?.billNote ? { id: document.activeElement.dataset.billNote, start: document.activeElement.selectionStart, end: document.activeElement.selectionEnd } : null;
     box.innerHTML = `
-      <nav class="tabs" aria-label="Choose station">${stationPicker ? groupChips() : ""}${(stationPicker ? stations : [station]).map((s) => { const n = waitingFor(state, s.code).length; return `<a href="#station/${encodeURIComponent(s.code)}" data-act="pickStation" class="${s.code === station.code ? "on" : ""}${n ? " queued" : ""}"${n ? ` style="animation-delay:${blinkDelay}ms" title="${n} waiting"` : ""}><b class="mono">${esc(s.code)}</b><span class="n">${esc(s.name)}</span><span class="count ${n ? "has" : ""}">${n}</span></a>`; }).join("")}${stations.length > 1 ? `<button type="button" class="btn sm ${stationPicker ? "ghost" : "outline"}" data-act="toggleStations" style="align-self:center">${stationPicker ? "Close" : `⇄ Change station${othersWaiting ? ` · ${othersWaiting} other${othersWaiting === 1 ? "" : "s"} with patients waiting` : ""}`}</button>` : ""}</nav>
+      <nav class="tabs" aria-label="Choose station">${stationPicker ? groupChips() : ""}${(stationPicker ? stations : [station]).map((s) => { const n = waitingFor(state, s.code).length; return `<a href="#station/${encodeURIComponent(s.code)}" data-act="pickStation" class="${s.code === station.code ? "on" : ""}${n ? " queued" : ""}"${n ? ` style="animation-delay:${blinkDelay}ms" title="${n} waiting"` : ""}><b class="mono">${esc(s.code)}</b><span class="n">${esc(s.name)}</span><span class="count ${n ? "has" : ""}">${n}</span></a>`; }).join("")}${stations.length > 1 ? `<button type="button" class="btn sm ${stationPicker ? "ghost" : "outline"}" data-act="toggleStations" style="align-self:center">${stationPicker ? "Close" : `⇄ Change station${othersWaiting ? ` · ${othersWaiting} other${othersWaiting === 1 ? "" : "s"} with patients waiting` : ""}`}</button>` : ""}${toneControl(station.code)}</nav>
       <div class="st-grid">
         <div>
           <section class="serving"><p class="k">Now serving · ${esc(station.name)}</p>
@@ -5341,6 +5400,7 @@ function downloadQueueReport(xlsx, state, now) {
       case "callVitals": dispatch({ type: "callVitals", station }, (r) => `${r.label} called to ${vitalsPlaceOf(state.settings)}.`).then(warnIfSilent); break;
       case "callVitalsOne": dispatch({ type: "callVitals", station, visitId: id }, (r) => `${r.label} called to ${vitalsPlaceOf(state.settings)}.`).then(warnIfSilent); break;
       case "vitalsDone": dispatch({ type: "vitalsDone", station, visitId: id }); break;
+      case "toneTest": { const id = toneOf(el.dataset.toneOf); playTone(id === "off" ? "ding" : id); break; }
       case "togetherClear": together[station] = []; if (view === "desk") updateDesk(); else updateStation(); break;
       case "callTogether": {
         const ids = chosenFor(station);
