@@ -7,7 +7,7 @@ import QRCode from "qrcode";
 import { BellRing, CheckCircle2, Clock, Printer, Ticket, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { arrivalLabel, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation, phMobile, purposeOptions, qrAddressOf, vitalsPlaceOf, waitingToRegister } from "@/lib/queue/reducer";
-import { estimatedWait, formatEstimate, patientsAhead, visitStatus } from "@/lib/queue/format";
+import { estimatedWait, formatEstimate, patientsAhead, setWaitMinutes, visitStatus } from "@/lib/queue/format";
 import type { QueueState } from "@/lib/queue/types";
 import { useCallAlert } from "./call-alert";
 import { readStorage, useNow, useQueue, writeStorage } from "./use-queue";
@@ -227,7 +227,7 @@ export function TicketView() {
         <div className="mt-3 rounded-2xl border border-[#e2d7c2] bg-white p-4">
           <p className="text-sm font-semibold text-[#756b59]">Estimated waiting time</p>
           <p className="text-2xl font-extrabold">{formatEstimate(wait)}</p>
-          <p className="mt-1 text-xs leading-5 text-[#857967]">Based on today&apos;s pace at {station?.name ?? "this station"}. Priority lane patients may be called first.</p>
+          <p className="mt-1 text-xs leading-5 text-[#857967]">{step && setWaitMinutes(state, step.station) !== null ? `About ${setWaitMinutes(state, step.station)} min per patient at ${station?.name ?? "this station"}.` : `Based on today's pace at ${station?.name ?? "this station"}.`} Priority lane patients may be called first.</p>
         </div>
       )}
       {visit.steps.length > 0 && <ol className="mt-5 grid gap-2">

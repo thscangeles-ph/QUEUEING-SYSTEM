@@ -406,6 +406,8 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 .kiosk-result .warn { color: #ffd7dd; }
 .kiosk-result .btn { font-size: clamp(18px, 2.4vw, 28px); padding: 1.6vh 5vw; margin-top: 1vh; }
 .kiosk-foot { font-size: 12px; color: #a99a7c; }
+.wait-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: end; } @media (max-width: 640px) { .wait-row { grid-template-columns: 1fr; } }
+.wait-in { display: flex; align-items: center; gap: 8px; } .wait-in input { width: 96px; font-size: 18px; font-weight: 700; text-align: center; } .wait-in b { font-weight: 600; color: var(--muted); font-size: 13px; }
 /* The kiosk's name and cellphone step: the header gets small so the tablet's keyboard leaves the fields in view. */
 .kiosk-app.typing { gap: 1.5vh; padding-top: 2vh; }
 .kiosk-app.typing .kiosk-head img { height: clamp(44px, 7vh, 80px); }
@@ -862,6 +864,17 @@ const findStation = (state, code) => state.settings.stations.find((station) => s
 /** Whether a station's patients get their vital signs taken first: the clinics, and any station with Vitals first ticked. */
 const vitalsFirst = (station) => station.vitals ?? station.service === "consultation";
 const clean = (value, max) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+/** The minutes per patient set for the waiting time estimate (1–180), without the empty ones (automatic). */
+function waitMinutesOf(input) {
+    const out = {};
+    for (const key of ["consultation", "procedure"]) {
+        const raw = input?.[key];
+        const minutes = raw === undefined || raw === null || String(raw).trim() === "" ? NaN : Math.round(Number(raw));
+        if (Number.isFinite(minutes) && minutes >= 1)
+            out[key] = Math.min(180, minutes);
+    }
+    return out;
+}
 /** A Philippine cellphone number typed by a patient, as 09XXXXXXXXX; "" when empty, null when it is not a cellphone number. */
 function phMobile(value) {
     const digits = String(value ?? "").replace(/[\s().-]/g, "");
@@ -1140,7 +1153,7 @@ function sanitizeSettings(input) {
     const sms = smsSettingsOf(input.sms, input.sms);
     if (typeof sms === "string")
         return sms;
-    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth), qrAddress, numberTags, vitalsPlace: clean(input.vitalsPlace, 60), sms, tvScreens: tvScreensOf(input.tvScreens, stations.map((s) => s.code)), tvSameOnAll: Boolean(input.tvSameOnAll) };
+    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth), qrAddress, numberTags, vitalsPlace: clean(input.vitalsPlace, 60), sms, tvScreens: tvScreensOf(input.tvScreens, stations.map((s) => s.code)), tvSameOnAll: Boolean(input.tvSameOnAll), waitMinutes: waitMinutesOf(input.waitMinutes) };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -1758,7 +1771,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-09.3";
+const BOARD_VERSION = "2026-11-09.4";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -3724,6 +3737,12 @@ function downloadQueueReport(xlsx, state, now) {
             <label class="field">TV display message<em>Scrolls along the bottom of the lobby TV.</em><input type="text" maxlength="240" value="${esc(draft.ticker)}" data-set="ticker"></label>
             <label class="field">Vital signs area<em>Where clinic patients go when a clinic calls them for vital signs (read on the TV), e.g. Vital Signs or Triage.</em><input type="text" maxlength="60" value="${esc(draft.vitalsPlace ?? "")}" placeholder="Vital Signs" data-set="vitalsPlace"></label>
           </div></section>
+        <section class="panel"><div class="panel-h"><div><h2>⏱ Estimated waiting time</h2><p>Shown on the patient's phone (QR check-in): "About 30 min". Set the minutes per patient, or leave empty to use today's pace (automatic).</p></div></div>
+          <div class="panel-b" style="display:grid;gap:12px">
+            <div class="wait-row"><label class="field">🩺 Consultation<em>Clinics (Consultation 1–3)</em><span class="wait-in"><input type="number" min="1" max="180" step="1" inputmode="numeric" value="${esc(draft.waitMinutes?.consultation ?? "")}" placeholder="Auto" data-wait="consultation"><b>min per patient</b></span></label>
+            <label class="field">🔬 Procedures<em>2D Echo, ECG, Treadmill, X-ray, Ultrasound …</em><span class="wait-in"><input type="number" min="1" max="180" step="1" inputmode="numeric" value="${esc(draft.waitMinutes?.procedure ?? "")}" placeholder="Auto" data-wait="procedure"><b>min per patient</b></span></label></div>
+            <p class="note" style="margin:0" id="cfg-wait-hint"></p>
+          </div></section>
         <section class="panel"><div class="panel-h"><div><h2>TV video &amp; slideshow</h2><p>YouTube videos, YouTube playlists and pictures shown on the lobby TV while patients wait. YouTube needs internet.</p></div><button class="btn sm outline" data-act="openTv">TV display ↗</button></div>
           <div class="panel-b" style="display:grid;gap:10px">
             <div class="field">TV playlist<em>Plays from top to bottom, then starts again. Add YouTube video links, playlist links or the clinic's channel ID (starts with UC), and pictures for a slideshow. Leave empty to show the queue only.</em></div>
@@ -3827,6 +3846,13 @@ function downloadQueueReport(xlsx, state, now) {
       if (field === "qrAddress") { showQrHint(); renderKioskLink(); }
       refreshDirty();
     }));
+    box.querySelectorAll("[data-wait]").forEach((input) => input.addEventListener("input", () => {
+      draft.waitMinutes = { ...(draft.waitMinutes ?? {}) };
+      if (input.value.trim() === "") delete draft.waitMinutes[input.dataset.wait]; else draft.waitMinutes[input.dataset.wait] = Number(input.value);
+      showWaitHint();
+      refreshDirty();
+    }));
+    showWaitHint();
     $("#picture-file").addEventListener("change", (event) => { void addPictures([...event.target.files]); event.target.value = ""; });
     renderMediaList();
     renderPrinterList();
@@ -4068,6 +4094,13 @@ function downloadQueueReport(xlsx, state, now) {
   }
   /** The address for phones and tablets: the QR code address from System configuration, or the automatic one. */
   const phoneAddress = () => (draft && qrAddressOf(draft.qrAddress)) || autoQrAddress();
+  /** What a patient sees with these settings, e.g. 3 patients ahead at a clinic. */
+  function showWaitHint() {
+    const hint = $("#cfg-wait-hint");
+    if (!hint) return;
+    const example = (key, label) => { const m = Number(draft.waitMinutes?.[key]); return m >= 1 ? `${label}: 3 patients ahead ≈ about ${Math.round((3 * m) / 5) * 5 || 5} min` : `${label}: automatic`; };
+    hint.textContent = `${example("consultation", "Consultation")} · ${example("procedure", "Procedures")}. Laboratory, Cashier and HMO Desk stay automatic.`;
+  }
   function showQrHint() {
     const hint = $("#qr-hint");
     if (!hint || !draft) return;

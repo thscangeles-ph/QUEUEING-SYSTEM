@@ -165,7 +165,11 @@ export type Settings = {
   tvScreens?: TvScreen[];
   /** All TVs show every station (the TV screens list is kept but not used). */
   tvSameOnAll?: boolean;
+  /** Minutes per patient for the patients' "Estimated waiting time": clinics (consultation) and procedures (procedure and imaging stations). Missing means automatic (today's pace). */
+  waitMinutes?: WaitMinutes;
 };
+
+export type WaitMinutes = { consultation?: number; procedure?: number };
 
 /** A TV in one area of the clinic: its name on the TV, the stations it shows, and whether it shows registration calls. */
 /** connection: how this TV reaches the server (its Wi-Fi or LAN cable address); missing means the Display connection setting. */

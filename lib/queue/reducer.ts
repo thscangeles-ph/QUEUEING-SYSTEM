@@ -1,4 +1,4 @@
-import type { ActionResult, AnnounceLanguage, Announcement, Billing, NumberGroup, PatientKind, TaggedGroup, QueueAction, QueueState, Settings, SmsSettings, Station, Step, Visit, VisitInput, TvScreen } from "./types";
+import type { ActionResult, AnnounceLanguage, Announcement, Billing, NumberGroup, PatientKind, TaggedGroup, QueueAction, QueueState, Settings, SmsSettings, Station, Step, Visit, VisitInput, TvScreen, WaitMinutes } from "./types";
 import { slipWidthOf } from "./escpos";
 import { configPinOk, hashConfigPin } from "./pin";
 import { smsSettingsOf, smsTextOf } from "./sms";
@@ -412,6 +412,17 @@ function finishStep(visit: Visit, now: number, sendTo?: string) {
   }
 }
 
+/** The minutes per patient set for the waiting time estimate (1–180), without the empty ones (automatic). */
+export function waitMinutesOf(input: unknown): WaitMinutes {
+  const out: WaitMinutes = {};
+  for (const key of ["consultation", "procedure"] as const) {
+    const raw = (input as WaitMinutes | undefined)?.[key];
+    const minutes = raw === undefined || raw === null || String(raw).trim() === "" ? NaN : Math.round(Number(raw));
+    if (Number.isFinite(minutes) && minutes >= 1) out[key] = Math.min(180, minutes);
+  }
+  return out;
+}
+
 function sanitizeSettings(input: Partial<Settings>, previous: Settings): Settings | string {
   if (!input || !Array.isArray(input.stations)) return "Settings are incomplete.";
   const codes = new Set<string>();
@@ -461,7 +472,7 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   if (typeof sms === "string") return sms;
   // The configuration PIN only changes with setConfigPin, never from the settings form.
   const configPin = previous.configPin ? { configPin: previous.configPin } : {};
-  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, qrAddress, numberTags, vitalsPlace, sms, tvScreens: tvScreensOf(input.tvScreens ?? previous.tvScreens, stations.map((s) => s.code)), tvSameOnAll: Boolean(input.tvSameOnAll ?? previous.tvSameOnAll), ...configPin };
+  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, qrAddress, numberTags, vitalsPlace, sms, tvScreens: tvScreensOf(input.tvScreens ?? previous.tvScreens, stations.map((s) => s.code)), tvSameOnAll: Boolean(input.tvSameOnAll ?? previous.tvSameOnAll), waitMinutes: waitMinutesOf(input.waitMinutes ?? previous.waitMinutes), ...configPin };
 }
 
 export const CONFIG_PIN_NEEDED = "Enter the configuration PIN to change System configuration.";
