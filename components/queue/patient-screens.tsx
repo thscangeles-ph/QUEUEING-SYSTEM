@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
-import { BellRing, CheckCircle2, Clock, Printer, Ticket } from "lucide-react";
+import { BellRing, CheckCircle2, Clock, Printer, Ticket, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { arrivalLabel, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation, purposeOptions, qrAddressOf, vitalsPlaceOf, waitingToRegister } from "@/lib/queue/reducer";
 import { estimatedWait, formatEstimate, patientsAhead, visitStatus } from "@/lib/queue/format";
 import type { QueueState } from "@/lib/queue/types";
+import { useCallAlert } from "./call-alert";
 import { readStorage, useNow, useQueue, writeStorage } from "./use-queue";
 
 const TICKET_KEY = "thsc-queue-ticket";
@@ -121,13 +122,13 @@ export function TicketView() {
   const vitalsStep = visit ? currentStep(visit) : null;
   const vitalsNow = status === "waiting" && Boolean(vitalsStep?.vitalsCalledAt) && !vitalsStep?.vitalsDoneAt;
   const calledNow = status === "called" || vitalsNow || (status === "registration" && Boolean(visit?.regCalledAt));
-  const lastStatus = useRef(false);
   const now = useNow(30000);
-
-  useEffect(() => {
-    if (calledNow && !lastStatus.current) navigator.vibrate?.([400, 150, 400]);
-    lastStatus.current = calledNow;
-  }, [calledNow]);
+  // Changes with every call and "Call again", so the phone rings each time the staff calls the number.
+  const callKey = !visit || !calledNow ? null
+    : vitalsNow ? `vitals:${vitalsStep?.id}:${vitalsStep?.vitalsCalledAt}`
+    : status === "called" ? `call:${vitalsStep?.id}:${vitalsStep?.calledAt}`
+    : `reg:${visit.id}:${visit.regCalledAt}`;
+  const callAlert = useCallAlert(callKey, visit ? arrivalLabel(visit) : "");
 
   if (!state) return <PatientFrame><p className="py-16 text-center text-[#756b59]">{queue.error || "Loading…"}</p></PatientFrame>;
   if (!visit || visit.cancelled) return <PatientFrame><h1 className="text-xl font-bold">Queue number not found</h1><p className="mt-2 text-[#6a604f]">It may be from a previous day. Please ask the front desk for help.</p><Link href="/queue/checkin" className="mt-5 inline-block font-semibold text-[#8b6512] underline">Go to check-in</Link></PatientFrame>;
@@ -159,10 +160,28 @@ export function TicketView() {
         <p className="mt-2 font-mono text-5xl font-extrabold tracking-wide">{arrivalLabel(visit)}</p>
         <p className="mt-2 text-sm text-[#e8dec7]">Keep this number for every service today.</p>
       </section>
-      <div className={`mt-4 flex items-start gap-3 rounded-2xl p-4 ${message.tone}`} role="status" aria-live="polite">
-        <span className="mt-0.5 shrink-0">{message.icon}</span>
-        <div><p className="text-lg font-bold">{message.title}</p><p className="text-sm">{message.text}</p></div>
+      <div className={`mt-4 rounded-2xl p-4 ${message.tone} ${callAlert.ringing ? "ring-4 ring-[#d8a321]/40" : ""}`} role="status" aria-live="polite">
+        <div className="flex items-start gap-3">
+          <span className={`mt-0.5 shrink-0 ${callAlert.ringing ? "animate-bounce" : ""}`}>{message.icon}</span>
+          <div><p className="text-lg font-bold">{message.title}</p><p className="text-sm">{message.text}</p></div>
+        </div>
+        {callAlert.ringing && (
+          <button type="button" onClick={callAlert.acknowledge} className="mt-3 h-12 w-full rounded-xl bg-[#2f281c] text-base font-bold text-[#f0c864]">
+            ✓ OK, I&apos;m on my way
+          </button>
+        )}
       </div>
+      {status !== "completed" && (callAlert.soundOn ? (
+        <p className="mt-3 flex items-center justify-center gap-2 text-center text-sm text-[#41612c]">
+          <Volume2 className="h-4 w-4 shrink-0" /> <span>Sound on: your phone rings when it&apos;s your turn.</span>
+          <button type="button" onClick={callAlert.test} className="font-semibold text-[#8b6512] underline">Test</button>
+        </p>
+      ) : (
+        <button type="button" data-sound-button onClick={callAlert.test} className="mt-3 flex w-full items-center gap-3 rounded-2xl border-2 border-dashed border-[#c9962b] bg-white p-4 text-left">
+          <Volume2 className="shrink-0 text-[#8b6512]" />
+          <span><span className="block font-bold text-[#2f281c]">Tap here to turn on the call sound</span><span className="block text-sm text-[#6a604f]">Your phone will ring and vibrate when your number is called. Keep this page open and your volume up.</span></span>
+        </button>
+      ))}
       {wait !== null && (
         <div className="mt-3 rounded-2xl border border-[#e2d7c2] bg-white p-4">
           <p className="text-sm font-semibold text-[#756b59]">Estimated waiting time</p>
