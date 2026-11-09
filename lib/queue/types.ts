@@ -236,7 +236,7 @@ export type QueueAction =
   | { type: "issueCard"; card?: number }
   | { type: "callCard"; card?: number }
   | { type: "removeCard"; card: number }
-  | { type: "arrive"; kind: PatientKind; priority?: boolean; newPatient?: boolean }
+  | { type: "arrive"; kind: PatientKind; priority?: boolean; newPatient?: boolean; name?: string; mobile?: string }
   /** Calls the next number of one numbering (group) to register; hmo is the older way to say group H (true) or R (false). */
   | { type: "callRegistration"; visitId?: string; hmo?: boolean; group?: NumberGroup }
   /** preRegister: a new number for a scheduled patient who is not here yet (they join the line with checkIn). */
@@ -254,7 +254,7 @@ export type QueueAction =
   /** Moves a pre-registered patient in their clinic's list: to a place (to, from 0, when dragged) or one up (-1) or down (1). */
   | { type: "movePreRegistered"; visitId: string; to?: number; offset?: number }
   /** A patient takes a queue number with the QR code, giving their name and the purpose(s) of the visit. */
-  | { type: "qrArrive"; name?: string; purposes?: string[] }
+  | { type: "qrArrive"; name?: string; mobile?: string; purposes?: string[] }
   | { type: "verify"; visitId: string }
   | { type: "updateVisit"; visitId: string; name?: string; mobile?: string; notes?: string; priority?: boolean; newPatient?: boolean }
   | { type: "markMessaged"; visitId: string }

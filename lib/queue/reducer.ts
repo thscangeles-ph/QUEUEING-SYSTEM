@@ -201,6 +201,14 @@ export const findStation = (state: QueueState, code: string): Station | undefine
 export const vitalsFirst = (station: Station) => station.vitals ?? station.service === "consultation";
 
 const clean = (value: unknown, max: number) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+/** A Philippine cellphone number typed by a patient, as 09XXXXXXXXX; "" when empty, null when it is not a cellphone number. */
+export function phMobile(value: unknown): string | null {
+  const digits = String(value ?? "").replace(/[\s().-]/g, "");
+  if (!digits) return "";
+  const match = /^(?:\+?63|0)?(9\d{9})$/.exec(digits);
+  return match ? `0${match[1]}` : null;
+}
+const MOBILE_HELP = "Please check the cellphone number (11 digits, e.g. 0917 123 4567), or leave it empty.";
 const fail = (error: string): ActionResult => ({ ok: false, error });
 
 function makeStep(station: string, now: number, first: boolean): Step {
@@ -467,8 +475,13 @@ function run(state: QueueState, action: QueueAction, now: number, options: Actio
       return { ok: true };
     }
     case "arrive": {
+      // The kiosk also sends the patient's name and cellphone, so the Concierge does not type them.
+      const mobile = phMobile(action.mobile);
+      if (mobile === null) return fail(MOBILE_HELP);
       const visit = newVisit(state, action.kind, Boolean(action.priority), Boolean(action.newPatient), now, "desk");
       if (typeof visit === "string") return fail(visit);
+      visit.name = clean(action.name, 80);
+      visit.mobile = mobile;
       return { ok: true, visitId: visit.id, label: arrivalLabel(visit) };
     }
     case "callRegistration": {
@@ -592,10 +605,13 @@ function run(state: QueueState, action: QueueAction, now: number, options: Actio
       if (name.length < 2) return fail("Please type your full name.");
       const purposes = (Array.isArray(action.purposes) ? action.purposes : []).map((purpose) => clean(purpose, 80)).filter(Boolean).slice(0, 8);
       if (!purposes.length) return fail("Please choose the purpose of your visit.");
+      const mobile = phMobile(action.mobile);
+      if (mobile === null) return fail(MOBILE_HELP);
       const visit = newVisit(state, "W", false, false, now, "self");
       if (typeof visit === "string") return fail(visit);
       visit.verified = true;
       visit.name = name;
+      visit.mobile = mobile;
       visit.purposes = purposes;
       return { ok: true, visitId: visit.id, label: arrivalLabel(visit) };
     }

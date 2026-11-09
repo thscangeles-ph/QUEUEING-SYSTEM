@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 import { BellRing, CheckCircle2, Clock, Printer, Ticket, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { arrivalLabel, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation, purposeOptions, qrAddressOf, vitalsPlaceOf, waitingToRegister } from "@/lib/queue/reducer";
+import { arrivalLabel, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation, phMobile, purposeOptions, qrAddressOf, vitalsPlaceOf, waitingToRegister } from "@/lib/queue/reducer";
 import { estimatedWait, formatEstimate, patientsAhead, visitStatus } from "@/lib/queue/format";
 import type { QueueState } from "@/lib/queue/types";
 import { useCallAlert } from "./call-alert";
@@ -47,6 +47,7 @@ export function CheckIn() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
+  const [mobile, setMobile] = useState("");
   const [purposes, setPurposes] = useState<string[]>([]);
   const [other, setOther] = useState("");
   const state = queue.state;
@@ -60,10 +61,12 @@ export function CheckIn() {
   const ready = name.trim().length >= 2 && purposes.length > 0;
   const take = async () => {
     if (!ready) { setError(name.trim().length < 2 ? "Please type your full name." : "Please choose the purpose of your visit."); return; }
+    const phone = phMobile(mobile);
+    if (phone === null) { setError("Please check your cellphone number (11 digits, e.g. 0917 123 4567), or leave it empty."); return; }
     setBusy(true);
     // "Other" carries what the patient typed, e.g. "Other: follow-up for my mother".
     const chosen = purposes.map((purpose) => (purpose === "Other" && other.trim() ? `Other: ${other.trim()}` : purpose));
-    const result = await queue.dispatch({ type: "qrArrive", name: name.trim(), purposes: chosen });
+    const result = await queue.dispatch({ type: "qrArrive", name: name.trim(), mobile: phone, purposes: chosen });
     setBusy(false);
     if (!result.ok) { setError(result.error); return; }
     writeStorage(TICKET_KEY, JSON.stringify({ id: result.visitId, day: state.day }));
@@ -87,6 +90,10 @@ export function CheckIn() {
             Your full name
             <input value={name} onChange={(event) => { setName(event.target.value); setError(""); }} autoComplete="name" maxLength={80} placeholder="e.g. Juan Dela Cruz" className="h-12 rounded-xl border border-[#d8c79f] bg-white px-3 text-base font-normal text-[#2e291f]" />
           </label>
+          <label className="grid gap-1.5 text-sm font-semibold text-[#514838]">
+            <span>Cellphone number <span className="font-normal text-[#857967]">(optional, so the Concierge does not need to ask)</span></span>
+            <input value={mobile} onChange={(event) => { setMobile(event.target.value); setError(""); }} type="tel" inputMode="numeric" autoComplete="tel" maxLength={16} placeholder="09XX XXX XXXX" className="h-12 rounded-xl border border-[#d8c79f] bg-white px-3 font-mono text-base font-normal tracking-wide text-[#2e291f]" />
+          </label>
           <fieldset className="grid gap-2">
             <legend className="mb-1.5 text-sm font-semibold text-[#514838]">Purpose of your visit <span className="font-normal text-[#857967]">(choose all that apply)</span></legend>
             <div className="flex flex-wrap gap-2">
@@ -104,7 +111,7 @@ export function CheckIn() {
           </fieldset>
           {error && <p role="alert" className="text-sm font-semibold text-[#b4233c]">{error}</p>}
           <Button type="submit" disabled={busy} className="h-14 bg-[#8b6512] text-lg text-white hover:bg-[#6f4e0a]">{busy ? "Getting your number…" : "Get my queue number"}</Button>
-          <p className="text-xs leading-5 text-[#857967]">One number per person. Your name is shown only to the clinic staff, never on the TV. Watch the lobby TV for your number.</p>
+          <p className="text-xs leading-5 text-[#857967]">One number per person. Your name and cellphone are seen only by the clinic staff, never on the TV. Watch the lobby TV for your number.</p>
         </form>
       )}
     </PatientFrame>
