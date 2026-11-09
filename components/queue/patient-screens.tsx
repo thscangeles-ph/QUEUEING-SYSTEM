@@ -50,6 +50,8 @@ export function CheckIn() {
   const [mobile, setMobile] = useState("");
   const [purposes, setPurposes] = useState<string[]>([]);
   const [other, setOther] = useState("");
+  // "I have an appointment": a pre-scheduled patient checks in with the name and cellphone they gave when booking.
+  const [appointment, setAppointment] = useState(false);
   const state = queue.state;
 
   if (!state) return <PatientFrame><p className="py-16 text-center text-[#756b59]">{queue.error || "Loading…"}</p></PatientFrame>;
@@ -72,11 +74,29 @@ export function CheckIn() {
     writeStorage(TICKET_KEY, JSON.stringify({ id: result.visitId, day: state.day }));
     router.push(`/queue/ticket?id=${result.visitId}`);
   };
+  const checkIn = async () => {
+    if (name.trim().length < 2) { setError("Please type your full name."); return; }
+    const phone = phMobile(mobile);
+    if (!phone) { setError("Please type the cellphone number you gave for your appointment (11 digits, e.g. 0917 123 4567)."); return; }
+    setBusy(true);
+    const result = await queue.dispatch({ type: "selfCheckIn", name: name.trim(), mobile: phone });
+    setBusy(false);
+    if (!result.ok) { setError(result.error); return; }
+    writeStorage(TICKET_KEY, JSON.stringify({ id: result.visitId, day: state.day }));
+    router.push(`/queue/ticket?id=${result.visitId}`);
+  };
+  const tab = (on: boolean) => `h-11 flex-1 rounded-lg text-sm font-bold ${on ? "bg-white text-[#2f281c] shadow-sm" : "text-[#756b59]"}`;
 
   return (
     <PatientFrame clinic={clinicNameOf(state.settings)}>
-      <h1 className="text-2xl font-bold tracking-tight">Get your queue number</h1>
-      <p className="mt-1 text-[#6a604f]">{existing ? "Please wait in the lobby. The Concierge will call your number to register you." : "Tell us your name and why you are here. The Concierge sees it when calling your number to register you."}</p>
+      <h1 className="text-2xl font-bold tracking-tight">{appointment && !existing ? "Check in for your appointment" : "Get your queue number"}</h1>
+      <p className="mt-1 text-[#6a604f]">{existing ? "Please wait in the lobby and watch the TV for your number." : appointment ? "Type the name and cellphone number you gave when your appointment was made. You are marked as arrived and get your queue number." : "Tell us your name and why you are here. The Concierge sees it when calling your number to register you."}</p>
+      {!existing && (
+        <div className="mt-5 flex gap-1 rounded-xl bg-[#ece4d3] p-1" role="tablist" aria-label="Type of visit">
+          <button type="button" role="tab" aria-selected={!appointment} className={tab(!appointment)} onClick={() => { setAppointment(false); setError(""); }}>🎫 New visit</button>
+          <button type="button" role="tab" aria-selected={appointment} className={tab(appointment)} onClick={() => { setAppointment(true); setError(""); }}>📅 Appointment</button>
+        </div>
+      )}
       {queue.mode === "local" && <p className="mt-5 rounded-xl bg-[#fff9e9] px-4 py-3 text-sm text-[#5f4307]">This page is running in single-device mode and only works on the front-desk computer.</p>}
       {existing ? (
         <Link href={`/queue/ticket?id=${existing.id}`} className="mt-6 flex items-center gap-4 rounded-2xl bg-[#2f281c] p-5 text-white">
@@ -84,6 +104,20 @@ export function CheckIn() {
           <span className="flex-1"><span className="block text-sm text-[#e8dec7]">Your queue number today</span><span className="font-mono text-3xl font-extrabold">{arrivalLabel(existing)}</span></span>
           <span className="font-semibold">View →</span>
         </Link>
+      ) : appointment ? (
+        <form className="mt-6 grid gap-5" onSubmit={(event) => { event.preventDefault(); void checkIn(); }}>
+          <label className="grid gap-1.5 text-sm font-semibold text-[#514838]">
+            Your full name
+            <input value={name} onChange={(event) => { setName(event.target.value); setError(""); }} autoComplete="name" maxLength={80} placeholder="e.g. Juan Dela Cruz" className="h-12 rounded-xl border border-[#d8c79f] bg-white px-3 text-base font-normal text-[#2e291f]" />
+          </label>
+          <label className="grid gap-1.5 text-sm font-semibold text-[#514838]">
+            Cellphone number
+            <input value={mobile} onChange={(event) => { setMobile(event.target.value); setError(""); }} type="tel" inputMode="numeric" autoComplete="tel" maxLength={16} placeholder="09XX XXX XXXX" className="h-12 rounded-xl border border-[#d8c79f] bg-white px-3 font-mono text-base font-normal tracking-wide text-[#2e291f]" />
+          </label>
+          {error && <p role="alert" className="text-sm font-semibold text-[#b4233c]">{error}</p>}
+          <Button type="submit" disabled={busy} className="h-14 bg-[#1f7a70] text-lg text-white hover:bg-[#17625a]">{busy ? "Finding your appointment…" : "✓ Check in"}</Button>
+          <p className="text-xs leading-5 text-[#857967]">No appointment found? Choose <b>New visit</b> above, or ask the Concierge.</p>
+        </form>
       ) : (
         <form className="mt-6 grid gap-5" onSubmit={(event) => { event.preventDefault(); void take(); }}>
           <label className="grid gap-1.5 text-sm font-semibold text-[#514838]">

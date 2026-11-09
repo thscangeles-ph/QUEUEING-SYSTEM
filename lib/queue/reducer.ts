@@ -209,6 +209,45 @@ export function phMobile(value: unknown): string | null {
   return match ? `0${match[1]}` : null;
 }
 const MOBILE_HELP = "Please check the cellphone number (11 digits, e.g. 0917 123 4567), or leave it empty.";
+
+/** The words of a name for comparing what a patient types with what staff entered ("Ma. Dela Cruz" ~ "dela cruz maria"). */
+const nameWords = (value: unknown) => String(value ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z\s]/g, " ").split(/\s+/).filter((word) => word.length >= 2);
+
+/**
+ * The pre-registered patient (Clinic 1–3 appointment) a name and cellphone belong to today, also one who already arrived;
+ * or the message to show. With a cellphone on file the cellphone must match and share a word of the name; without one,
+ * the whole name must match.
+ */
+export function findPreRegistered(state: QueueState, name: unknown, mobile: unknown): Visit | string {
+  const words = nameWords(name);
+  const phone = phMobile(mobile);
+  if (!words.length) return "Please type your full name.";
+  if (phone === null) return MOBILE_HELP;
+  const booked = state.visits.filter((visit) => !visit.cancelled && visit.preRegisteredAt);
+  const byPhone = phone ? booked.filter((visit) => phMobile(visit.mobile) === phone && nameWords(visit.name).some((word) => words.includes(word))) : [];
+  const byName = words.length >= 2
+    ? booked.filter((visit) => {
+      const theirs = nameWords(visit.name);
+      const same = words.every((word) => theirs.includes(word)) || (theirs.length >= 2 && theirs.every((word) => words.includes(word)));
+      // A cellphone on file that differs from the one typed is a different patient.
+      return same && (!phone || !phMobile(visit.mobile) || phMobile(visit.mobile) === phone);
+    })
+    : [];
+  const found = [...new Set([...byPhone, ...byName])];
+  if (found.length === 1) return found[0];
+  if (found.length > 1) return "There is more than one appointment with this name. Please ask the Concierge.";
+  return "We could not find your appointment for today. Please check your name and cellphone number, or ask the Concierge.";
+}
+
+/** A pre-registered patient arrives: their first service's line starts now. */
+function arriveNow(visit: Visit, now: number) {
+  visit.expected = false;
+  // From now on the visit counts from the arrival, like any other patient's.
+  visit.createdAt = now;
+  visit.registeredAt = now;
+  const first = visit.steps.find((step) => step.status !== "done");
+  if (first) { first.status = "waiting"; first.queuedAt = now; }
+}
 const fail = (error: string): ActionResult => ({ ok: false, error });
 
 function makeStep(station: string, now: number, first: boolean): Step {
@@ -588,15 +627,19 @@ function run(state: QueueState, action: QueueAction, now: number, options: Actio
       list.forEach((item, index) => { item.order = index; });
       return { ok: true };
     }
+    case "selfCheckIn": {
+      // A pre-registered patient checks in at the kiosk or with the QR code: name and cellphone find their appointment.
+      // Checking in again only shows the number again.
+      const visit = findPreRegistered(state, action.name, action.mobile);
+      if (typeof visit === "string") return fail(visit);
+      const already = !visit.expected;
+      if (visit.expected) arriveNow(visit, now);
+      return { ok: true, visitId: visit.id, label: currentLabel(visit), already };
+    }
     case "checkIn": {
       const visit = findVisit(action.visitId);
       if (!visit || !visit.expected) return fail("That patient is not waiting to arrive.");
-      visit.expected = false;
-      // From now on the visit counts from the arrival, like any other patient's.
-      visit.createdAt = now;
-      visit.registeredAt = now;
-      const first = visit.steps.find((step) => step.status !== "done");
-      if (first) { first.status = "waiting"; first.queuedAt = now; }
+      arriveNow(visit, now);
       return { ok: true, visitId: visit.id, label: currentLabel(visit) };
     }
     case "qrArrive": {
