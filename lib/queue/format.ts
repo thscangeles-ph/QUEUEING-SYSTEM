@@ -115,8 +115,18 @@ const DEFAULT_SERVICE_MINUTES: Record<Station["service"], number> = { consultati
 const PACE_SAMPLES = 10;
 const MIN_PACE_SAMPLES = 3;
 
-/** Typical minutes per patient at a station: the median of its last few completed patients today. */
+/** The minutes per patient set in System configuration for a station's waiting time (clinics and procedures), or null for automatic. */
+export function setWaitMinutes(state: QueueState, code: string): number | null {
+  const service = findStation(state, code)?.service;
+  const key = service === "consultation" ? "consultation" : service === "procedure" || service === "imaging" ? "procedure" : null;
+  const minutes = key ? Number(state.settings.waitMinutes?.[key]) : NaN;
+  return Number.isFinite(minutes) && minutes >= 1 ? minutes : null;
+}
+
+/** Typical minutes per patient at a station: the minutes set in System configuration, else the median of its last few completed patients today. */
 export function minutesPerPatient(state: QueueState, code: string) {
+  const set = setWaitMinutes(state, code);
+  if (set !== null) return set;
   const durations = state.visits
     .flatMap((visit) => visit.steps)
     .filter((step) => step.station === code && step.status === "done" && step.calledAt && step.doneAt)
