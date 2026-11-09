@@ -482,6 +482,8 @@ function run(state: QueueState, action: QueueAction, now: number, options: Actio
       if (typeof visit === "string") return fail(visit);
       visit.name = clean(action.name, 80);
       visit.mobile = mobile;
+      const purposes = (Array.isArray(action.purposes) ? action.purposes : []).map((purpose) => clean(purpose, 80)).filter(Boolean).slice(0, 8);
+      if (purposes.length) visit.purposes = purposes;
       return { ok: true, visitId: visit.id, label: arrivalLabel(visit) };
     }
     case "callRegistration": {
