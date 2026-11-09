@@ -387,6 +387,14 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 .kiosk-btn { border: 0; border-radius: 28px; padding: 7vh 3vw; display: grid; gap: 1.2vh; justify-items: center; cursor: pointer; font: inherit; font-size: clamp(28px, 4.8vw, 58px); font-weight: 800; line-height: 1.1; background: var(--gold); color: var(--brown); box-shadow: 0 1.2vh 0 #8f6a10; transition: transform .08s; touch-action: manipulation; }
 .kiosk-btn.hmo { background: #7a56bb; color: #fff; box-shadow: 0 1.2vh 0 #4b2f80; }
 .kiosk-btn:active { transform: translateY(.8vh); box-shadow: 0 .4vh 0 #8f6a10; } .kiosk-btn.hmo:active { box-shadow: 0 .4vh 0 #4b2f80; }
+/* Pre-scheduled (Clinic 1-3 appointment) check-in: a wide teal button under the two big ones. */
+.kiosk-btn.appt { grid-column: 1 / -1; background: #1f7a70; color: #fff; box-shadow: 0 1.2vh 0 #0f4a43; padding: 3.2vh 3vw; grid-template-columns: auto auto; justify-content: center; align-items: center; column-gap: 2.4vw; font-size: clamp(24px, 3.6vw, 44px); }
+.kiosk-btn.appt .ico { grid-row: span 2; font-size: 1.4em; } .kiosk-btn.appt small { text-align: left; }
+.kiosk-btn.appt:active { box-shadow: 0 .4vh 0 #0f4a43; }
+.kiosk-btns.three { align-content: stretch; grid-template-rows: 1fr auto; gap: 3.5vh 4vw; }
+.kiosk-btns.three .kiosk-btn:not(.appt) { padding: 4vh 3vw; }
+.kiosk-form .go.appt { background: #1f7a70; color: #fff; box-shadow: 0 .9vh 0 #0f4a43; }
+.kiosk-result .appt-info { margin: 0; padding: .8vh 1.4em; border-radius: 999px; background: #1f7a70; color: #fff; font-weight: 700; font-size: clamp(16px, 2.2vw, 26px); }
 .kiosk-btn:disabled { opacity: .55; }
 .kiosk-btn .ico { font-size: 1.5em; line-height: 1; } .kiosk-btn small { font-size: clamp(15px, 2vw, 24px); font-weight: 600; opacity: .85; }
 .kiosk-result { align-self: center; display: grid; gap: 1.6vh; justify-items: center; animation: slide-in .4s ease-out; }
@@ -862,6 +870,50 @@ function phMobile(value) {
     return match ? `0${match[1]}` : null;
 }
 const MOBILE_HELP = "Please check the cellphone number (11 digits, e.g. 0917 123 4567), or leave it empty.";
+
+/** The words of a name for comparing what a patient types with what staff entered ("Ma. Dela Cruz" ~ "dela cruz maria"). */
+const nameWords = (value) => String(value ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z\s]/g, " ").split(/\s+/).filter((word) => word.length >= 2);
+/**
+ * The pre-registered patient (Clinic 1–3 appointment) a name and cellphone belong to today, also one who already arrived;
+ * or the message to show. With a cellphone on file the cellphone must match and share a word of the name; without one,
+ * the whole name must match.
+ */
+function findPreRegistered(state, name, mobile) {
+    const words = nameWords(name);
+    const phone = phMobile(mobile);
+    if (!words.length)
+        return "Please type your full name.";
+    if (phone === null)
+        return MOBILE_HELP;
+    const booked = state.visits.filter((visit) => !visit.cancelled && visit.preRegisteredAt);
+    const byPhone = phone ? booked.filter((visit) => phMobile(visit.mobile) === phone && nameWords(visit.name).some((word) => words.includes(word))) : [];
+    const byName = words.length >= 2
+        ? booked.filter((visit) => {
+            const theirs = nameWords(visit.name);
+            const same = words.every((word) => theirs.includes(word)) || (theirs.length >= 2 && theirs.every((word) => words.includes(word)));
+            // A cellphone on file that differs from the one typed is a different patient.
+            return same && (!phone || !phMobile(visit.mobile) || phMobile(visit.mobile) === phone);
+        })
+        : [];
+    const found = [...new Set([...byPhone, ...byName])];
+    if (found.length === 1)
+        return found[0];
+    if (found.length > 1)
+        return "There is more than one appointment with this name. Please ask the Concierge.";
+    return "We could not find your appointment for today. Please check your name and cellphone number, or ask the Concierge.";
+}
+/** A pre-registered patient arrives: their first service's line starts now. */
+function arriveNow(visit, now) {
+    visit.expected = false;
+    // From now on the visit counts from the arrival, like any other patient's.
+    visit.createdAt = now;
+    visit.registeredAt = now;
+    const first = visit.steps.find((step) => step.status !== "done");
+    if (first) {
+        first.status = "waiting";
+        first.queuedAt = now;
+    }
+}
 const fail = (error) => ({ ok: false, error });
 function makeStep(station, now, first) {
     return { id: newId(), station, status: first ? "waiting" : "pending", queuedAt: first ? now : null, calledAt: null, doneAt: null, calls: 0 };
@@ -1234,6 +1286,17 @@ function run(state, action, now) {
             // From now on the whole list keeps the order staff set; patients pre-registered later go to the end.
             list.forEach((item, index) => { item.order = index; });
             return { ok: true };
+        }
+        case "selfCheckIn": {
+            // A pre-registered patient checks in at the kiosk or with the QR code: name and cellphone find their appointment.
+            // Checking in again only shows the number again.
+            const visit = findPreRegistered(state, action.name, action.mobile);
+            if (typeof visit === "string")
+                return fail(visit);
+            const already = !visit.expected;
+            if (visit.expected)
+                arriveNow(visit, now);
+            return { ok: true, visitId: visit.id, label: currentLabel(visit), already };
         }
         case "checkIn": {
             const visit = findVisit(action.visitId);
@@ -1694,7 +1757,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-09.2";
+const BOARD_VERSION = "2026-11-09.3";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2235,7 +2298,8 @@ function downloadQueueReport(xlsx, state, now) {
       }
     }
     if (result.ok || sync.mode === "server") update();
-    if (!result.ok) { toast(result.error, true); return result; }
+    // success === false: the screen shows the error itself (the kiosk), so no toast.
+    if (!result.ok) { if (success !== false) toast(result.error, true); return result; }
     if (success) toast(typeof success === "function" ? success(result) : success);
     return result;
   }
@@ -4493,11 +4557,12 @@ function downloadQueueReport(xlsx, state, now) {
     $(".kiosk-app")?.classList.remove("typing");
     kioskViewportChanged = null;
     $("#kiosk-sub").textContent = "Tap a button to get your queue number.";
-    main.innerHTML = `<div class="kiosk-btns" style="height:100%">
-      <button type="button" class="kiosk-btn" data-kiosk="regular"><span class="ico" aria-hidden="true">🎫</span>Regular patient<small>Walk-in or with appointment</small></button>
+    main.innerHTML = `<div class="kiosk-btns three" style="height:100%">
+      <button type="button" class="kiosk-btn" data-kiosk="regular"><span class="ico" aria-hidden="true">🎫</span>Regular patient<small>Walk-in</small></button>
       <button type="button" class="kiosk-btn hmo" data-kiosk="hmo"><span class="ico" aria-hidden="true">🏥</span>HMO patient<small>With HMO card or LOA</small></button>
+      <button type="button" class="kiosk-btn appt" data-kiosk="appt"><span class="ico" aria-hidden="true">📅</span>I have an appointment<small>Pre-scheduled patient: check in with your name and cellphone</small></button>
     </div>`;
-    main.querySelectorAll("[data-kiosk]").forEach((btn) => btn.addEventListener("click", () => kioskDetails(btn.dataset.kiosk === "hmo")));
+    main.querySelectorAll("[data-kiosk]").forEach((btn) => btn.addEventListener("click", () => (btn.dataset.kiosk === "appt" ? kioskAppointment() : kioskDetails(btn.dataset.kiosk === "hmo"))));
   }
   /** The patient types their name and cellphone, so the Concierge does not type them when registering. */
   function kioskDetails(hmo) {
@@ -4551,6 +4616,74 @@ function downloadQueueReport(xlsx, state, now) {
       if (!purposes.length) { err.textContent = "Please tap the purpose of your visit."; $("#k-purpose-h").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
       document.activeElement?.blur?.();
       void kioskTake(hmo, name, mobile, purposes);
+    });
+    setTimeout(() => nameInput.focus(), 50);
+  }
+  /** A pre-scheduled patient checks in: their name and cellphone find the appointment, which is marked as arrived. */
+  function kioskAppointment() {
+    const main = $("#kiosk-main");
+    if (!main) return;
+    $(".kiosk-app")?.classList.add("typing");
+    kioskFitViewport();
+    kioskViewportChanged = null;
+    $("#kiosk-sub").innerHTML = `<b>I have an appointment</b> · Type the name and cellphone number you gave for your appointment.`;
+    main.innerHTML = `<form class="kiosk-form" id="kiosk-form" autocomplete="off" novalidate>
+      <div class="two">
+        <label>Your full name<input id="k-name" maxlength="80" autocapitalize="words" spellcheck="false" placeholder="e.g. Juan Dela Cruz" enterkeyhint="next"></label>
+        <label>Cellphone number<input id="k-mobile" class="mono" type="tel" inputmode="numeric" maxlength="16" placeholder="09XX XXX XXXX" enterkeyhint="go"></label>
+      </div>
+      <p class="err" id="k-err" role="alert"></p>
+      <div class="acts"><button type="button" class="back" id="k-back">← Back</button><button type="submit" class="go appt" id="k-go">✓ Check in</button></div>
+      <button type="button" class="back hidden" id="k-instead" style="padding:1.4vh 1.4em;justify-self:center">🎫 Not found? Get a regular queue number instead</button>
+    </form>`;
+    const nameInput = $("#k-name"), mobileInput = $("#k-mobile"), err = $("#k-err");
+    const idle = () => { clearTimeout(kioskTimer); kioskTimer = setTimeout(kioskHome, 90000); };
+    idle();
+    main.addEventListener("input", () => { err.textContent = ""; idle(); });
+    nameInput.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); mobileInput.focus(); } });
+    $("#k-back").addEventListener("click", kioskHome);
+    $("#k-instead").addEventListener("click", () => kioskDetails(false));
+    $("#kiosk-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (kioskBusy) return;
+      const name = nameInput.value.replace(/\s+/g, " ").trim();
+      const mobile = phMobile(mobileInput.value);
+      if (name.length < 2) { err.textContent = "Please type your full name."; nameInput.focus(); return; }
+      if (!mobile) { err.textContent = "Please type the cellphone number you gave for your appointment (e.g. 0917 123 4567)."; mobileInput.focus(); return; }
+      kioskBusy = true;
+      $("#k-go").disabled = true;
+      $("#k-go").textContent = "Finding your appointment…";
+      const result = await dispatch({ type: "selfCheckIn", name, mobile }, false);
+      kioskBusy = false;
+      if (view !== "kiosk") return;
+      if (!result.ok) {
+        $("#k-go").disabled = false;
+        $("#k-go").textContent = "✓ Check in";
+        err.textContent = result.error;
+        $("#k-instead").classList.remove("hidden");
+        idle();
+        return;
+      }
+      document.activeElement?.blur?.();
+      clearTimeout(kioskTimer);
+      $("#kiosk-sub").textContent = "Printing your number…";
+      const printed = await printOnServer(result.visitId);
+      if (view !== "kiosk") return;
+      const visit = state.visits.find((item) => item.id === result.visitId);
+      const step = visit && currentStep(visit);
+      const where = step ? stationName(state, step.station) : "the clinic";
+      $(".kiosk-app")?.classList.remove("typing");
+      $("#kiosk-sub").textContent = `${visit?.name || "Pre-scheduled patient"} · ${result.already ? "already checked in" : "checked in"}`;
+      main.innerHTML = `<div class="kiosk-result">
+        <p class="k">Your queue number</p>
+        <p class="kiosk-num" style="font-size:clamp(64px, min(15vw, 19vh), 220px)">${esc(calledNumber(result.label))}</p>
+        <p class="appt-info">📅 ${esc(where)}${visit?.appointment ? ` · ${esc(visit.appointment)}` : ""}</p>
+        ${printed.ok ? `<p class="msg">Please take your printed number.</p>` : printed.reason === "print-failed" || printed.reason === "offline" ? `<p class="msg warn">Your number could not be printed. Please remember it.</p>` : `<p class="msg">Please remember your number.</p>`}
+        <p class="sub">Please take a seat and watch the TV. Your number will be called to ${esc(where)}.</p>
+        <button type="button" class="btn" id="kiosk-done">Done</button>
+      </div>`;
+      $("#kiosk-done").addEventListener("click", kioskHome);
+      kioskTimer = setTimeout(kioskHome, printed.ok ? 10000 : 20000);
     });
     setTimeout(() => nameInput.focus(), 50);
   }

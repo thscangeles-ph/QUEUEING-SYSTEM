@@ -243,6 +243,7 @@ export type QueueAction =
   | { type: "register"; visitId?: string; visit: VisitInput; preRegister?: boolean }
   /** A pre-registered patient has arrived: their first service's line starts now. */
   | { type: "checkIn"; visitId: string }
+  | { type: "selfCheckIn"; name?: string; mobile?: string }
   /** Clears Clinic 1–3 (P1–P3) for another doctor: its open, waiting and pre-registered patients are removed and its numbers start again at 01. */
   | { type: "clearClinic"; clinic: string }
   /** A clinic calls a waiting patient (or the next one not yet called) for vital signs, before calling them in. */
@@ -279,8 +280,8 @@ export type QueueAction =
   /** Only checks the configuration PIN (to open System configuration); nothing is saved. */
   | { type: "checkConfigPin"; pin: string };
 
-export type ActionResult = { ok: true; visitId?: string; visitIds?: string[]; label?: string; card?: number; count?: number } | { ok: false; error: string };
+export type ActionResult = { ok: true; visitId?: string; visitIds?: string[]; label?: string; card?: number; count?: number; already?: boolean } | { ok: false; error: string };
 
-export const PUBLIC_ACTIONS: QueueAction["type"][] = ["qrArrive", "tvStatus"];
+export const PUBLIC_ACTIONS: QueueAction["type"][] = ["qrArrive", "selfCheckIn", "tvStatus"];
 /** Actions that only check something: the server answers them without saving. */
 export const READ_ONLY_ACTIONS: QueueAction["type"][] = ["checkConfigPin"];
