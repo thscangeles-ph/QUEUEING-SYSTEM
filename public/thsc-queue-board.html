@@ -387,12 +387,13 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 .kiosk-btn { border: 0; border-radius: 28px; padding: 7vh 3vw; display: grid; gap: 1.2vh; justify-items: center; cursor: pointer; font: inherit; font-size: clamp(28px, 4.8vw, 58px); font-weight: 800; line-height: 1.1; background: var(--gold); color: var(--brown); box-shadow: 0 1.2vh 0 #8f6a10; transition: transform .08s; touch-action: manipulation; }
 .kiosk-btn.hmo { background: #7a56bb; color: #fff; box-shadow: 0 1.2vh 0 #4b2f80; }
 .kiosk-btn:active { transform: translateY(.8vh); box-shadow: 0 .4vh 0 #8f6a10; } .kiosk-btn.hmo:active { box-shadow: 0 .4vh 0 #4b2f80; }
-/* Pre-scheduled (Clinic 1-3 appointment) check-in: a wide teal button under the two big ones. */
-.kiosk-btn.appt { grid-column: 1 / -1; background: #1f7a70; color: #fff; box-shadow: 0 1.2vh 0 #0f4a43; padding: 3.2vh 3vw; grid-template-columns: auto auto; justify-content: center; align-items: center; column-gap: 2.4vw; font-size: clamp(24px, 3.6vw, 44px); }
-.kiosk-btn.appt .ico { grid-row: span 2; font-size: 1.4em; } .kiosk-btn.appt small { text-align: left; }
+/* Pre-scheduled (Clinic 1-3 appointment) check-in: a teal button next to Regular and HMO (one column on a tablet held upright). */
+.kiosk-btn.appt { background: #1f7a70; color: #fff; box-shadow: 0 1.2vh 0 #0f4a43; }
 .kiosk-btn.appt:active { box-shadow: 0 .4vh 0 #0f4a43; }
-.kiosk-btns.three { align-content: stretch; grid-template-rows: 1fr auto; gap: 3.5vh 4vw; }
-.kiosk-btns.three .kiosk-btn:not(.appt) { padding: 4vh 3vw; }
+.kiosk-btns.three { grid-template-columns: 1fr 1fr 1fr; gap: 3vw; }
+.kiosk-btns.three .kiosk-btn { padding: 5vh 2vw; font-size: clamp(24px, 3.4vw, 46px); }
+.kiosk-btns.three .kiosk-btn small { font-size: clamp(14px, 1.8vw, 22px); }
+@media (orientation: portrait) { .kiosk-btns.three { grid-template-columns: 1fr; gap: 3vh; } .kiosk-btns.three .kiosk-btn { padding: 3.5vh 4vw; font-size: clamp(28px, 5vw, 56px); } }
 .kiosk-form .go.appt { background: #1f7a70; color: #fff; box-shadow: 0 .9vh 0 #0f4a43; }
 .kiosk-result .appt-info { margin: 0; padding: .8vh 1.4em; border-radius: 999px; background: #1f7a70; color: #fff; font-weight: 700; font-size: clamp(16px, 2.2vw, 26px); }
 .kiosk-btn:disabled { opacity: .55; }
@@ -4560,7 +4561,7 @@ function downloadQueueReport(xlsx, state, now) {
     main.innerHTML = `<div class="kiosk-btns three" style="height:100%">
       <button type="button" class="kiosk-btn" data-kiosk="regular"><span class="ico" aria-hidden="true">🎫</span>Regular patient<small>Walk-in</small></button>
       <button type="button" class="kiosk-btn hmo" data-kiosk="hmo"><span class="ico" aria-hidden="true">🏥</span>HMO patient<small>With HMO card or LOA</small></button>
-      <button type="button" class="kiosk-btn appt" data-kiosk="appt"><span class="ico" aria-hidden="true">📅</span>I have an appointment<small>Pre-scheduled patient: check in with your name and cellphone</small></button>
+      <button type="button" class="kiosk-btn appt" data-kiosk="appt"><span class="ico" aria-hidden="true">📅</span>I have an appointment<small>Pre-scheduled: check in with your name and cellphone</small></button>
     </div>`;
     main.querySelectorAll("[data-kiosk]").forEach((btn) => btn.addEventListener("click", () => (btn.dataset.kiosk === "appt" ? kioskAppointment() : kioskDetails(btn.dataset.kiosk === "hmo"))));
   }
