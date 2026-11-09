@@ -397,6 +397,22 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 .kiosk-result .warn { color: #ffd7dd; }
 .kiosk-result .btn { font-size: clamp(18px, 2.4vw, 28px); padding: 1.6vh 5vw; margin-top: 1vh; }
 .kiosk-foot { font-size: 12px; color: #a99a7c; }
+/* The kiosk's name and cellphone step: the header gets small so the tablet's keyboard leaves the fields in view. */
+.kiosk-app.typing { gap: 1.5vh; padding-top: 2vh; }
+.kiosk-app.typing .kiosk-head img { height: clamp(44px, 7vh, 80px); }
+.kiosk-app.typing .kiosk-head small, .kiosk-app.typing .kiosk-head h1 { display: none; }
+.kiosk-form { width: min(760px, 100%); margin: 0 auto; display: grid; gap: 2.2vh; text-align: left; animation: slide-in .3s ease-out; }
+.kiosk-form label { display: grid; gap: .8vh; font-size: clamp(18px, 2.4vw, 28px); font-weight: 700; color: #f3e7c9; }
+.kiosk-form label em { font-style: normal; font-weight: 500; color: #bfae8a; font-size: .8em; }
+.kiosk-form input { font: inherit; font-weight: 600; font-size: clamp(22px, 3.2vw, 38px); padding: 1.6vh 1.2em; border-radius: 18px; border: 3px solid #d8b24a; background: #fffdf6; color: var(--brown); outline: none; }
+.kiosk-form input:focus { border-color: #fff; box-shadow: 0 0 0 5px rgba(240,200,100,.45); }
+.kiosk-form input.mono { font-family: ui-monospace, Consolas, monospace; letter-spacing: .06em; }
+.kiosk-form .err { margin: 0; min-height: 1.3em; color: #ffd7dd; font-weight: 700; font-size: clamp(16px, 2vw, 24px); }
+.kiosk-form .acts { display: grid; grid-template-columns: auto 1fr; gap: 3vw; align-items: stretch; }
+.kiosk-form .back { font: inherit; font-size: clamp(18px, 2.4vw, 28px); font-weight: 700; padding: 0 1.6em; border-radius: 18px; border: 2px solid #a99a7c; background: transparent; color: #f3e7c9; cursor: pointer; touch-action: manipulation; }
+.kiosk-form .go { font: inherit; font-size: clamp(22px, 3.2vw, 38px); font-weight: 800; padding: 2vh 1em; border-radius: 20px; border: 0; background: var(--gold); color: var(--brown); box-shadow: 0 .9vh 0 #8f6a10; cursor: pointer; touch-action: manipulation; }
+.kiosk-form .go.hmo { background: #7a56bb; color: #fff; box-shadow: 0 .9vh 0 #4b2f80; }
+.kiosk-form .go:disabled { opacity: .6; }
 .kiosk-fs { position: fixed; right: 14px; bottom: 14px; z-index: 50; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; padding: 0; cursor: pointer; border: 1px solid rgba(240,200,100,.45); background: rgba(31,26,18,.72); color: var(--gold-2); opacity: .8; touch-action: manipulation; }
 .kiosk-fs:hover, .kiosk-fs:focus-visible { opacity: 1; } .kiosk-fs:active { transform: scale(.94); }
 .kiosk-fs svg { width: 22px; height: 22px; }
@@ -820,6 +836,15 @@ const findStation = (state, code) => state.settings.stations.find((station) => s
 /** Whether a station's patients get their vital signs taken first: the clinics, and any station with Vitals first ticked. */
 const vitalsFirst = (station) => station.vitals ?? station.service === "consultation";
 const clean = (value, max) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+/** A Philippine cellphone number typed by a patient, as 09XXXXXXXXX; "" when empty, null when it is not a cellphone number. */
+function phMobile(value) {
+    const digits = String(value ?? "").replace(/[\s().-]/g, "");
+    if (!digits)
+        return "";
+    const match = /^(?:\+?63|0)?(9\d{9})$/.exec(digits);
+    return match ? `0${match[1]}` : null;
+}
+const MOBILE_HELP = "Please check the cellphone number (11 digits, e.g. 0917 123 4567), or leave it empty.";
 const fail = (error) => ({ ok: false, error });
 function makeStep(station, now, first) {
     return { id: newId(), station, status: first ? "waiting" : "pending", queuedAt: first ? now : null, calledAt: null, doneAt: null, calls: 0 };
@@ -1061,9 +1086,15 @@ function run(state, action, now) {
     const findVisit = (id) => state.visits.find((visit) => visit.id === id && !visit.cancelled);
     switch (action.type) {
         case "arrive": {
+            // The kiosk also sends the patient's name and cellphone, so the Concierge does not type them.
+            const mobile = phMobile(action.mobile);
+            if (mobile === null)
+                return fail(MOBILE_HELP);
             const visit = newVisit(state, action.kind, Boolean(action.priority), Boolean(action.newPatient), now, "desk");
             if (typeof visit === "string")
                 return fail(visit);
+            visit.name = clean(action.name, 80);
+            visit.mobile = mobile;
             return { ok: true, visitId: visit.id, label: arrivalLabel(visit) };
         }
         case "callRegistration": {
@@ -1209,11 +1240,15 @@ function run(state, action, now) {
             const purposes = (Array.isArray(action.purposes) ? action.purposes : []).map((purpose) => clean(purpose, 80)).filter(Boolean).slice(0, 8);
             if (!purposes.length)
                 return fail("Please choose the purpose of your visit.");
+            const mobile = phMobile(action.mobile);
+            if (mobile === null)
+                return fail(MOBILE_HELP);
             const visit = newVisit(state, "W", false, false, now, "self");
             if (typeof visit === "string")
                 return fail(visit);
             visit.verified = true;
             visit.name = name;
+            visit.mobile = mobile;
             visit.purposes = purposes;
             return { ok: true, visitId: visit.id, label: arrivalLabel(visit) };
         }
@@ -1639,7 +1674,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-08.1";
+const BOARD_VERSION = "2026-11-09.1";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -2822,13 +2857,17 @@ function downloadQueueReport(xlsx, state, now) {
   /** The birthday chosen in the registration form as "YYYY-MM-DD", or "" until day, month and year are all there. */
   const formBirthDate = () => (form.bdayDay && form.bdayMonth && /^\d{4}$/.test(form.bdayYear) ? `${form.bdayYear}-${String(form.bdayMonth).padStart(2, "0")}-${String(form.bdayDay).padStart(2, "0")}` : "");
 
-  /** Picks a waiting queue number to register. A number taken with the QR code brings the patient's name and purpose of visit:
+  /** Picks a waiting queue number to register. A number from the kiosk brings the patient's name and cellphone; one taken with the QR code
+   *  also brings the purpose of visit:
    *  the name, "Purpose: …" in the notes, and the tests or procedures chosen as the first services (the Concierge adds the doctor). */
   function pickArrival(v) {
     form.arrival = v.id; form.kind = v.kind; form.priority = v.priority; form.newPatient = v.newPatient === true;
     if (!form.stations.length) form.stations = clinicStationsFor(v.kind);
-    if (v.source !== "self") return;
+    // The name and cellphone the patient typed on the kiosk or the QR check-in page.
     if (v.name) form.name = v.name;
+    if (v.mobile) form.mobile = v.mobile;
+    const mobileInput = $("#reg-mobile"); if (mobileInput) mobileInput.value = form.mobile;
+    if (v.source !== "self") { const nameInput = $("#reg-name"); if (nameInput) nameInput.value = form.name; return; }
     if (v.purposes?.length) form.notes = `Purpose: ${v.purposes.join(", ")}`;
     if (!form.stations.length) form.stations = purposeStations(state.settings, v.purposes);
     const name = $("#reg-name"); if (name) name.value = form.name;
@@ -4420,21 +4459,52 @@ function downloadQueueReport(xlsx, state, now) {
     kioskBusy = false;
     const main = $("#kiosk-main");
     if (!main) return;
+    $(".kiosk-app")?.classList.remove("typing");
     $("#kiosk-sub").textContent = "Tap a button to get your queue number.";
     main.innerHTML = `<div class="kiosk-btns" style="height:100%">
       <button type="button" class="kiosk-btn" data-kiosk="regular"><span class="ico" aria-hidden="true">🎫</span>Regular patient<small>Walk-in or with appointment</small></button>
       <button type="button" class="kiosk-btn hmo" data-kiosk="hmo"><span class="ico" aria-hidden="true">🏥</span>HMO patient<small>With HMO card or LOA</small></button>
     </div>`;
-    main.querySelectorAll("[data-kiosk]").forEach((btn) => btn.addEventListener("click", () => void kioskTake(btn.dataset.kiosk === "hmo")));
+    main.querySelectorAll("[data-kiosk]").forEach((btn) => btn.addEventListener("click", () => kioskDetails(btn.dataset.kiosk === "hmo")));
+  }
+  /** The patient types their name and cellphone, so the Concierge does not type them when registering. */
+  function kioskDetails(hmo) {
+    const main = $("#kiosk-main");
+    if (!main) return;
+    $(".kiosk-app")?.classList.add("typing");
+    $("#kiosk-sub").innerHTML = `<b>${hmo ? "HMO patient" : "Regular patient"}</b> · Please type your name and cellphone number.`;
+    main.innerHTML = `<form class="kiosk-form" id="kiosk-form" autocomplete="off" novalidate>
+      <label>Your full name<input id="k-name" maxlength="80" autocapitalize="words" spellcheck="false" placeholder="e.g. Juan Dela Cruz" enterkeyhint="next"></label>
+      <label>Cellphone number <em>(optional · for text or Telegram reminders)</em><input id="k-mobile" class="mono" type="tel" inputmode="numeric" maxlength="16" placeholder="09XX XXX XXXX" enterkeyhint="done"></label>
+      <p class="err" id="k-err" role="alert"></p>
+      <div class="acts"><button type="button" class="back" id="k-back">← Back</button><button type="submit" class="go${hmo ? " hmo" : ""}" id="k-go">Get my queue number</button></div>
+    </form>`;
+    const nameInput = $("#k-name"), mobileInput = $("#k-mobile"), err = $("#k-err");
+    // Back to the start if the patient walks away without finishing.
+    const idle = () => { clearTimeout(kioskTimer); kioskTimer = setTimeout(kioskHome, 90000); };
+    idle();
+    main.addEventListener("input", () => { err.textContent = ""; idle(); });
+    nameInput.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); mobileInput.focus(); } });
+    $("#k-back").addEventListener("click", kioskHome);
+    $("#kiosk-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const name = nameInput.value.replace(/\s+/g, " ").trim();
+      const mobile = phMobile(mobileInput.value);
+      if (name.length < 2) { err.textContent = "Please type your full name."; nameInput.focus(); return; }
+      if (mobile === null) { err.textContent = "Please check your cellphone number (11 digits, e.g. 0917 123 4567), or leave it empty."; mobileInput.focus(); return; }
+      void kioskTake(hmo, name, mobile);
+    });
+    setTimeout(() => nameInput.focus(), 50);
   }
   /** Gives the next queue number (it joins Waiting to register on the front desk) and has the server print it. */
-  async function kioskTake(hmo) {
+  async function kioskTake(hmo, name = "", mobile = "") {
     if (kioskBusy) return;
     kioskBusy = true;
+    clearTimeout(kioskTimer);
     const main = $("#kiosk-main");
     main.querySelectorAll("button").forEach((btn) => { btn.disabled = true; });
     $("#kiosk-sub").textContent = "Getting your number…";
-    const result = await dispatch({ type: "arrive", kind: hmo ? "H" : "W" });
+    const result = await dispatch({ type: "arrive", kind: hmo ? "H" : "W", name, mobile });
     if (view !== "kiosk") return;
     if (!result.ok) {
       kioskHome();
@@ -4450,7 +4520,8 @@ function downloadQueueReport(xlsx, state, now) {
       : printed.reason === "print-failed" || printed.reason === "offline"
         ? `<p class="msg warn">Your number could not be printed. Please remember it and tell the Concierge.</p>`
         : `<p class="msg">Please remember your number.</p>`;
-    $("#kiosk-sub").textContent = hmo ? "HMO patient" : "Regular patient";
+    $(".kiosk-app")?.classList.remove("typing");
+    $("#kiosk-sub").textContent = `${hmo ? "HMO patient" : "Regular patient"}${name ? ` · ${name}` : ""}`;
     main.innerHTML = `<div class="kiosk-result">
       <p class="k">Your queue number</p>
       <p class="kiosk-num">${esc(label)}</p>
