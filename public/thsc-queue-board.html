@@ -1773,7 +1773,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-10.1";
+const BOARD_VERSION = "2026-11-10.2";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -3779,7 +3779,7 @@ function downloadQueueReport(xlsx, state, now) {
           <div class="panel-b" id="cfg-today"></div></section>
         <section class="panel"><div class="panel-h"><div><h2>This computer</h2><p>How this computer shares the queue. Each computer is set up on its own.</p></div><a class="btn sm outline" href="#setup">Sync setup</a></div>
           <div class="panel-b" id="cfg-computer"></div></section>
-        <section class="panel"><div class="panel-h"><div><h2>Kiosk &amp; slip printer</h2><p>A tablet or phone where patients tap <b>Regular patient</b> or <b>HMO patient</b>. Each tap gives the next queue number (it joins Waiting to register on the front desk) and the server computer prints the slip.</p></div><button type="button" class="btn sm outline" data-act="openKiosk">Kiosk ↗</button></div>
+        <section class="panel"><div class="panel-h"><div><h2>Kiosk &amp; slip printer</h2><p>A tablet or phone where patients tap <b>Walk-in patient</b>, <b>HMO patient</b> or <b>I have an appointment</b>. Each tap gives the next queue number (it joins Waiting to register on the front desk) and the server computer prints the slip.</p></div><button type="button" class="btn sm outline" data-act="openKiosk">Kiosk ↗</button></div>
           <div class="panel-b" style="display:grid;gap:10px">
             <label class="field">Slip printer on the server computer<em>Pair the Bluetooth printer with the server computer first (Windows Settings → Bluetooth &amp; devices). It shows here as a printer, or as a COM port called "Standard Serial over Bluetooth link".</em><select data-set="slipPrinter" id="cfg-printer"></select></label>
             <label class="field">Paper size<em>The paper roll's width for a receipt printer, or A4 / Letter for an office printer. The queue number is printed as large as the paper allows.</em><select data-set="slipWidth">${SLIP_PAPER.map(([size, label]) => `<option value="${size}" ${slipWidthOf(draft.slipWidth) === size ? "selected" : ""}>${label}</option>`).join("")}</select></label>
@@ -4601,7 +4601,7 @@ function downloadQueueReport(xlsx, state, now) {
     kioskViewportChanged = null;
     $("#kiosk-sub").textContent = "Tap a button to get your queue number.";
     main.innerHTML = `<div class="kiosk-btns three" style="height:100%">
-      <button type="button" class="kiosk-btn" data-kiosk="regular"><span class="ico" aria-hidden="true">🎫</span>Regular patient<small>Walk-in</small></button>
+      <button type="button" class="kiosk-btn" data-kiosk="regular"><span class="ico" aria-hidden="true">🚶</span>Walk-in patient<small>No appointment</small></button>
       <button type="button" class="kiosk-btn hmo" data-kiosk="hmo"><span class="ico" aria-hidden="true">🏥</span>HMO patient<small>With HMO card or LOA</small></button>
       <button type="button" class="kiosk-btn appt" data-kiosk="appt"><span class="ico" aria-hidden="true">📅</span>I have an appointment<small>Pre-scheduled: check in with your name and cellphone</small></button>
     </div>`;
@@ -4613,7 +4613,7 @@ function downloadQueueReport(xlsx, state, now) {
     if (!main) return;
     $(".kiosk-app")?.classList.add("typing");
     kioskFitViewport();
-    $("#kiosk-sub").innerHTML = `<b>${hmo ? "HMO patient" : "Regular patient"}</b> · Please type your name and cellphone number.`;
+    $("#kiosk-sub").innerHTML = `<b>${hmo ? "HMO patient" : "Walk-in patient"}</b> · Please type your name and cellphone number.`;
     const options = purposeOptions(state.settings);
     main.innerHTML = `<form class="kiosk-form" id="kiosk-form" autocomplete="off" novalidate>
       <div class="two">
@@ -4756,7 +4756,7 @@ function downloadQueueReport(xlsx, state, now) {
         : `<p class="msg">Please remember your number.</p>`;
     $(".kiosk-app")?.classList.remove("typing");
     kioskViewportChanged = null;
-    $("#kiosk-sub").textContent = `${hmo ? "HMO patient" : "Regular patient"}${name ? ` · ${name}` : ""}`;
+    $("#kiosk-sub").textContent = `${hmo ? "HMO patient" : "Walk-in patient"}${name ? ` · ${name}` : ""}`;
     main.innerHTML = `<div class="kiosk-result">
       <p class="k">Your queue number</p>
       <p class="kiosk-num">${esc(label)}</p>
