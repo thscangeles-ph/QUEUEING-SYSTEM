@@ -249,7 +249,9 @@ function QrCode({ value }: { value: string }) {
   const [svg, setSvg] = useState("");
   useEffect(() => {
     let active = true;
-    void QRCode.toString(value, { type: "svg", margin: 1, errorCorrectionLevel: "M", color: { dark: "#2f281c", light: "#ffffff" } }).then((markup) => { if (active) setSvg(markup); });
+    // Black on white with the standard 4-module white border ("quiet zone"): phone camera apps (iPhone Camera, Samsung and
+    // other Android cameras) need it to find the code; Google Lens also reads codes without it.
+    void QRCode.toString(value, { type: "svg", margin: 4, errorCorrectionLevel: "M", color: { dark: "#000000", light: "#ffffff" } }).then((markup) => { if (active) setSvg(markup); });
     return () => { active = false; };
   }, [value]);
   return <div className="aspect-square w-full [&>svg]:h-full [&>svg]:w-full" role="img" aria-label={`QR code for ${value}`} dangerouslySetInnerHTML={{ __html: svg }} />;
@@ -334,8 +336,9 @@ export function CheckInPoster() {
         <p className="mt-3 text-sm font-semibold tracking-[0.12em] text-[#8b6512]">THE HEART SPECIALISTS CLINIC</p>
         <h1 className="mt-4 text-4xl font-extrabold tracking-tight">Get your queue number</h1>
         <p className="mt-2 text-xl text-[#5e5443]">Scan with your phone camera.</p>
-        <div className="mx-auto mt-8 w-72 rounded-2xl border-4 border-[#2f281c] p-3">{shown && <QrCode value={shown} />}</div>
-        <p className="mt-3 break-all font-mono text-sm text-[#756b59]">{shown}</p>
+        <div className="mx-auto mt-8 w-96 max-w-full rounded-2xl border border-[#e2d7c2] bg-white p-1">{shown && <QrCode value={shown} />}</div>
+        <p className="mt-3 text-sm text-[#756b59]">No QR scanner? Type this in the browser:</p>
+        <p className="mt-1 break-all font-mono text-xl font-bold text-[#2f281c]">{shown.replace(/^https?:\/\//, "")}</p>
         {onClinicNetwork && <p className="mt-4 rounded-xl bg-[#fff2c8] px-4 py-2 text-lg font-semibold text-[#5f4307]">Connect to the clinic Wi-Fi first.</p>}
         <ol className="mx-auto mt-8 grid max-w-md gap-3 text-left text-lg">
           <li><strong>1.</strong> Scan the code and tap <em>Get my queue number</em>.</li>
@@ -378,7 +381,7 @@ export function TelegramPoster() {
         <p className="mt-3 text-sm font-semibold tracking-[0.12em] text-[#8b6512]">{clinic.toUpperCase()}</p>
         <h1 className="mt-4 text-4xl font-extrabold tracking-tight">Queue reminders on Telegram</h1>
         <p className="mt-2 text-xl text-[#5e5443]">Get your queue number and a message when you are next in line.</p>
-        <div className="mx-auto mt-8 w-72 rounded-2xl border-4 border-[#229ED9] p-3">{link && <QrCode value={link} />}</div>
+        <div className="mx-auto mt-8 w-96 max-w-full rounded-2xl border border-[#229ED9] bg-white p-1">{link && <QrCode value={link} />}</div>
         {link && <p className="mt-3 font-mono text-lg font-semibold text-[#229ED9]">t.me/{bot}</p>}
         <ol className="mx-auto mt-8 grid max-w-md gap-3 text-left text-lg">
           <li><strong>1.</strong> Scan the code with your phone camera. Telegram opens.</li>
