@@ -607,8 +607,12 @@ function run(state: QueueState, action: QueueAction, now: number, options: Actio
         if (!visit.cancelled && !completed) visit.cancelled = true;
         count += 1;
       }
-      setCounter(state, numberGroup(kind), 1);
-      setCounter(state, numberGroup(prescheduledKind(kind)), 1);
+      // Procedures: patients still in line keep their number, so new numbers start again at 01 only once no one is left.
+      const kept = kind === "P4" && state.visits.some((visit) => !visit.clearedAt && !visit.cancelled && clinicOf(visit.kind) === clinic);
+      if (!kept) {
+        setCounter(state, numberGroup(kind), 1);
+        setCounter(state, numberGroup(prescheduledKind(kind)), 1);
+      }
       return { ok: true, count };
     }
     case "callVitals": {

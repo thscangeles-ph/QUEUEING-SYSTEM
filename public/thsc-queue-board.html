@@ -469,6 +469,7 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 .sms-st { display: inline-block; margin-top: 3px; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 8px; line-height: 1.35; }
 .sms-st.sent { background: var(--ok-bg); color: var(--ok); } .sms-st.next { background: #e8f1ff; color: #23508f; } .sms-st.fail { background: var(--bad-bg); color: var(--bad); } .sms-st.none { background: var(--soft); color: var(--muted); }
 .cards li.prereg-row { flex-wrap: wrap; }
+.proc-line-h { margin: 10px 0 6px; font-size: 13px; font-weight: 700; color: var(--cat, var(--ink)); }
 .prereg-row .info { flex: 1 1 150px; }
 .prereg-row .acts { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 .sms-edit { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; } .sms-edit input { min-height: 32px; width: 160px; flex: none; }
@@ -1254,7 +1255,7 @@ function run(state, action, now) {
         }
         case "clearClinic": {
             if (!/^P[1-4]$/.test(String(action.clinic)))
-                return fail("Choose Clinic 1, 2 or 3.");
+                return fail("Choose Clinic 1, 2, 3 or Procedures.");
             const kind = action.clinic;
             const clinic = clinicOf(kind);
             const station = `C${kind[1]}`;
@@ -1272,8 +1273,12 @@ function run(state, action, now) {
                     visit.cancelled = true;
                 count += 1;
             }
-            setCounter(state, numberGroup(kind), 1);
-            setCounter(state, numberGroup(prescheduledKind(kind)), 1);
+            // Procedures: patients still in line keep their number, so new numbers start again at 01 only once no one is left.
+            const kept = kind === "P4" && state.visits.some((visit) => !visit.clearedAt && !visit.cancelled && clinicOf(visit.kind) === clinic);
+            if (!kept) {
+                setCounter(state, numberGroup(kind), 1);
+                setCounter(state, numberGroup(prescheduledKind(kind)), 1);
+            }
             return { ok: true, count };
         }
         case "callVitals": {
@@ -1802,7 +1807,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-10.5";
+const BOARD_VERSION = "2026-11-10.6";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -3194,8 +3199,8 @@ function downloadQueueReport(xlsx, state, now) {
               <div id="newnum"></div>
               <p class="sub" id="reg-count"></p>
               <ul class="cards" id="arrivals"></ul>
-              ${isClinicTab() ? `<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:8px;flex-wrap:wrap"><p class="sub" id="prereg-count"></p><span style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn sm outline hidden" data-act="copyInvite" id="tg-invite" title="Copy a message with the bot's link, to send the patient by Viber, Messenger or SMS">📋 Telegram invite</button><button type="button" class="btn sm hidden" data-act="smsAll" id="sms-all"></button></span></div><ul class="cards" id="prereg-list" data-drag-list="prereg"></ul>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)"><button type="button" class="btn sm outline" data-act="printPrereg">🖨 Print pre-registered list</button><button type="button" class="btn sm outline" data-act="clinicReport">📊 ${clinicOf(deskTab)} report</button>${isProcTab() ? "" : `<button type="button" class="btn sm danger" data-act="clearClinic">🧹 Clear ${clinicOf(deskTab)} for another doctor</button>`}</div>` : ""}
+              ${isClinicTab() ? `<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:8px;flex-wrap:wrap"><p class="sub" id="prereg-count"></p><span style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn sm outline hidden" data-act="copyInvite" id="tg-invite" title="Copy a message with the bot's link, to send the patient by Viber, Messenger or SMS">📋 Telegram invite</button><button type="button" class="btn sm hidden" data-act="smsAll" id="sms-all"></button></span></div><ul class="cards" id="prereg-list" data-drag-list="prereg"></ul>${isProcTab() ? `<div id="proc-lines"></div>` : ""}
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)"><button type="button" class="btn sm outline" data-act="printPrereg">🖨 Print pre-registered list</button><button type="button" class="btn sm outline" data-act="clinicReport">📊 ${clinicOf(deskTab)} report</button><button type="button" class="btn sm danger" data-act="clearClinic">🧹 ${isProcTab() ? "Clear Procedures schedule" : `Clear ${clinicOf(deskTab)} for another doctor`}</button></div>` : ""}
             </div>
           </section>
           <section class="panel">
@@ -3473,6 +3478,21 @@ function downloadQueueReport(xlsx, state, now) {
     // Clinic 1–3: today's pre-registered (scheduled) patients who have not arrived yet, by appointment time until staff move them with ↑ ↓.
     // Not while a patient is being dragged in the list, or the drag would be lost.
     // Not while a cellphone number is being changed in it either, or the typing would be lost.
+    // Procedures: who is in line now at each procedure (all patients of that line), drag ⠿ to change the order.
+    const procBox = $("#proc-lines");
+    if (procBox && !preregDrag) {
+      const codes = [...new Set(state.visits.filter((v) => clinicOf(v.kind) === clinicOf("P4") && !v.cancelled && !v.clearedAt && !v.expected)
+        .map((v) => currentStep(v)).filter((st) => st && st.status === "waiting").map((st) => st.station))];
+      procBox.innerHTML = `<p class="sub" style="margin-top:14px">In line for procedures · ${codes.reduce((n, code) => n + waitingFor(state, code).length, 0)}${codes.length ? ` <small style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--muted)">drag ⠿ to change the order</small>` : ""}</p>` + (codes.length ? codes.map((code) => {
+        const line = waitingFor(state, code);
+        return `<p class="proc-line-h"><b class="mono">${esc(code)}</b> ${esc(stationName(state, code))} · ${line.length} waiting</p>
+        <ul class="cards" data-drag-list="line" data-station="${esc(code)}">${line.map((v, i) => `<li data-id="${v.id}" class="prereg-row">
+          <button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, code))}, place ${i + 1} of ${line.length} at ${esc(stationName(state, code))}. Use the up and down arrow keys.">⠿</button>
+          <span class="chip-num wide mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, code))}${v.priority ? "<small>PRIORITY</small>" : ""}</span>
+          <div class="info"><b>${esc(v.name || "—")}</b><span>${groupTag(v) || `<span class="tag">Regular</span>`} · in line ${formatWait(minutesSince(currentStep(v)?.queuedAt ?? v.createdAt, Date.now()))}</span></div>
+        </li>`).join("")}</ul>`;
+      }).join("") : `<ul class="cards"><li class="empty" style="display:block;border-style:dashed">No one is in line for a procedure yet.</li></ul>`);
+    }
     if ($("#prereg-list") && !preregDrag && !mobileEdit?.shown) {
       if (mobileEdit) mobileEdit.shown = true;
       const expected = preRegisteredList(state, clinicOf(deskTab));
@@ -5732,6 +5752,14 @@ function downloadQueueReport(xlsx, state, now) {
         const clinic = clinicOf(deskTab);
         const kind = deskTab;
         const has = state.visits.some((v) => clinicOf(v.kind) === clinic && !v.clearedAt);
+        if (isProcTab()) {
+          // Procedures: a new schedule (e.g. the next day's list); patients now in line or being served keep going.
+          if (!has) { toast("The Procedures schedule is already clear.", true); break; }
+          if (!window.confirm(`Clear the Procedures schedule?\n\n1. The Procedures report is saved to Excel.\n2. Pre-registered patients who have not arrived, finished and cancelled ones are removed from the list.\n\nPatients now in line or being served keep their number. New numbers start again at ${prefixOf(state.settings, "S4")}01 once no one is left in line.`)) break;
+          downloadClinicReport(XLSX, state, kind, Date.now(), "");
+          void dispatch({ type: "clearClinic", clinic: kind }, (r) => `Procedures schedule cleared${r.count ? `: ${r.count} patient${r.count === 1 ? "" : "s"} saved to the Excel report` : ""}.`);
+          break;
+        }
         const doctor = window.prompt(`Clear ${clinic} for another doctor?\n\n${has ? `1. The ${clinic} report (its queue numbers and pre-scheduled patients) is saved to Excel.\n2. ` : ""}Its waiting and pre-registered patients are removed, and its numbers start again at ${prefixOf(state.settings, kind)}01 and ${prefixOf(state.settings, prescheduledKind(kind))}01. Patients now at another service (e.g. the laboratory) keep their number.\n\nDoctor who used ${clinic} (for the report, optional), then OK:`, "");
         if (doctor === null) break;
         if (has) downloadClinicReport(XLSX, state, kind, Date.now(), doctor.trim());
