@@ -346,7 +346,9 @@ export function CheckInPoster() {
               <p className="text-xs text-[#756b59]">Scan with the camera, then tap Join</p>
               <div className="mt-2 w-full max-w-[250px]"><QrCode value={wifiQrText(wifi)} /></div>
               <p className="text-sm text-[#5e5443]">📶 <b className="font-mono">{wifi.ssid}</b></p>
-              {wifi.security !== "nopass" && <p className="text-sm text-[#5e5443]">Password: <b className="font-mono">{wifi.password}</b></p>}
+              {wifi.security !== "nopass" && (wifi.showPassword !== false
+                ? <p className="text-sm text-[#5e5443]">Password: <b className="font-mono">{wifi.password}</b></p>
+                : <p className="text-xs text-[#756b59]">Password: scan the code, or ask the Concierge</p>)}
             </div>
             <div className="flex flex-col items-center rounded-2xl border-2 border-[#2f281c] p-3 text-center">
               <p className="text-lg font-extrabold"><span className="mr-1 inline-grid h-7 w-7 place-items-center rounded-full bg-[#2f281c] text-sm text-[#f0c864]">2</span> Get your queue number</p>

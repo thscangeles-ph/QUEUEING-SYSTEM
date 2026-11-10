@@ -418,7 +418,7 @@ export function patientWifiOf(input: unknown): PatientWifi | undefined {
   const ssid = String(raw.ssid ?? "").trim().slice(0, 32);
   if (!ssid) return undefined;
   const security = raw.security === "WEP" || raw.security === "nopass" ? raw.security : "WPA";
-  return { ssid, password: security === "nopass" ? "" : String(raw.password ?? "").slice(0, 63), security };
+  return { ssid, password: security === "nopass" ? "" : String(raw.password ?? "").slice(0, 63), security, showPassword: raw.showPassword !== false };
 }
 
 /** The text inside a "scan to join this Wi-Fi" QR code (understood by the iPhone and Android cameras). */

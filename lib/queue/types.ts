@@ -172,7 +172,8 @@ export type Settings = {
 };
 
 /** security: "WPA" (WPA/WPA2/WPA3), "WEP" or "nopass" (open network). The password is printed on the poster, so it is not a secret. */
-export type PatientWifi = { ssid: string; password: string; security: "WPA" | "WEP" | "nopass" };
+/** showPassword: print the password under the QR code too (missing means yes); the QR code always holds it. */
+export type PatientWifi = { ssid: string; password: string; security: "WPA" | "WEP" | "nopass"; showPassword?: boolean };
 
 export type WaitMinutes = { consultation?: number; procedure?: number };
 

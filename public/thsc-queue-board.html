@@ -882,7 +882,7 @@ function patientWifiOf(input) {
     if (!ssid)
         return undefined;
     const security = raw.security === "WEP" || raw.security === "nopass" ? raw.security : "WPA";
-    return { ssid, password: security === "nopass" ? "" : String(raw.password ?? "").slice(0, 63), security };
+    return { ssid, password: security === "nopass" ? "" : String(raw.password ?? "").slice(0, 63), security, showPassword: raw.showPassword !== false };
 }
 /** The minutes per patient set for the waiting time estimate (1–180), without the empty ones (automatic). */
 function waitMinutesOf(input) {
@@ -3848,10 +3848,11 @@ function downloadQueueReport(xlsx, state, now) {
           <div class="panel-b" style="display:grid;gap:10px">
             <label class="field">QR code address<em>For example http://172.16.100.62:3000. Leave empty to use the server's Wi-Fi address automatically.</em><input type="text" maxlength="200" spellcheck="false" class="mono" value="${esc(draft.qrAddress ?? "")}" placeholder="${esc(autoQrAddress() || "http://172.16.100.62:3000")}" data-set="qrAddress" id="cfg-qr"></label>
             <p class="yt-hint" id="qr-hint"></p>
-            <div class="field" style="margin-top:4px">📶 Patient Wi-Fi on the poster<em>Optional. The poster then has a second QR code: patients on mobile data scan it to join this Wi-Fi first (iPhone and Android cameras). The name and password are printed on the poster.</em></div>
+            <div class="field" style="margin-top:4px">📶 Patient Wi-Fi on the poster<em>Optional. The poster then has a second QR code: patients on mobile data scan it to join this Wi-Fi first (iPhone and Android cameras). The Wi-Fi name is printed under it, and the password too if you choose.</em></div>
             <div class="wifi-row"><label class="field">Wi-Fi name<input type="text" maxlength="32" spellcheck="false" value="${esc(draft.patientWifi?.ssid ?? "")}" placeholder="e.g. THSC-Patients" data-wifi="ssid"></label>
             <label class="field">Password<input type="text" maxlength="63" spellcheck="false" value="${esc(draft.patientWifi?.password ?? "")}" placeholder="${draft.patientWifi?.security === "nopass" ? "No password" : "Wi-Fi password"}" data-wifi="password"${draft.patientWifi?.security === "nopass" ? " disabled" : ""}></label>
             <label class="field">Security<select data-wifi="security"><option value="WPA"${(draft.patientWifi?.security ?? "WPA") === "WPA" ? " selected" : ""}>WPA / WPA2 / WPA3</option><option value="WEP"${draft.patientWifi?.security === "WEP" ? " selected" : ""}>WEP</option><option value="nopass"${draft.patientWifi?.security === "nopass" ? " selected" : ""}>Open (no password)</option></select></label></div>
+            <label class="check" style="margin:0"><input type="checkbox" data-wifi="showPassword"${draft.patientWifi?.showPassword === false ? "" : " checked"}><span><b>Show the password on the poster</b><small>Off: only the Wi-Fi name is printed. Phones still join by scanning the QR code (it holds the password).</small></span></label>
             <p class="note" style="margin:0">After changing it, click <b>Save configuration</b>, then open the poster and print it again. The kiosk address uses it too. If phones are on a different network from the server (for example Wi-Fi 172.16.20.x and server 172.16.100.x), the router must allow it (in pfSense: a Pass rule to the server on port 3000).</p>
           </div></section>
         <section class="panel"><div class="panel-h"><div><h2>Display connection</h2><p>How the TV and other screens reach the queue server: over the clinic Wi-Fi or with a LAN cable. A server on both has a different address for each.</p></div></div>
@@ -3877,8 +3878,8 @@ function downloadQueueReport(xlsx, state, now) {
       if (field === "qrAddress") { showQrHint(); renderKioskLink(); }
       refreshDirty();
     }));
-    box.querySelectorAll("[data-wifi]").forEach((input) => input.addEventListener(input.tagName === "SELECT" ? "change" : "input", () => {
-      draft.patientWifi = { ssid: "", password: "", security: "WPA", ...(draft.patientWifi ?? {}), [input.dataset.wifi]: input.value };
+    box.querySelectorAll("[data-wifi]").forEach((input) => input.addEventListener(input.tagName === "SELECT" || input.type === "checkbox" ? "change" : "input", () => {
+      draft.patientWifi = { ssid: "", password: "", security: "WPA", ...(draft.patientWifi ?? {}), [input.dataset.wifi]: input.type === "checkbox" ? input.checked : input.value };
       if (input.dataset.wifi === "security") { const pw = box.querySelector('[data-wifi="password"]'); pw.disabled = input.value === "nopass"; pw.placeholder = input.value === "nopass" ? "No password" : "Wi-Fi password"; }
       if (!draft.patientWifi.ssid.trim()) draft.patientWifi = { ...draft.patientWifi, ssid: "" };
       refreshDirty();
