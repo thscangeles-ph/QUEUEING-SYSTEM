@@ -143,10 +143,29 @@ export function emptyState(now: number, settings: Settings = DEFAULT_SETTINGS): 
   return { day: clinicDay(now), nextSeq: 1, nextHmoSeq: 1, nextClinicSeq: {}, visits: [], cards: [], announcements: [], settings: structuredClone(settings) };
 }
 
-/** Queues reset at midnight Manila time; settings carry over. */
+/** Queues reset at midnight Manila time; settings carry over, and so do pre-registered patients who have not arrived yet. */
 export function ensureDay(state: QueueState | null | undefined, now: number): QueueState {
   if (!state) return emptyState(now);
-  return state.day === clinicDay(now) ? state : emptyState(now, state.settings);
+  return state.day === clinicDay(now) ? state : freshQueue(state, now);
+}
+
+/** Pre-registered Clinic 1–3 and Procedures patients who have not arrived yet (e.g. tomorrow's schedule entered today). */
+export const keptPreRegistered = (state: QueueState) =>
+  state.visits.filter((visit) => visit.expected && !visit.cancelled && !visit.clearedAt && (PRESCHEDULED_KINDS as readonly string[]).includes(visit.kind));
+
+/**
+ * An empty queue (a new day, or Clear today's queue) that keeps the settings and the pre-registered patients who have not
+ * arrived yet, with their numbers; new pre-scheduled numbers go on after them.
+ */
+export function freshQueue(state: QueueState, now: number): QueueState {
+  const next = emptyState(now, state.settings);
+  const kept = keptPreRegistered(state);
+  next.visits = structuredClone(kept);
+  for (const visit of kept) {
+    const group = numberGroup(visit.kind) as Exclude<NumberGroup, "R" | "H">;
+    next.nextClinicSeq = { ...next.nextClinicSeq, [group]: Math.max(next.nextClinicSeq?.[group] ?? 1, visit.seq + 1) };
+  }
+  return next;
 }
 
 const pad2 = (seq: number) => String(seq).padStart(2, "0");
@@ -905,7 +924,8 @@ function run(state: QueueState, action: QueueAction, now: number, options: Actio
     }
     case "resetDay":
       if (!configAllowed(action.configPin)) return fail(CONFIG_PIN_NEEDED);
-      Object.assign(state, emptyState(now, state.settings));
+      // Pre-registered Clinic 1–3 and Procedures patients who have not arrived yet are kept (e.g. tomorrow's schedule).
+      Object.assign(state, freshQueue(state, now));
       return { ok: true };
     case "setConfigPin": {
       if (!configAllowed(action.current)) return fail("The current configuration PIN is not right.");

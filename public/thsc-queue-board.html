@@ -182,6 +182,9 @@ a.btn { text-decoration: none; }
 body.tv:not(.show-ctl) .tv-ctl { display: none; }
 .tv-offline { position: fixed; left: 0; right: 0; top: 0; z-index: 80; background: #b4233c; color: #fff; font-weight: 700; font-size: 1.6vw; text-align: center; padding: 1vh 1vw; }
 .tv-pick { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 60; display: grid; place-items: center; background: rgba(31,26,18,.55); padding: 16px; }
+.clear-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } @media (max-width: 600px) { .clear-cols { grid-template-columns: 1fr; } }
+.clear-col { border-radius: 12px; padding: 12px 14px; font-size: 13px; } .clear-col h3 { margin: 0 0 6px; font-size: 15px; } .clear-col ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; } .clear-col p { margin: 8px 0 0; color: var(--muted); }
+.clear-col.out { background: #fde8eb; color: #6b1424; } .clear-col.keep { background: #e3f4e8; color: #1f4d33; }
 .tv-pick-box { background: var(--card, #fff); border-radius: 16px; padding: 20px; width: min(640px, 100%); max-height: 90vh; overflow: auto; } .tv-pick-box h2 { margin: 0 0 4px; } .tv-pick-box p { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
 .tv-pick-box .chips button.on { background: var(--primary, #8b6512); border-color: var(--primary, #8b6512); color: #fff; } .tv-pick-box .chips button.on span { color: #fff; }
 .clinic-only { margin: 0; font-size: 12px; font-weight: 400; color: var(--muted); }
@@ -798,7 +801,20 @@ function emptyState(now, settings = DEFAULT_SETTINGS) {
 function ensureDay(state, now) {
     if (!state)
         return emptyState(now);
-    return state.day === clinicDay(now) ? state : emptyState(now, state.settings);
+    return state.day === clinicDay(now) ? state : freshQueue(state, now);
+}
+/** Pre-registered Clinic 1–3 and Procedures patients who have not arrived yet (e.g. tomorrow's schedule entered today). */
+const keptPreRegistered = (state) => state.visits.filter((visit) => visit.expected && !visit.cancelled && !visit.clearedAt && PRESCHEDULED_KINDS.includes(visit.kind));
+/** An empty queue (a new day, or Clear today's queue) that keeps the settings and the pre-registered patients who have not arrived yet. */
+function freshQueue(state, now) {
+    const next = emptyState(now, state.settings);
+    const kept = keptPreRegistered(state);
+    next.visits = structuredClone(kept);
+    for (const visit of kept) {
+        const group = numberGroup(visit.kind);
+        next.nextClinicSeq = { ...next.nextClinicSeq, [group]: Math.max(next.nextClinicSeq[group] ?? 1, visit.seq + 1) };
+    }
+    return next;
 }
 const pad2 = (seq) => String(seq).padStart(2, "0");
 /** Pre-scheduled patients of Clinic 1, 2 and 3: each clinic has its own numbering, like HMO. */
@@ -1644,7 +1660,8 @@ function run(state, action, now) {
         case "resetDay":
             if (!configPinOk(state.settings.configPin, action.configPin))
                 return fail(CONFIG_PIN_NEEDED);
-            Object.assign(state, emptyState(now, state.settings));
+            // Pre-registered Clinic 1–3 and Procedures patients who have not arrived yet are kept (e.g. tomorrow's schedule).
+            Object.assign(state, freshQueue(state, now));
             return { ok: true };
         case "setConfigPin": {
             if (!configPinOk(state.settings.configPin, action.current))
@@ -1807,7 +1824,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-10.6";
+const BOARD_VERSION = "2026-11-10.7";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -4173,6 +4190,27 @@ function downloadQueueReport(xlsx, state, now) {
   /** The address for phones and tablets: the QR code address from System configuration, or the automatic one. */
   const phoneAddress = () => (draft && qrAddressOf(draft.qrAddress)) || autoQrAddress();
   /** What a patient sees with these settings, e.g. 3 patients ahead at a clinic. */
+  /** Clear today's queue: says what is removed and what is kept (the pre-registered Clinic 1–3 and Procedures patients). */
+  function showClearDay() {
+    $("#clear-day")?.remove();
+    const kept = keptPreRegistered(state);
+    const groups = [...new Set(kept.map((v) => clinicOf(v.kind)))].map((name) => `<li><b>${esc(name)}</b> · ${kept.filter((v) => clinicOf(v.kind) === name).length} pre-registered (${esc(kept.filter((v) => clinicOf(v.kind) === name).map((v) => arrivalLabel(v)).join(", "))})</li>`).join("");
+    const removed = state.visits.length - kept.length;
+    const box = document.createElement("div");
+    box.id = "clear-day";
+    box.className = "tv-pick";
+    box.innerHTML = `<div class="tv-pick-box" role="dialog" aria-modal="true" aria-labelledby="clear-day-h">
+      <h2 id="clear-day-h">🧹 Clear today's queue${sync.mode === "server" ? " on every computer" : ""}?</h2>
+      <p>For a new day. Settings and History are kept.</p>
+      <div class="clear-cols">
+        <div class="clear-col out"><h3>Removed · ${removed}</h3><ul><li>Today's queue numbers and calls (Regular, HMO, the clinics' walk-ins …)</li><li>Patients who arrived, finished or were cancelled</li><li>Regular and HMO numbering restarts at 01</li></ul></div>
+        <div class="clear-col keep"><h3>Kept · ${kept.length}</h3>${kept.length ? `<ul>${groups}</ul><p>Pre-registered patients who have not arrived yet stay, with their numbers (e.g. tomorrow's schedule). Remove one with ✕, or use the clinic's Clear button.</p>` : `<p>No pre-registered patients waiting to arrive. Tomorrow's Clinic 1–3 and Procedures schedule can be pre-registered after clearing; it is kept the same way.</p>`}</div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button type="button" class="btn ghost" data-act="clearDayCancel">Cancel</button><button type="button" class="btn danger" data-act="clearDayGo">🧹 Clear today's queue</button></div>
+    </div>`;
+    document.body.append(box);
+    box.querySelector('[data-act="clearDayGo"]').focus();
+  }
   /** What an empty per-station box uses: the consultation / procedure minutes, or Auto. */
   function waitPlaceholder(st) {
     const key = st.service === "consultation" ? "consultation" : st.service === "procedure" || st.service === "imaging" ? "procedure" : null;
@@ -5666,7 +5704,12 @@ function downloadQueueReport(xlsx, state, now) {
         break;
       }
       case "removeMedia": draft.tvMedia.splice(Number(index), 1); renderMediaList(); refreshDirty(); break;
-      case "resetDay": if (confirm(`Clear today's queue${sync.mode === "server" ? " on every computer" : ""}? All queue numbers and calls for today are removed and numbering restarts at 01. Settings are kept.`)) { void dispatch({ type: "resetDay", configPin: configUnlocked }, "Today's queue was cleared.").then((r) => { relockIfPinRefused(r); issued = null; if (view === "desk") updateDesk(); }); } break;
+      case "resetDay": showClearDay(); break;
+      case "clearDayCancel": $("#clear-day")?.remove(); break;
+      case "clearDayGo":
+        $("#clear-day")?.remove();
+        void dispatch({ type: "resetDay", configPin: configUnlocked }, () => { const kept = keptPreRegistered(state).length; return `Today's queue was cleared.${kept ? ` ${kept} pre-registered patient${kept === 1 ? " was" : "s were"} kept.` : ""}`; }).then((r) => { relockIfPinRefused(r); issued = null; if (view === "desk") updateDesk(); });
+        break;
       case "arrive": {
         if (arriving) break;
         arriving = true;
