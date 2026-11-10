@@ -416,6 +416,9 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 .kiosk-result .warn { color: #ffd7dd; }
 .kiosk-result .btn { font-size: clamp(18px, 2.4vw, 28px); padding: 1.6vh 5vw; margin-top: 1vh; }
 .kiosk-foot { font-size: 12px; color: #a99a7c; }
+.wait-stations { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px 10px; }
+.wait-st { display: grid; grid-template-columns: 1fr 64px auto; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 13px; }
+.wait-st span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .wait-st input { width: 64px; padding: 4px 6px; text-align: center; font-weight: 700; } .wait-st small { color: var(--muted); } .wait-st input:not(:placeholder-shown) { border-color: var(--gold); background: #fff8e6; } .wait-st input:placeholder-shown { font-weight: 500; }
 .wifi-row { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 10px; } @media (max-width: 760px) { .wifi-row { grid-template-columns: 1fr; } }
 .wait-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: end; } @media (max-width: 640px) { .wait-row { grid-template-columns: 1fr; } }
 .wait-in { display: flex; align-items: center; gap: 8px; } .wait-in input { width: 96px; font-size: 18px; font-weight: 700; text-align: center; } .wait-in b { font-weight: 600; color: var(--muted); font-size: 13px; }
@@ -893,6 +896,14 @@ function waitMinutesOf(input) {
         if (Number.isFinite(minutes) && minutes >= 1)
             out[key] = Math.min(180, minutes);
     }
+    const stations = {};
+    for (const [code, raw] of Object.entries(input?.stations ?? {})) {
+        const minutes = raw === null || String(raw).trim() === "" ? NaN : Math.round(Number(raw));
+        if (/^[A-Z0-9]{1,6}$/.test(code) && Number.isFinite(minutes) && minutes >= 1)
+            stations[code] = Math.min(180, minutes);
+    }
+    if (Object.keys(stations).length)
+        out.stations = stations;
     return out;
 }
 /** A Philippine cellphone number typed by a patient, as 09XXXXXXXXX; "" when empty, null when it is not a cellphone number. */
@@ -1791,7 +1802,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-10.4";
+const BOARD_VERSION = "2026-11-10.5";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -3768,6 +3779,8 @@ function downloadQueueReport(xlsx, state, now) {
           <div class="panel-b" style="display:grid;gap:12px">
             <div class="wait-row"><label class="field">🩺 Consultation<em>Clinics (Consultation 1–3)</em><span class="wait-in"><input type="number" min="1" max="180" step="1" inputmode="numeric" value="${esc(draft.waitMinutes?.consultation ?? "")}" placeholder="Auto" data-wait="consultation"><b>min per patient</b></span></label>
             <label class="field">🔬 Procedures<em>2D Echo, ECG, Treadmill, X-ray, Ultrasound …</em><span class="wait-in"><input type="number" min="1" max="180" step="1" inputmode="numeric" value="${esc(draft.waitMinutes?.procedure ?? "")}" placeholder="Auto" data-wait="procedure"><b>min per patient</b></span></label></div>
+            <div class="field" style="margin-top:2px">Per station<em>Optional: a station's own minutes per patient, used instead of the ones above (e.g. 2D Echo 25, Treadmill 40). Empty: the ones above, or automatic.</em></div>
+            <div class="wait-stations">${draft.stations.filter((st) => st.active && st.code).map((st) => `<label class="wait-st"><span><b class="mono">${esc(st.code)}</b> ${esc(st.name)}</span><input type="number" min="1" max="180" step="1" inputmode="numeric" value="${esc(draft.waitMinutes?.stations?.[st.code] ?? "")}" placeholder="${esc(waitPlaceholder(st))}" data-wait-station="${esc(st.code)}" aria-label="Minutes per patient at ${esc(st.name)}"><small>min</small></label>`).join("")}</div>
             <p class="note" style="margin:0" id="cfg-wait-hint"></p>
           </div></section>
         <section class="panel"><div class="panel-h"><div><h2>TV video &amp; slideshow</h2><p>YouTube videos, YouTube playlists and pictures shown on the lobby TV while patients wait. YouTube needs internet.</p></div><button class="btn sm outline" data-act="openTv">TV display ↗</button></div>
@@ -3882,6 +3895,13 @@ function downloadQueueReport(xlsx, state, now) {
       draft.patientWifi = { ssid: "", password: "", security: "WPA", ...(draft.patientWifi ?? {}), [input.dataset.wifi]: input.type === "checkbox" ? input.checked : input.value };
       if (input.dataset.wifi === "security") { const pw = box.querySelector('[data-wifi="password"]'); pw.disabled = input.value === "nopass"; pw.placeholder = input.value === "nopass" ? "No password" : "Wi-Fi password"; }
       if (!draft.patientWifi.ssid.trim()) draft.patientWifi = { ...draft.patientWifi, ssid: "" };
+      refreshDirty();
+    }));
+    box.querySelectorAll("[data-wait-station]").forEach((input) => input.addEventListener("input", () => {
+      const stations = { ...(draft.waitMinutes?.stations ?? {}) };
+      if (input.value.trim() === "") delete stations[input.dataset.waitStation]; else stations[input.dataset.waitStation] = Number(input.value);
+      draft.waitMinutes = { ...(draft.waitMinutes ?? {}), stations };
+      showWaitHint();
       refreshDirty();
     }));
     box.querySelectorAll("[data-wait]").forEach((input) => input.addEventListener("input", () => {
@@ -4133,11 +4153,19 @@ function downloadQueueReport(xlsx, state, now) {
   /** The address for phones and tablets: the QR code address from System configuration, or the automatic one. */
   const phoneAddress = () => (draft && qrAddressOf(draft.qrAddress)) || autoQrAddress();
   /** What a patient sees with these settings, e.g. 3 patients ahead at a clinic. */
+  /** What an empty per-station box uses: the consultation / procedure minutes, or Auto. */
+  function waitPlaceholder(st) {
+    const key = st.service === "consultation" ? "consultation" : st.service === "procedure" || st.service === "imaging" ? "procedure" : null;
+    const m = key ? Number(draft.waitMinutes?.[key]) : NaN;
+    return m >= 1 ? String(m) : "Auto";
+  }
   function showWaitHint() {
     const hint = $("#cfg-wait-hint");
     if (!hint) return;
     const example = (key, label) => { const m = Number(draft.waitMinutes?.[key]); return m >= 1 ? `${label}: 3 patients ahead ≈ about ${Math.round((3 * m) / 5) * 5 || 5} min` : `${label}: automatic`; };
-    hint.textContent = `${example("consultation", "Consultation")} · ${example("procedure", "Procedures")}. Laboratory, Cashier and HMO Desk stay automatic.`;
+    const own = Object.entries(draft.waitMinutes?.stations ?? {}).filter(([, m]) => Number(m) >= 1);
+    hint.textContent = `${example("consultation", "Consultation")} · ${example("procedure", "Procedures")}.${own.length ? ` Own minutes: ${own.map(([code, m]) => `${code} ${m} min`).join(", ")}.` : ""} Stations left empty use the minutes above, or today's pace.`;
+    document.querySelectorAll("[data-wait-station]").forEach((input) => { const st = draft.stations.find((item) => item.code === input.dataset.waitStation); if (st) input.placeholder = waitPlaceholder(st); });
   }
   function showQrHint() {
     const hint = $("#qr-hint");

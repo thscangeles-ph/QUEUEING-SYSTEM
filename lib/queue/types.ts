@@ -175,7 +175,8 @@ export type Settings = {
 /** showPassword: print the password under the QR code too (missing means yes); the QR code always holds it. */
 export type PatientWifi = { ssid: string; password: string; security: "WPA" | "WEP" | "nopass"; showPassword?: boolean };
 
-export type WaitMinutes = { consultation?: number; procedure?: number };
+/** stations: minutes per patient for one station (e.g. { E1: 25, TM: 40 }); they come before the consultation / procedure minutes. */
+export type WaitMinutes = { consultation?: number; procedure?: number; stations?: Record<string, number> };
 
 /** A TV in one area of the clinic: its name on the TV, the stations it shows, and whether it shows registration calls. */
 /** connection: how this TV reaches the server (its Wi-Fi or LAN cable address); missing means the Display connection setting. */
