@@ -395,16 +395,14 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 .kiosk-btns.three { grid-template-columns: 1fr 1fr 1fr; gap: 3vw; }
 .kiosk-btns.three .kiosk-btn { padding: 5vh 2vw; font-size: clamp(24px, 3.4vw, 46px); }
 .kiosk-btns.three .kiosk-btn small { font-size: clamp(14px, 1.8vw, 22px); }
-/* Quick queue number (busy mornings): one tap, no typing; the patient registers at the front desk. A wide bar under the three buttons. */
-.kiosk-btns.three.four { grid-template-rows: minmax(0, 1fr) auto; row-gap: 3vh; min-height: 0; }
+/* Quick queue number (busy mornings): one tap, no typing; the patient registers at the front desk. Four buttons in a row. */
+.kiosk-btns.three.four { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2vw; min-height: 0; }
 .kiosk-app.four { gap: 2vh; padding-top: 3vh; }
 .kiosk-app.four .kiosk-head img { height: clamp(56px, 10vh, 120px); }
-.kiosk-btns.three.four .kiosk-btn:not(.quick) { padding: 2.5vh 2vw; }
-.kiosk-btn.quick { grid-column: 1 / -1; display: flex; align-items: center; justify-content: center; gap: 2.4vw; padding: 2vh 3vw; background: #fff4d6; color: var(--brown); box-shadow: 0 1.2vh 0 #b99a52; font-size: clamp(22px, 3.2vw, 42px); }
+.kiosk-btns.three.four .kiosk-btn { padding: 5vh 1.5vw; font-size: clamp(22px, 3vw, 40px); }
+.kiosk-btn.quick { background: #fff4d6; color: var(--brown); box-shadow: 0 1.2vh 0 #b99a52; }
 .kiosk-btn.quick:active { box-shadow: 0 .4vh 0 #b99a52; }
-.kiosk-btn.quick .ico { font-size: 1.3em; } .kiosk-btn.quick small { opacity: .8; font-weight: 600; text-align: left; max-width: 30em; }
-.kiosk-btn.quick b { white-space: nowrap; }
-@media (orientation: portrait) { .kiosk-btns.three.four { grid-template-rows: none; } .kiosk-btns.three.four .kiosk-btn:not(.quick) { padding: 2.2vh 4vw; } .kiosk-btn.quick { flex-wrap: wrap; row-gap: .6vh; } .kiosk-btn.quick small { text-align: center; } }
+@media (orientation: portrait) { .kiosk-btns.three.four { grid-template-columns: 1fr; gap: 2.4vh; } .kiosk-btns.three.four .kiosk-btn { padding: 2.2vh 4vw; font-size: clamp(26px, 4.6vw, 52px); } }
 @media (orientation: portrait) { .kiosk-btns.three { grid-template-columns: 1fr; gap: 3vh; } .kiosk-btns.three .kiosk-btn { padding: 3.5vh 4vw; font-size: clamp(28px, 5vw, 56px); } }
 .kiosk-form .go.appt { background: #1f7a70; color: #fff; box-shadow: 0 .9vh 0 #0f4a43; }
 .kiosk-result .appt-info { margin: 0; padding: .8vh 1.4em; border-radius: 999px; background: #1f7a70; color: #fff; font-weight: 700; font-size: clamp(16px, 2.2vw, 26px); }
@@ -4615,7 +4613,7 @@ function downloadQueueReport(xlsx, state, now) {
       <button type="button" class="kiosk-btn" data-kiosk="regular"><span class="ico" aria-hidden="true">🚶</span>Walk-in patient<small>No appointment</small></button>
       <button type="button" class="kiosk-btn hmo" data-kiosk="hmo"><span class="ico" aria-hidden="true">🏥</span>HMO patient<small>With HMO card or LOA</small></button>
       <button type="button" class="kiosk-btn appt" data-kiosk="appt"><span class="ico" aria-hidden="true">📅</span>I have an appointment<small>Pre-scheduled: check in with your name and cellphone</small></button>
-      <button type="button" class="kiosk-btn quick" data-kiosk="quick"><span class="ico" aria-hidden="true">⚡</span><b>Quick queue number</b><small>No typing: get your number now and register at the front desk</small></button>
+      <button type="button" class="kiosk-btn quick" data-kiosk="quick"><span class="ico" aria-hidden="true">⚡</span>Quick queue number<small>No typing: get your number now and register at the front desk</small></button>
     </div>`;
     // Quick queue number: the number at once (no name, cellphone or purpose); the Concierge registers the patient.
     main.querySelectorAll("[data-kiosk]").forEach((btn) => btn.addEventListener("click", () => (btn.dataset.kiosk === "appt" ? kioskAppointment() : btn.dataset.kiosk === "quick" ? void kioskTake(false, "", "", [], true) : kioskDetails(btn.dataset.kiosk === "hmo"))));
