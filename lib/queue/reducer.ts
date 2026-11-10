@@ -151,16 +151,16 @@ export function ensureDay(state: QueueState | null | undefined, now: number): Qu
 
 const pad2 = (seq: number) => String(seq).padStart(2, "0");
 
-/** Pre-scheduled patients of Clinic 1, 2 and 3: each clinic has its own numbering, like HMO. */
-export const CLINIC_KINDS = ["P1", "P2", "P3"] as const;
+/** Patients of Clinic 1, 2 and 3, and of Procedures (P4: scheduled procedures such as 2D Echo or Treadmill): each has its own numbering, like HMO. */
+export const CLINIC_KINDS = ["P1", "P2", "P3", "P4"] as const;
 /** Clinic 1–3 patients pre-registered before they came: a separate numbering per clinic (PS1-01 …), so no two patients share a number. */
-export const PRESCHEDULED_KINDS = ["S1", "S2", "S3"] as const;
+export const PRESCHEDULED_KINDS = ["S1", "S2", "S3", "S4"] as const;
 /** The pre-scheduled kind of a clinic: P1 → S1. */
-export const prescheduledKind = (kind: PatientKind): PatientKind => (/^[PS][123]$/.test(kind) ? (`S${kind[1]}` as PatientKind) : kind);
+export const prescheduledKind = (kind: PatientKind): PatientKind => (/^[PS][1-4]$/.test(kind) ? (`S${kind[1]}` as PatientKind) : kind);
 /** The numbering a kind uses: walk-in and scheduled share the regular numbers; HMO and each clinic count on their own. */
 export const numberGroup = (kind: PatientKind): NumberGroup => (kind === "W" || kind === "S" ? "R" : kind);
 /** The tags before the numbers, unless changed in System configuration → Number tags. */
-export const DEFAULT_NUMBER_TAGS: Record<TaggedGroup, string> = { H: "HMO", P1: "CL1", P2: "CL2", P3: "CL3", S1: "PS1", S2: "PS2", S3: "PS3" };
+export const DEFAULT_NUMBER_TAGS: Record<TaggedGroup, string> = { H: "HMO", P1: "CL1", P2: "CL2", P3: "CL3", P4: "PRC", S1: "PS1", S2: "PS2", S3: "PS3", S4: "PSP" };
 const LABEL_PREFIX: Partial<Record<NumberGroup, string>> = Object.fromEntries(Object.entries(DEFAULT_NUMBER_TAGS).map(([group, tag]) => [group, `${tag}-`]));
 /** The tag (with its dash) that a new number of this kind gets now: "HMO-", "CL1-" …, or "" for regular numbers. */
 export function prefixOf(settings: Settings | undefined, kind: PatientKind): string {
@@ -170,8 +170,8 @@ export function prefixOf(settings: Settings | undefined, kind: PatientKind): str
 }
 /** The tag of a visit: the one it got when the number was given (numbers already given keep theirs when the tags change). */
 const prefixOfVisit = (visit: Pick<Visit, "kind" | "prefix">) => visit.prefix ?? LABEL_PREFIX[numberGroup(visit.kind)] ?? "";
-/** "Clinic 1" for a Clinic 1 patient (P1, or S1 when pre-scheduled), otherwise null. */
-export const clinicOf = (kind: PatientKind) => (/^[PS][123]$/.test(kind) ? `Clinic ${kind.slice(1)}` : null);
+/** "Clinic 1" for a Clinic 1 patient (P1, or S1 when pre-scheduled), "Procedures" for P4 / S4, otherwise null. */
+export const clinicOf = (kind: PatientKind) => (/^[PS]4$/.test(kind) ? "Procedures" : /^[PS][123]$/.test(kind) ? `Clinic ${kind.slice(1)}` : null);
 
 /** 01-C1-W for walk-in and scheduled patients; HMO-01-C1 and CL1-01-C1 for HMO and Clinic 1–3 patients, who have their own numbering. */
 export const ticketLabel = (visit: Pick<Visit, "seq" | "kind" | "prefix">, station: string) => {
@@ -182,7 +182,7 @@ export const ticketLabel = (visit: Pick<Visit, "seq" | "kind" | "prefix">, stati
 /** The number given on arrival, before registration: just 01 (walk-in or scheduled is chosen at registration), HMO-01 or CL1-01. */
 export const arrivalLabel = (visit: Pick<Visit, "seq" | "kind" | "prefix">) => `${prefixOfVisit(visit)}${pad2(visit.seq)}`;
 
-const kindOf = (kind: unknown): PatientKind => (typeof kind === "string" && /^(S|H|[PS][123])$/.test(kind) ? (kind as PatientKind) : "W");
+const kindOf = (kind: unknown): PatientKind => (typeof kind === "string" && /^(S|H|[PS][1-4])$/.test(kind) ? (kind as PatientKind) : "W");
 
 /** Visits saved before arrival numbers existed have no `registered` flag; they were always registered. */
 export const isRegistered = (visit: Visit) => visit.registered !== false;
@@ -571,7 +571,7 @@ function run(state: QueueState, action: QueueAction, now: number, options: Actio
       return { ok: true, visitId: visit.id, label: currentLabel(visit) };
     }
     case "clearClinic": {
-      if (!/^P[123]$/.test(String(action.clinic))) return fail("Choose Clinic 1, 2 or 3.");
+      if (!/^P[1-4]$/.test(String(action.clinic))) return fail("Choose Clinic 1, 2, 3 or Procedures.");
       const kind = action.clinic as PatientKind;
       const clinic = clinicOf(kind);
       const station = `C${kind[1]}`;

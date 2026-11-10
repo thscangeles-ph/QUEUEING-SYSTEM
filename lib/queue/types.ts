@@ -4,9 +4,9 @@ import type { TvMedia } from "./youtube";
 
 /** W walk-in, S scheduled, H HMO (its own numbering: HMO-01-C1), P1–P3 Clinic 1–3 patients (CL1-01-C1),
  *  S1–S3 Clinic 1–3 patients pre-registered before they came (PS1-01-C1). Each H, P and S kind has its own numbering. */
-export type PatientKind = "W" | "S" | "H" | "P1" | "P2" | "P3" | "S1" | "S2" | "S3";
+export type PatientKind = "W" | "S" | "H" | "P1" | "P2" | "P3" | "P4" | "S1" | "S2" | "S3" | "S4";
 /** Each numbering counts from 01 every day: R regular (walk-in and scheduled share it), H HMO, P1–P3 Clinic 1–3, S1–S3 pre-scheduled Clinic 1–3. */
-export type NumberGroup = "R" | "H" | "P1" | "P2" | "P3" | "S1" | "S2" | "S3";
+export type NumberGroup = "R" | "H" | "P1" | "P2" | "P3" | "P4" | "S1" | "S2" | "S3" | "S4";
 /** The numberings that have a tag before the number (regular numbers have none). */
 export type TaggedGroup = Exclude<NumberGroup, "R">;
 export type ServiceType = "consultation" | "procedure" | "laboratory" | "imaging" | "cashier" | "hmo" | "other";
@@ -207,7 +207,7 @@ export type QueueState = {
   /** Next HMO number (HMO-01, HMO-02, …); missing on queues saved before HMO numbers existed. */
   nextHmoSeq?: number;
   /** Next Clinic 1–3 numbers (CL1-01 …) and pre-scheduled Clinic 1–3 numbers (PS1-01 …); missing until the first one is given. */
-  nextClinicSeq?: Partial<Record<"P1" | "P2" | "P3" | "S1" | "S2" | "S3", number>>;
+  nextClinicSeq?: Partial<Record<"P1" | "P2" | "P3" | "P4" | "S1" | "S2" | "S3" | "S4", number>>;
   /** Last report from the lobby TV: when it was seen and whether its sound is on, shown on the staff screens. */
   tv?: { seenAt: number; sound: boolean };
   visits: Visit[];
