@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, x-queue-pin", "Access-Control-Max-Age": "86400" };
 const json = (body: Record<string, unknown>, status = 200) => Response.json(body, { status, headers: { ...CORS, "Cache-Control": "no-store" } });
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
-const KINDS = ["W", "S", "H", "P1", "P2", "P3", "S1", "S2", "S3"];
+const KINDS = ["W", "S", "H", "P1", "P2", "P3", "P4", "S1", "S2", "S3", "S4"];
 
 export function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS });
