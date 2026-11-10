@@ -416,6 +416,7 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 .kiosk-result .warn { color: #ffd7dd; }
 .kiosk-result .btn { font-size: clamp(18px, 2.4vw, 28px); padding: 1.6vh 5vw; margin-top: 1vh; }
 .kiosk-foot { font-size: 12px; color: #a99a7c; }
+.wifi-row { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 10px; } @media (max-width: 760px) { .wifi-row { grid-template-columns: 1fr; } }
 .wait-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: end; } @media (max-width: 640px) { .wait-row { grid-template-columns: 1fr; } }
 .wait-in { display: flex; align-items: center; gap: 8px; } .wait-in input { width: 96px; font-size: 18px; font-weight: 700; text-align: center; } .wait-in b { font-weight: 600; color: var(--muted); font-size: 13px; }
 /* The kiosk's name and cellphone step: the header gets small so the tablet's keyboard leaves the fields in view. */
@@ -874,6 +875,15 @@ const findStation = (state, code) => state.settings.stations.find((station) => s
 /** Whether a station's patients get their vital signs taken first: the clinics, and any station with Vitals first ticked. */
 const vitalsFirst = (station) => station.vitals ?? station.service === "consultation";
 const clean = (value, max) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+/** The patient Wi-Fi for the poster, or undefined when no name is set. */
+function patientWifiOf(input) {
+    const raw = input ?? {};
+    const ssid = String(raw.ssid ?? "").trim().slice(0, 32);
+    if (!ssid)
+        return undefined;
+    const security = raw.security === "WEP" || raw.security === "nopass" ? raw.security : "WPA";
+    return { ssid, password: security === "nopass" ? "" : String(raw.password ?? "").slice(0, 63), security, showPassword: raw.showPassword !== false };
+}
 /** The minutes per patient set for the waiting time estimate (1–180), without the empty ones (automatic). */
 function waitMinutesOf(input) {
     const out = {};
@@ -1163,7 +1173,7 @@ function sanitizeSettings(input) {
     const sms = smsSettingsOf(input.sms, input.sms);
     if (typeof sms === "string")
         return sms;
-    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth), qrAddress, numberTags, vitalsPlace: clean(input.vitalsPlace, 60), sms, tvScreens: tvScreensOf(input.tvScreens, stations.map((s) => s.code)), tvSameOnAll: Boolean(input.tvSameOnAll), waitMinutes: waitMinutesOf(input.waitMinutes) };
+    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth), qrAddress, numberTags, vitalsPlace: clean(input.vitalsPlace, 60), sms, tvScreens: tvScreensOf(input.tvScreens, stations.map((s) => s.code)), tvSameOnAll: Boolean(input.tvSameOnAll), waitMinutes: waitMinutesOf(input.waitMinutes), patientWifi: patientWifiOf(input.patientWifi) };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -1781,7 +1791,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-10.3";
+const BOARD_VERSION = "2026-11-10.4";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -3838,6 +3848,11 @@ function downloadQueueReport(xlsx, state, now) {
           <div class="panel-b" style="display:grid;gap:10px">
             <label class="field">QR code address<em>For example http://172.16.100.62:3000. Leave empty to use the server's Wi-Fi address automatically.</em><input type="text" maxlength="200" spellcheck="false" class="mono" value="${esc(draft.qrAddress ?? "")}" placeholder="${esc(autoQrAddress() || "http://172.16.100.62:3000")}" data-set="qrAddress" id="cfg-qr"></label>
             <p class="yt-hint" id="qr-hint"></p>
+            <div class="field" style="margin-top:4px">📶 Patient Wi-Fi on the poster<em>Optional. The poster then has a second QR code: patients on mobile data scan it to join this Wi-Fi first (iPhone and Android cameras). The Wi-Fi name is printed under it, and the password too if you choose.</em></div>
+            <div class="wifi-row"><label class="field">Wi-Fi name<input type="text" maxlength="32" spellcheck="false" value="${esc(draft.patientWifi?.ssid ?? "")}" placeholder="e.g. THSC-Patients" data-wifi="ssid"></label>
+            <label class="field">Password<input type="text" maxlength="63" spellcheck="false" value="${esc(draft.patientWifi?.password ?? "")}" placeholder="${draft.patientWifi?.security === "nopass" ? "No password" : "Wi-Fi password"}" data-wifi="password"${draft.patientWifi?.security === "nopass" ? " disabled" : ""}></label>
+            <label class="field">Security<select data-wifi="security"><option value="WPA"${(draft.patientWifi?.security ?? "WPA") === "WPA" ? " selected" : ""}>WPA / WPA2 / WPA3</option><option value="WEP"${draft.patientWifi?.security === "WEP" ? " selected" : ""}>WEP</option><option value="nopass"${draft.patientWifi?.security === "nopass" ? " selected" : ""}>Open (no password)</option></select></label></div>
+            <label class="check" style="margin:0"><input type="checkbox" data-wifi="showPassword"${draft.patientWifi?.showPassword === false ? "" : " checked"}><span><b>Show the password on the poster</b><small>Off: only the Wi-Fi name is printed. Phones still join by scanning the QR code (it holds the password).</small></span></label>
             <p class="note" style="margin:0">After changing it, click <b>Save configuration</b>, then open the poster and print it again. The kiosk address uses it too. If phones are on a different network from the server (for example Wi-Fi 172.16.20.x and server 172.16.100.x), the router must allow it (in pfSense: a Pass rule to the server on port 3000).</p>
           </div></section>
         <section class="panel"><div class="panel-h"><div><h2>Display connection</h2><p>How the TV and other screens reach the queue server: over the clinic Wi-Fi or with a LAN cable. A server on both has a different address for each.</p></div></div>
@@ -3861,6 +3876,12 @@ function downloadQueueReport(xlsx, state, now) {
       if (field === "displayConnection") renderDisplayConnection();
       if (field === "slipWidth" || field === "slipPrinter") showPaperHint();
       if (field === "qrAddress") { showQrHint(); renderKioskLink(); }
+      refreshDirty();
+    }));
+    box.querySelectorAll("[data-wifi]").forEach((input) => input.addEventListener(input.tagName === "SELECT" || input.type === "checkbox" ? "change" : "input", () => {
+      draft.patientWifi = { ssid: "", password: "", security: "WPA", ...(draft.patientWifi ?? {}), [input.dataset.wifi]: input.type === "checkbox" ? input.checked : input.value };
+      if (input.dataset.wifi === "security") { const pw = box.querySelector('[data-wifi="password"]'); pw.disabled = input.value === "nopass"; pw.placeholder = input.value === "nopass" ? "No password" : "Wi-Fi password"; }
+      if (!draft.patientWifi.ssid.trim()) draft.patientWifi = { ...draft.patientWifi, ssid: "" };
       refreshDirty();
     }));
     box.querySelectorAll("[data-wait]").forEach((input) => input.addEventListener("input", () => {
