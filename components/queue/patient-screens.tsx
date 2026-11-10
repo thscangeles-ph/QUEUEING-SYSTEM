@@ -6,9 +6,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 import { BellRing, CheckCircle2, Clock, Printer, Ticket, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { arrivalLabel, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation, phMobile, purposeOptions, qrAddressOf, vitalsPlaceOf, waitingToRegister } from "@/lib/queue/reducer";
+import { arrivalLabel, clinicNameOf, currentStep, DEFAULT_CLINIC, findStation, patientWifiOf, phMobile, purposeOptions, qrAddressOf, vitalsPlaceOf, waitingToRegister, wifiQrText } from "@/lib/queue/reducer";
 import { estimatedWait, formatEstimate, patientsAhead, setWaitMinutes, visitStatus } from "@/lib/queue/format";
-import type { QueueState } from "@/lib/queue/types";
+import type { PatientWifi, QueueState } from "@/lib/queue/types";
 import { useCallAlert } from "./call-alert";
 import { readStorage, useNow, useQueue, writeStorage } from "./use-queue";
 
@@ -268,6 +268,8 @@ export function CheckInPoster() {
   const [saved, setSaved] = useState("");
   // What staff type in "QR code address" above the poster, to change it for this print.
   const [typed, setTyped] = useState<string | null>(null);
+  // The patient Wi-Fi (System configuration → QR code poster): a second QR code to join it.
+  const [wifi, setWifi] = useState<PatientWifi | undefined>(undefined);
   useEffect(() => {
     const { hostname, port, protocol, origin } = window.location;
     let cancelled = false;
@@ -293,6 +295,7 @@ export function CheckInPoster() {
       .then((response) => response.json() as Promise<{ state?: QueueState }>)
       .then(({ state }) => {
         if (cancelled) return;
+        setWifi(patientWifiOf(state?.settings.patientWifi));
         const address = qrAddressOf(state?.settings.qrAddress);
         if (address) { setSaved(address); setUrl(`${address}${CHECKIN_PATH}`); } else automatic();
       })
@@ -335,13 +338,34 @@ export function CheckInPoster() {
         <img src="/theheartspecialists.png" alt="The Heart Specialists Clinic logo" width="104" height="80" className="mx-auto h-20 w-auto object-contain" />
         <p className="mt-3 text-sm font-semibold tracking-[0.12em] text-[#8b6512]">THE HEART SPECIALISTS CLINIC</p>
         <h1 className="mt-4 text-4xl font-extrabold tracking-tight">Get your queue number</h1>
-        <p className="mt-2 text-xl text-[#5e5443]">Scan with your phone camera.</p>
-        <div className="mx-auto mt-8 w-96 max-w-full rounded-2xl border border-[#e2d7c2] bg-white p-1">{shown && <QrCode value={shown} />}</div>
-        <p className="mt-3 text-sm text-[#756b59]">No QR scanner? Type this in the browser:</p>
-        <p className="mt-1 break-all font-mono text-xl font-bold text-[#2f281c]">{shown.replace(/^https?:\/\//, "")}</p>
-        {onClinicNetwork && <p className="mt-4 rounded-xl bg-[#fff2c8] px-4 py-2 text-lg font-semibold text-[#5f4307]">Connect to the clinic Wi-Fi first.</p>}
+        <p className="mt-2 text-xl text-[#5e5443]">{wifi ? "Two quick scans with your phone camera." : "Scan with your phone camera."}</p>
+        {wifi ? (
+          <div className="mt-7 grid grid-cols-2 gap-5 text-left">
+            <div className="flex flex-col items-center rounded-2xl border border-[#e2d7c2] p-3 text-center">
+              <p className="text-lg font-extrabold"><span className="mr-1 inline-grid h-7 w-7 place-items-center rounded-full bg-[#2f281c] text-sm text-[#f0c864]">1</span> Connect to our Wi-Fi</p>
+              <p className="text-xs text-[#756b59]">Scan with the camera, then tap Join</p>
+              <div className="mt-2 w-full max-w-[250px]"><QrCode value={wifiQrText(wifi)} /></div>
+              <p className="text-sm text-[#5e5443]">📶 <b className="font-mono">{wifi.ssid}</b></p>
+              {wifi.security !== "nopass" && <p className="text-sm text-[#5e5443]">Password: <b className="font-mono">{wifi.password}</b></p>}
+            </div>
+            <div className="flex flex-col items-center rounded-2xl border-2 border-[#2f281c] p-3 text-center">
+              <p className="text-lg font-extrabold"><span className="mr-1 inline-grid h-7 w-7 place-items-center rounded-full bg-[#2f281c] text-sm text-[#f0c864]">2</span> Get your queue number</p>
+              <p className="text-xs text-[#756b59]">Scan with the camera, then open the link</p>
+              <div className="mt-2 w-full max-w-[250px]">{shown && <QrCode value={shown} />}</div>
+              <p className="text-xs text-[#756b59]">No QR scanner? Type in the browser:</p>
+              <p className="break-all font-mono text-sm font-bold text-[#2f281c]">{shown.replace(/^https?:\/\//, "")}</p>
+            </div>
+          </div>
+        ) : (
+          <>
+          <div className="mx-auto mt-8 w-96 max-w-full rounded-2xl border border-[#e2d7c2] bg-white p-1">{shown && <QrCode value={shown} />}</div>
+          <p className="mt-3 text-sm text-[#756b59]">No QR scanner? Type this in the browser:</p>
+          <p className="mt-1 break-all font-mono text-xl font-bold text-[#2f281c]">{shown.replace(/^https?:\/\//, "")}</p>
+          {onClinicNetwork && <p className="mt-4 rounded-xl bg-[#fff2c8] px-4 py-2 text-lg font-semibold text-[#5f4307]">Connect to the clinic Wi-Fi first.</p>}
+          </>
+        )}
         <ol className="mx-auto mt-8 grid max-w-md gap-3 text-left text-lg">
-          <li><strong>1.</strong> Scan the code and tap <em>Get my queue number</em>.</li>
+          <li><strong>1.</strong> {wifi ? <>Scan QR 1 to join our Wi-Fi (on mobile data the page will not open), then scan QR 2 and tap <em>Get my queue number</em>.</> : <>Scan the code and tap <em>Get my queue number</em>.</>}</li>
           <li><strong>2.</strong> Your queue number (e.g. 07) appears on your phone.</li>
           <li><strong>3.</strong> Wait in the lobby. The Concierge calls your number on the TV to register you.</li>
         </ol>

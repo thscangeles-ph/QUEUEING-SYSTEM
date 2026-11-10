@@ -1,4 +1,4 @@
-import type { ActionResult, AnnounceLanguage, Announcement, Billing, NumberGroup, PatientKind, TaggedGroup, QueueAction, QueueState, Settings, SmsSettings, Station, Step, Visit, VisitInput, TvScreen, WaitMinutes } from "./types";
+import type { ActionResult, AnnounceLanguage, Announcement, Billing, NumberGroup, PatientKind, TaggedGroup, QueueAction, QueueState, Settings, SmsSettings, Station, Step, Visit, VisitInput, TvScreen, WaitMinutes, PatientWifi } from "./types";
 import { slipWidthOf } from "./escpos";
 import { configPinOk, hashConfigPin } from "./pin";
 import { smsSettingsOf, smsTextOf } from "./sms";
@@ -412,6 +412,21 @@ function finishStep(visit: Visit, now: number, sendTo?: string) {
   }
 }
 
+/** The patient Wi-Fi for the poster, or undefined when no name is set. */
+export function patientWifiOf(input: unknown): PatientWifi | undefined {
+  const raw = (input ?? {}) as Partial<PatientWifi>;
+  const ssid = String(raw.ssid ?? "").trim().slice(0, 32);
+  if (!ssid) return undefined;
+  const security = raw.security === "WEP" || raw.security === "nopass" ? raw.security : "WPA";
+  return { ssid, password: security === "nopass" ? "" : String(raw.password ?? "").slice(0, 63), security };
+}
+
+/** The text inside a "scan to join this Wi-Fi" QR code (understood by the iPhone and Android cameras). */
+export function wifiQrText(wifi: PatientWifi): string {
+  const escape = (value: string) => value.replace(/([\\;,:"])/g, "\\$1");
+  return `WIFI:T:${wifi.security};S:${escape(wifi.ssid)};${wifi.security === "nopass" ? "" : `P:${escape(wifi.password)};`};`;
+}
+
 /** The minutes per patient set for the waiting time estimate (1–180), without the empty ones (automatic). */
 export function waitMinutesOf(input: unknown): WaitMinutes {
   const out: WaitMinutes = {};
@@ -472,7 +487,7 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   if (typeof sms === "string") return sms;
   // The configuration PIN only changes with setConfigPin, never from the settings form.
   const configPin = previous.configPin ? { configPin: previous.configPin } : {};
-  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, qrAddress, numberTags, vitalsPlace, sms, tvScreens: tvScreensOf(input.tvScreens ?? previous.tvScreens, stations.map((s) => s.code)), tvSameOnAll: Boolean(input.tvSameOnAll ?? previous.tvSameOnAll), waitMinutes: waitMinutesOf(input.waitMinutes ?? previous.waitMinutes), ...configPin };
+  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, qrAddress, numberTags, vitalsPlace, sms, tvScreens: tvScreensOf(input.tvScreens ?? previous.tvScreens, stations.map((s) => s.code)), tvSameOnAll: Boolean(input.tvSameOnAll ?? previous.tvSameOnAll), waitMinutes: waitMinutesOf(input.waitMinutes ?? previous.waitMinutes), patientWifi: patientWifiOf(input.patientWifi === undefined ? previous.patientWifi : input.patientWifi), ...configPin };
 }
 
 export const CONFIG_PIN_NEEDED = "Enter the configuration PIN to change System configuration.";
