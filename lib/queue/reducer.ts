@@ -435,6 +435,12 @@ export function waitMinutesOf(input: unknown): WaitMinutes {
     const minutes = raw === undefined || raw === null || String(raw).trim() === "" ? NaN : Math.round(Number(raw));
     if (Number.isFinite(minutes) && minutes >= 1) out[key] = Math.min(180, minutes);
   }
+  const stations: Record<string, number> = {};
+  for (const [code, raw] of Object.entries((input as WaitMinutes | undefined)?.stations ?? {})) {
+    const minutes = raw === null || String(raw).trim() === "" ? NaN : Math.round(Number(raw));
+    if (/^[A-Z0-9]{1,6}$/.test(code) && Number.isFinite(minutes) && minutes >= 1) stations[code] = Math.min(180, minutes);
+  }
+  if (Object.keys(stations).length) out.stations = stations;
   return out;
 }
 

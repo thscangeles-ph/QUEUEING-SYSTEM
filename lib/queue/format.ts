@@ -117,6 +117,9 @@ const MIN_PACE_SAMPLES = 3;
 
 /** The minutes per patient set in System configuration for a station's waiting time (clinics and procedures), or null for automatic. */
 export function setWaitMinutes(state: QueueState, code: string): number | null {
+  // A station's own minutes come first (e.g. 2D Echo 1: 25), then the consultation / procedure minutes.
+  const own = Number(state.settings.waitMinutes?.stations?.[code]);
+  if (Number.isFinite(own) && own >= 1) return own;
   const service = findStation(state, code)?.service;
   const key = service === "consultation" ? "consultation" : service === "procedure" || service === "imaging" ? "procedure" : null;
   const minutes = key ? Number(state.settings.waitMinutes?.[key]) : NaN;
