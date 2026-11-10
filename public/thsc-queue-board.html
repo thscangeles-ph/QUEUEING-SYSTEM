@@ -395,6 +395,14 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 .kiosk-btns.three { grid-template-columns: 1fr 1fr 1fr; gap: 3vw; }
 .kiosk-btns.three .kiosk-btn { padding: 5vh 2vw; font-size: clamp(24px, 3.4vw, 46px); }
 .kiosk-btns.three .kiosk-btn small { font-size: clamp(14px, 1.8vw, 22px); }
+/* Quick queue number (busy mornings): one tap, no typing; the patient registers at the front desk. Four buttons in a row. */
+.kiosk-btns.three.four { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2vw; min-height: 0; }
+.kiosk-app.four { gap: 2vh; padding-top: 3vh; }
+.kiosk-app.four .kiosk-head img { height: clamp(56px, 10vh, 120px); }
+.kiosk-btns.three.four .kiosk-btn { padding: 5vh 1.5vw; font-size: clamp(22px, 3vw, 40px); }
+.kiosk-btn.quick { background: #fff4d6; color: var(--brown); box-shadow: 0 1.2vh 0 #b99a52; }
+.kiosk-btn.quick:active { box-shadow: 0 .4vh 0 #b99a52; }
+@media (orientation: portrait) { .kiosk-btns.three.four { grid-template-columns: 1fr; gap: 2.4vh; } .kiosk-btns.three.four .kiosk-btn { padding: 2.2vh 4vw; font-size: clamp(26px, 4.6vw, 52px); } }
 @media (orientation: portrait) { .kiosk-btns.three { grid-template-columns: 1fr; gap: 3vh; } .kiosk-btns.three .kiosk-btn { padding: 3.5vh 4vw; font-size: clamp(28px, 5vw, 56px); } }
 .kiosk-form .go.appt { background: #1f7a70; color: #fff; box-shadow: 0 .9vh 0 #0f4a43; }
 .kiosk-result .appt-info { margin: 0; padding: .8vh 1.4em; border-radius: 999px; background: #1f7a70; color: #fff; font-weight: 700; font-size: clamp(16px, 2.2vw, 26px); }
@@ -1773,7 +1781,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-10.2";
+const BOARD_VERSION = "2026-11-10.3";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -4600,18 +4608,22 @@ function downloadQueueReport(xlsx, state, now) {
     $(".kiosk-app")?.classList.remove("typing");
     kioskViewportChanged = null;
     $("#kiosk-sub").textContent = "Tap a button to get your queue number.";
-    main.innerHTML = `<div class="kiosk-btns three" style="height:100%">
+    $(".kiosk-app")?.classList.add("four");
+    main.innerHTML = `<div class="kiosk-btns three four" style="height:100%">
       <button type="button" class="kiosk-btn" data-kiosk="regular"><span class="ico" aria-hidden="true">🚶</span>Walk-in patient<small>No appointment</small></button>
       <button type="button" class="kiosk-btn hmo" data-kiosk="hmo"><span class="ico" aria-hidden="true">🏥</span>HMO patient<small>With HMO card or LOA</small></button>
       <button type="button" class="kiosk-btn appt" data-kiosk="appt"><span class="ico" aria-hidden="true">📅</span>I have an appointment<small>Pre-scheduled: check in with your name and cellphone</small></button>
+      <button type="button" class="kiosk-btn quick" data-kiosk="quick"><span class="ico" aria-hidden="true">⚡</span>Quick queue number<small>No typing: get your number now and register at the front desk</small></button>
     </div>`;
-    main.querySelectorAll("[data-kiosk]").forEach((btn) => btn.addEventListener("click", () => (btn.dataset.kiosk === "appt" ? kioskAppointment() : kioskDetails(btn.dataset.kiosk === "hmo"))));
+    // Quick queue number: the number at once (no name, cellphone or purpose); the Concierge registers the patient.
+    main.querySelectorAll("[data-kiosk]").forEach((btn) => btn.addEventListener("click", () => (btn.dataset.kiosk === "appt" ? kioskAppointment() : btn.dataset.kiosk === "quick" ? void kioskTake(false, "", "", [], true) : kioskDetails(btn.dataset.kiosk === "hmo"))));
   }
   /** The patient types their name and cellphone, so the Concierge does not type them when registering. */
   function kioskDetails(hmo) {
     const main = $("#kiosk-main");
     if (!main) return;
     $(".kiosk-app")?.classList.add("typing");
+    $(".kiosk-app")?.classList.remove("four");
     kioskFitViewport();
     $("#kiosk-sub").innerHTML = `<b>${hmo ? "HMO patient" : "Walk-in patient"}</b> · Please type your name and cellphone number.`;
     const options = purposeOptions(state.settings);
@@ -4667,6 +4679,7 @@ function downloadQueueReport(xlsx, state, now) {
     const main = $("#kiosk-main");
     if (!main) return;
     $(".kiosk-app")?.classList.add("typing");
+    $(".kiosk-app")?.classList.remove("four");
     kioskFitViewport();
     kioskViewportChanged = null;
     $("#kiosk-sub").innerHTML = `<b>I have an appointment</b> · Type the name and cellphone number you gave for your appointment.`;
@@ -4731,8 +4744,9 @@ function downloadQueueReport(xlsx, state, now) {
     setTimeout(() => nameInput.focus(), 50);
   }
   /** Gives the next queue number (it joins Waiting to register on the front desk) and has the server print it. */
-  async function kioskTake(hmo, name = "", mobile = "", purposes = []) {
+  async function kioskTake(hmo, name = "", mobile = "", purposes = [], quick = false) {
     if (kioskBusy) return;
+    $(".kiosk-app")?.classList.remove("four");
     kioskBusy = true;
     clearTimeout(kioskTimer);
     const main = $("#kiosk-main");
@@ -4756,7 +4770,7 @@ function downloadQueueReport(xlsx, state, now) {
         : `<p class="msg">Please remember your number.</p>`;
     $(".kiosk-app")?.classList.remove("typing");
     kioskViewportChanged = null;
-    $("#kiosk-sub").textContent = `${hmo ? "HMO patient" : "Walk-in patient"}${name ? ` · ${name}` : ""}`;
+    $("#kiosk-sub").textContent = quick ? "Quick queue number" : `${hmo ? "HMO patient" : "Walk-in patient"}${name ? ` · ${name}` : ""}`;
     main.innerHTML = `<div class="kiosk-result">
       <p class="k">Your queue number</p>
       <p class="kiosk-num">${esc(label)}</p>
