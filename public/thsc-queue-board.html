@@ -125,6 +125,7 @@ td .q.prio, .wlist .who b.prio { display: table; background: #f5b301; color: #2b
 .nl-group.hmo > h3 { color: #c3a6f5; } .nl-group.clinic > h3 { color: #7fd3cb; } .nl-group.clinic .reg-call, .nl-group.clinic .nl.one b.mono { background: #1d4a47; } .nl-group.hmo .reg-call { background: #3b2a5c; } .nl-group.hmo .nl.one b.mono { background: #3b2a5c; }
 .nl-group .none { color: #8c7f66; font-size: 1.1vw; margin: .6vh 0 0; }
 .nl-group .nl.one b.mono.prio { background: #f5b301; color: #2b2118; }
+.nl-group.lane > h3 { color: #f5b301; }
 .nl.one b.mono { background: #3a3022; border-radius: .5vw; padding: .4vh .8vw; font-size: 2.6vw; white-space: nowrap; } .nl.one i { color: #5c4b2d; font-style: normal; font-size: 2vw; }
 a.btn { text-decoration: none; }
 .cfg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
@@ -463,6 +464,10 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 @media (max-width: 700px), (orientation: portrait) { .kiosk-form .two { grid-template-columns: 1fr; } }
 .kiosk-form .purpose { font-size: clamp(18px, 2.4vw, 28px); font-weight: 700; color: #f3e7c9; margin: 0; }
 .kiosk-form .purpose em { font-style: normal; font-weight: 500; color: #bfae8a; font-size: .8em; }
+.kiosk-prio { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; font: inherit; padding: 1.4vh 1.2em; border-radius: 16px; border: 2px dashed #b99a52; background: transparent; color: #f3e7c9; cursor: pointer; touch-action: manipulation; }
+.kiosk-prio .box { flex: none; display: grid; place-items: center; width: 1.6em; height: 1.6em; border-radius: 8px; border: 2px solid #d8b24a; color: transparent; font-weight: 900; font-size: clamp(16px, 2vw, 24px); }
+.kiosk-prio b { display: block; font-size: clamp(18px, 2.4vw, 28px); } .kiosk-prio small { display: block; color: #bfae8a; font-size: clamp(14px, 1.7vw, 20px); font-weight: 600; }
+.kiosk-prio[aria-pressed="true"] { border-style: solid; border-color: #f5b301; background: rgba(245,179,1,.14); } .kiosk-prio[aria-pressed="true"] .box { background: #f5b301; border-color: #f5b301; color: var(--brown); }
 .kiosk-chips { display: flex; flex-wrap: wrap; gap: 12px; }
 .kiosk-chip { font: inherit; font-size: clamp(17px, 2.1vw, 25px); font-weight: 700; padding: 1.4vh 1.1em; border-radius: 999px; border: 2px solid #6d5d40; background: #3b3224; color: #f3e7c9; cursor: pointer; touch-action: manipulation; }
 .kiosk-chip[aria-pressed="true"] { background: var(--gold); border-color: var(--gold); color: var(--brown); }
@@ -848,7 +853,11 @@ const prescheduledKind = (kind) => (/^[PS][1-4]$/.test(kind) ? `S${kind[1]}` : k
 /** The numbering a kind uses: walk-in and scheduled share the regular numbers; HMO and each clinic count on their own. */
 const numberGroup = (kind) => (kind === "W" || kind === "S" ? "R" : kind);
 /** The tags before the numbers, unless changed in System configuration → Number tags. */
-const DEFAULT_NUMBER_TAGS = { H: "HMO", P1: "CL1", P2: "CL2", P3: "CL3", P4: "PRC", S1: "PS1", S2: "PS2", S3: "PS3", S4: "PSP" };
+const DEFAULT_NUMBER_TAGS = { H: "HMO", P1: "CL1", P2: "CL2", P3: "CL3", P4: "PRC", S1: "PS1", S2: "PS2", S3: "PS3", S4: "PSP", PL: "PL" };
+/** The numbering a visit counts in: its kind's, or the priority lane's (PL-01 …) for a regular priority lane patient. */
+const visitGroup = (visit) => (visit.lane === "PL" ? "PL" : numberGroup(visit.kind));
+/** The tag of the priority lane numbers, e.g. "PL-". */
+const laneTag = (settings) => `${settings?.numberTags?.PL || DEFAULT_NUMBER_TAGS.PL}-`;
 const LABEL_PREFIX = Object.fromEntries(Object.entries(DEFAULT_NUMBER_TAGS).map(([group, tag]) => [group, `${tag}-`]));
 /** The tag (with its dash) that a new number of this kind gets now: "HMO-", "CL1-" …, or "" for regular numbers. */
 function prefixOf(settings, kind) {
@@ -1067,7 +1076,11 @@ function nextNumber(state, numbering) {
     const group = numbering === true ? "H" : numbering === false ? "R" : numbering;
     const next = counterOf(state, group);
     // Numbers of a clinic cleared for another doctor are free again.
-    const used = new Set(state.visits.filter((visit) => numberGroup(visit.kind) === group && !visit.clearedAt && !(visit.cancelled && !isRegistered(visit))).map((visit) => visit.seq));
+    const used = new Set(state.visits.filter((visit) => visitGroup(visit) === group && !visit.clearedAt && !(visit.cancelled && !isRegistered(visit))).map((visit) => visit.seq));
+    // A regular number whose patient moved to the priority lane stays taken (their slip still shows it).
+    if (group === "R")
+        state.visits.forEach((visit) => { if (visit.laneFrom)
+            used.add(visit.laneFrom); });
     for (let seq = 1; seq < next; seq += 1)
         if (!used.has(seq))
             return seq;
@@ -1087,14 +1100,17 @@ function setCounter(state, group, value) {
         state.nextClinicSeq = { ...state.nextClinicSeq, [group]: value };
 }
 function newVisit(state, kind, priority, newPatient, now, source) {
-    const group = numberGroup(kindOf(kind));
-    if (state.visits.filter((visit) => numberGroup(visit.kind) === group).length >= 999)
+    // Regular patients in the priority lane (Senior, PWD, pregnant) count on their own: PL-01, PL-02 …
+    const lane = numberGroup(kindOf(kind)) === "R" && priority;
+    const group = lane ? "PL" : numberGroup(kindOf(kind));
+    if (state.visits.filter((visit) => visitGroup(visit) === group).length >= 999)
         return "The daily queue limit of 999 patients has been reached.";
     const visit = {
         id: newId(),
         seq: nextNumber(state, group),
         kind: kindOf(kind),
-        prefix: prefixOf(state.settings, kindOf(kind)),
+        prefix: lane ? laneTag(state.settings) : prefixOf(state.settings, kindOf(kind)),
+        ...(lane ? { lane: "PL" } : {}),
         name: "",
         mobile: "",
         notes: "",
@@ -1140,6 +1156,15 @@ function registerVisit(state, visit, input, now) {
     const typedAge = Math.round(Number(input.age));
     visit.age = birthDate ? ageOn(birthDate, state.day) : input.age !== null && input.age !== undefined && String(input.age) !== "" && Number.isFinite(typedAge) && typedAge >= 0 && typedAge <= 130 ? typedAge : null;
     visit.requestingPhysician = clean(input.requestingPhysician, 80);
+    // A regular arrival found to be priority lane at registration moves to the priority lane numbers (01 → PL-03).
+    if (Boolean(input.priority) && !visit.priority && visitGroup(visit) === "R" && !isRegistered(visit)) {
+        visit.laneFrom = visit.seq;
+        visit.seq = nextNumber(state, "PL");
+        visit.prefix = laneTag(state.settings);
+        visit.lane = "PL";
+        if (visit.seq >= counterOf(state, "PL"))
+            setCounter(state, "PL", visit.seq + 1);
+    }
     visit.priority = Boolean(input.priority) || visit.priority;
     if (input.newPatient !== undefined)
         visit.newPatient = Boolean(input.newPatient);
@@ -1441,7 +1466,7 @@ function run(state, action, now) {
             const mobile = phMobile(action.mobile);
             if (mobile === null)
                 return fail(MOBILE_HELP);
-            const visit = newVisit(state, "W", false, false, now, "self");
+            const visit = newVisit(state, "W", Boolean(action.priority), false, now, "self");
             if (typeof visit === "string")
                 return fail(visit);
             visit.verified = true;
@@ -1873,7 +1898,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-11.3";
+const BOARD_VERSION = "2026-11-11.4";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -3511,7 +3536,8 @@ function downloadQueueReport(xlsx, state, now) {
       $(`#tab-count-${key}`).textContent = state.visits.filter((v) => mine(v) && inClinic(v)).length;
     });
     if (deskTab === "nursing") { renderNursing(); return; }
-    if ($("#arr-reg")) $("#arr-reg").textContent = `🎫 Queue number (next: ${pad2(nextNumber(state, false))})`;
+    // With Priority lane ticked, the next number is a priority lane number (PL-01 …).
+    if ($("#arr-reg")) $("#arr-reg").textContent = arr().priority ? `🎫 Priority lane number (next: ${laneTag(state.settings)}${pad2(nextNumber(state, "PL"))})` : `🎫 Queue number (next: ${pad2(nextNumber(state, false))})`;
     if ($("#arr-hmo")) $("#arr-hmo").textContent = `🎫 HMO number (next: ${nextLabel("H")})`;
     if ($("#arr-clinic")) $("#arr-clinic").textContent = `🎫 ${clinicOf(deskTab)} number (next: ${nextLabel(tabKind())})`;
     if (deskTab !== "regular") form.kind = newNumberKind();
@@ -3608,8 +3634,11 @@ function downloadQueueReport(xlsx, state, now) {
     const sel = $("#reg-arrival");
     sel.innerHTML = `<option value="">New number (${nextLabel(newNumberKind())}) — patient has no number yet</option>` + waitingReg.map((v) => `<option value="${v.id}">${esc(arrivalLabel(v))}${v.name ? ` · ${esc(v.name)}` : ""} · arrived ${formatTime(v.createdAt)}</option>`).join("");
     sel.value = form.arrival ?? "";
-    const previewSeq = (form.arrival && state.visits.find((v) => v.id === form.arrival)?.seq) || nextNumber(state, numberGroup(newNumberKind()));
-    const previewPrefix = (form.arrival && state.visits.find((v) => v.id === form.arrival)?.prefix) ?? prefixOf(state.settings, form.kind);
+    // A regular patient marked Priority lane gets (or moves to) a priority lane number (PL-01 …).
+    const picked = form.arrival && state.visits.find((v) => v.id === form.arrival);
+    const toLane = form.priority && numberGroup(newNumberKind()) === "R" && (!picked || (!picked.priority && visitGroup(picked) === "R"));
+    const previewSeq = toLane ? nextNumber(state, "PL") : (picked?.seq || nextNumber(state, numberGroup(newNumberKind())));
+    const previewPrefix = toLane ? laneTag(state.settings) : (picked?.prefix ?? prefixOf(state.settings, form.kind));
     // Procedures: only the procedure, imaging and laboratory stations, and the Cashier after them.
     const stations = state.settings.stations.filter((s) => s.active && (!isProcTab() || ["procedure", "imaging", "laboratory", "cashier"].includes(s.service)));
     form.stations = form.stations.filter((code) => stations.some((s) => s.code === code));
@@ -3902,7 +3931,7 @@ function downloadQueueReport(xlsx, state, now) {
           </div></section>
         <section class="panel"><div class="panel-h"><div><h2>Number tags</h2><p>The letters before the queue numbers, e.g. HMO in HMO-01. Regular numbers have no tag (01, 02 …).</p></div></div>
           <div class="panel-b" style="display:grid;gap:8px">
-            <div class="tag-grid">${[["H", "HMO patients"], ["P1", "Clinic 1"], ["P2", "Clinic 2"], ["P3", "Clinic 3"], ["S1", "Clinic 1 · pre-scheduled"], ["S2", "Clinic 2 · pre-scheduled"], ["S3", "Clinic 3 · pre-scheduled"], ["S4", "Procedures · pre-scheduled"]].map(([group, label]) => `<label class="tag-row"><span>${label}</span><input type="text" class="mono" maxlength="5" spellcheck="false" value="${esc(draft.numberTags?.[group] || DEFAULT_NUMBER_TAGS[group])}" data-tag="${group}" aria-label="Tag for ${label}"><b class="mono" data-tag-preview="${group}"></b></label>`).join("")}</div>
+            <div class="tag-grid">${[["PL", "Priority lane"], ["H", "HMO patients"], ["P1", "Clinic 1"], ["P2", "Clinic 2"], ["P3", "Clinic 3"], ["S1", "Clinic 1 · pre-scheduled"], ["S2", "Clinic 2 · pre-scheduled"], ["S3", "Clinic 3 · pre-scheduled"], ["S4", "Procedures · pre-scheduled"]].map(([group, label]) => `<label class="tag-row"><span>${label}</span><input type="text" class="mono" maxlength="5" spellcheck="false" value="${esc(draft.numberTags?.[group] || DEFAULT_NUMBER_TAGS[group])}" data-tag="${group}" aria-label="Tag for ${label}"><b class="mono" data-tag-preview="${group}"></b></label>`).join("")}</div>
             <p class="yt-hint" id="tag-hint"></p>
             <p style="margin:0;font-size:12px;color:var(--muted)">1 to 5 letters or numbers, starting with a letter. New numbers get the new tag; numbers already given today keep theirs.</p>
           </div></section>
@@ -4844,6 +4873,7 @@ function downloadQueueReport(xlsx, state, now) {
         <label>Your full name<input id="k-name" maxlength="80" autocapitalize="words" spellcheck="false" placeholder="e.g. Juan Dela Cruz" enterkeyhint="next"></label>
         <label>Cellphone number <em>(optional)</em><input id="k-mobile" class="mono" type="tel" inputmode="numeric" maxlength="16" placeholder="09XX XXX XXXX" enterkeyhint="done"></label>
       </div>
+      <button type="button" class="kiosk-prio" id="k-prio" aria-pressed="false"><span class="box">✓</span><span><b>Priority lane</b><small>Senior citizen, PWD or pregnant${hmo ? "" : " · you get a PL number"}</small></span></button>
       <p class="purpose" id="k-purpose-h">Purpose of your visit <em>(tap all that apply)</em></p>
       <div class="kiosk-chips" id="k-purposes">${options.map((option) => `<button type="button" class="kiosk-chip" aria-pressed="false" data-purpose="${esc(option.label)}">${esc(option.label)}</button>`).join("")}</div>
       <p class="err" id="k-err" role="alert"></p>
@@ -4851,6 +4881,7 @@ function downloadQueueReport(xlsx, state, now) {
     </form>
     <button type="button" class="kiosk-more hidden" id="k-more">↑ Drag up to choose the purpose of your visit</button>`;
     const nameInput = $("#k-name"), mobileInput = $("#k-mobile"), err = $("#k-err");
+    $("#k-prio").addEventListener("click", (e) => { const b = e.currentTarget; b.setAttribute("aria-pressed", String(b.getAttribute("aria-pressed") !== "true")); idle(); });
     const chosen = () => [...main.querySelectorAll('.kiosk-chip[aria-pressed="true"]')].map((chip) => chip.dataset.purpose);
     main.querySelectorAll(".kiosk-chip").forEach((chip) => chip.addEventListener("click", () => {
       chip.setAttribute("aria-pressed", chip.getAttribute("aria-pressed") === "true" ? "false" : "true");
@@ -4882,7 +4913,7 @@ function downloadQueueReport(xlsx, state, now) {
       const purposes = chosen();
       if (!purposes.length) { err.textContent = "Please tap the purpose of your visit."; $("#k-purpose-h").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
       document.activeElement?.blur?.();
-      void kioskTake(hmo, name, mobile, purposes);
+      void kioskTake(hmo, name, mobile, purposes, false, $("#k-prio").getAttribute("aria-pressed") === "true");
     });
     setTimeout(() => nameInput.focus(), 50);
   }
@@ -4956,7 +4987,7 @@ function downloadQueueReport(xlsx, state, now) {
     setTimeout(() => nameInput.focus(), 50);
   }
   /** Gives the next queue number (it joins Waiting to register on the front desk) and has the server print it. */
-  async function kioskTake(hmo, name = "", mobile = "", purposes = [], quick = false) {
+  async function kioskTake(hmo, name = "", mobile = "", purposes = [], quick = false, priority = false) {
     if (kioskBusy) return;
     $(".kiosk-app")?.classList.remove("four");
     kioskBusy = true;
@@ -4964,7 +4995,7 @@ function downloadQueueReport(xlsx, state, now) {
     const main = $("#kiosk-main");
     main.querySelectorAll("button").forEach((btn) => { btn.disabled = true; });
     $("#kiosk-sub").textContent = "Getting your number…";
-    const result = await dispatch({ type: "arrive", kind: hmo ? "H" : "W", name, mobile, purposes });
+    const result = await dispatch({ type: "arrive", kind: hmo ? "H" : "W", name, mobile, purposes, priority });
     if (view !== "kiosk") return;
     if (!result.ok) {
       kioskHome();
@@ -5506,7 +5537,7 @@ function downloadQueueReport(xlsx, state, now) {
     const group = (key) => {
       const hmo = key === "H";
       // A clinic's group has both its numberings: CL1 and the pre-scheduled PS1.
-      const mine = (v) => (clinicOf(key) ? clinicOf(v.kind) === clinicOf(key) : numberGroup(v.kind) === key);
+      const mine = (v) => (clinicOf(key) ? clinicOf(v.kind) === clinicOf(key) : visitGroup(v) === key);
       const waitingReg = toRegister.filter(mine);
       const rows = [];
       if (waitingReg.length && tvShowsRegistration()) rows.push(lineRow(`Registration · ${hmo ? "HMO Desk" : "Concierge"}`, waitingReg.filter((v) => v !== registering && !v.regCalledAt)));
@@ -5515,8 +5546,8 @@ function downloadQueueReport(xlsx, state, now) {
         if (waiting.length) rows.push(lineRow(st.name, waiting));
       });
       // Clinic groups, and every group on a TV that shows only some stations, appear only while someone waits in them.
-      if ((clinicOf(key) || tvScreen()) && !rows.length) return "";
-      return `<div class="nl-group ${hmo ? "hmo" : clinicOf(key) ? "clinic" : "regular"}"><h3>${hmo ? "HMO patients" : clinicOf(key) ? `${clinicOf(key)} · pre-scheduled` : "Regular patients"}</h3>${rows.join("") || `<p class="none">No one is waiting.</p>`}</div>`;
+      if ((clinicOf(key) || key === "PL" || tvScreen()) && !rows.length) return "";
+      return `<div class="nl-group ${hmo ? "hmo" : clinicOf(key) ? "clinic" : key === "PL" ? "lane" : "regular"}"><h3>${hmo ? "HMO patients" : clinicOf(key) ? `${clinicOf(key)} · pre-scheduled` : key === "PL" ? "Priority lane" : "Regular patients"}</h3>${rows.join("") || `<p class="none">No one is waiting.</p>`}</div>`;
     };
     $("#reg-call").innerHTML = "";
     // One column while everything fits; then two columns, showing fewer numbers per row until it fits.
@@ -5531,7 +5562,7 @@ function downloadQueueReport(xlsx, state, now) {
     const tries = all.filter(([size]) => sizes.includes(size));
     for (const [size, limit, twoCol] of tries) {
       lineLimit = layout.maxNumbers ? Math.min(limit, layout.maxNumbers) : limit;
-      next.innerHTML = ["R", "H", ...CLINIC_KINDS].map(group).join("");
+      next.innerHTML = ["PL", "R", "H", ...CLINIC_KINDS].map(group).join("");
       next.classList.toggle("two-col", twoCol);
       next.classList.remove("sz-xl", "sz-l", "sz-m");
       next.classList.add(`sz-${size}`);

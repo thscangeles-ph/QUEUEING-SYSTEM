@@ -31,6 +31,8 @@ fieldset{border:0;margin:0;padding:0}legend{font-size:14px;font-weight:600;color
 .chips button[aria-pressed=true]{border-color:#8b6512;background:#8b6512;color:#fff}
 .go{height:56px;border:0;border-radius:12px;background:#8b6512;color:#fff;font:inherit;font-size:18px;font-weight:600}
 .go.teal{background:#1f7a70}.go:disabled{opacity:.6}
+label.prio{display:flex;flex-direction:row;align-items:center;gap:10px;border:1px dashed #c9962b;border-radius:12px;background:#fff;padding:12px 14px;font-weight:400}
+label.prio input{width:22px;height:22px;flex:none;accent-color:#d8a321}label.prio b{color:#2f281c}
 .err{margin:0;color:#b4233c;font-size:14px;font-weight:600}
 .fine{margin:0;color:#857967;font-size:12px;line-height:1.6}
 .hidden{display:none!important}
@@ -97,6 +99,7 @@ export function checkinPage(state: QueueState): string {
 <form id="f-new" novalidate>
 <label>Your full name<input id="n-name" autocomplete="name" maxlength="80" placeholder="e.g. Juan Dela Cruz"></label>
 <label><span>Cellphone number <em>(optional, so the Concierge does not need to ask)</em></span><input id="n-mobile" class="mono" type="tel" inputmode="numeric" autocomplete="tel" maxlength="16" placeholder="09XX XXX XXXX"></label>
+<label class="prio"><input type="checkbox" id="n-prio"><span><b>Priority lane</b> <em>· Senior citizen, PWD or pregnant (you get a PL number)</em></span></label>
 <fieldset><legend>Purpose of your visit <em>(choose all that apply)</em></legend><div class="chips" id="chips">${chips}</div>
 <input id="n-other" class="hidden" maxlength="60" placeholder="Please tell us (optional)" aria-label="Other purpose" style="margin-top:8px"></fieldset>
 <p class="err" id="n-err" role="alert"></p>
@@ -157,7 +160,7 @@ $("f-new").addEventListener("submit", function (e) {
   if (name.length < 2) { err.textContent = "Please type your full name."; return; }
   if (phone === null) { err.textContent = "Please check your cellphone number (11 digits, e.g. 0917 123 4567), or leave it empty."; return; }
   if (!purposes.length) { err.textContent = "Please choose the purpose of your visit."; return; }
-  send({ type: "qrArrive", name: name, mobile: phone, purposes: purposes }, err, $("n-go"), "Getting your number…");
+  send({ type: "qrArrive", name: name, mobile: phone, purposes: purposes, priority: $("n-prio").checked }, err, $("n-go"), "Getting your number…");
 });
 $("f-appt").addEventListener("submit", function (e) {
   e.preventDefault();
