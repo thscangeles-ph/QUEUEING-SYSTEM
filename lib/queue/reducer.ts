@@ -443,6 +443,9 @@ export function tvLayoutOf(input: unknown): TvLayout {
   const max = Math.round(Number(raw.maxNumbers));
   if ([3, 5, 8].includes(max)) out.maxNumbers = max;
   if (raw.nowServing === false) out.nowServing = false;
+  if (raw.afterCall === "welcome" || raw.afterCall === "calling") out.afterCall = raw.afterCall;
+  const hold = Math.round(Number(raw.callHold));
+  if ([30, 120].includes(hold)) out.callHold = hold;
   return out;
 }
 
