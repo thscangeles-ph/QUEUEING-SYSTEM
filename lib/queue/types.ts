@@ -6,7 +6,7 @@ import type { TvMedia } from "./youtube";
  *  S1–S3 Clinic 1–3 patients pre-registered before they came (PS1-01-C1). Each H, P and S kind has its own numbering. */
 export type PatientKind = "W" | "S" | "H" | "P1" | "P2" | "P3" | "P4" | "S1" | "S2" | "S3" | "S4";
 /** Each numbering counts from 01 every day: R regular (walk-in and scheduled share it), H HMO, P1–P3 Clinic 1–3, S1–S3 pre-scheduled Clinic 1–3. */
-export type NumberGroup = "R" | "H" | "P1" | "P2" | "P3" | "P4" | "S1" | "S2" | "S3" | "S4";
+export type NumberGroup = "R" | "H" | "P1" | "P2" | "P3" | "P4" | "S1" | "S2" | "S3" | "S4" | "PL";
 /** The numberings that have a tag before the number (regular numbers have none). */
 export type TaggedGroup = Exclude<NumberGroup, "R">;
 export type ServiceType = "consultation" | "procedure" | "laboratory" | "imaging" | "cashier" | "hmo" | "other";
@@ -62,6 +62,10 @@ export type Visit = {
   mobile: string;
   notes: string;
   priority: boolean;
+  /** "PL": a regular patient numbered in the priority lane (PL-01 …), with its own count. */
+  lane?: "PL";
+  /** The regular number this patient had before moving to the priority lane at registration (not given to anyone else today). */
+  laneFrom?: number;
   /** First visit to the clinic. */
   newPatient?: boolean;
   /** HMO patients: the HMO company and the LOA / approval number. Staff only; never sent to the TV or phones. */
@@ -225,7 +229,7 @@ export type QueueState = {
   /** Next HMO number (HMO-01, HMO-02, …); missing on queues saved before HMO numbers existed. */
   nextHmoSeq?: number;
   /** Next Clinic 1–3 numbers (CL1-01 …) and pre-scheduled Clinic 1–3 numbers (PS1-01 …); missing until the first one is given. */
-  nextClinicSeq?: Partial<Record<"P1" | "P2" | "P3" | "P4" | "S1" | "S2" | "S3" | "S4", number>>;
+  nextClinicSeq?: Partial<Record<"P1" | "P2" | "P3" | "P4" | "S1" | "S2" | "S3" | "S4" | "PL", number>>;
   /** Last report from the lobby TV: when it was seen and whether its sound is on, shown on the staff screens. */
   tv?: { seenAt: number; sound: boolean };
   visits: Visit[];
@@ -277,7 +281,7 @@ export type QueueAction =
   /** Moves a pre-registered patient in their clinic's list: to a place (to, from 0, when dragged) or one up (-1) or down (1). */
   | { type: "movePreRegistered"; visitId: string; to?: number; offset?: number }
   /** A patient takes a queue number with the QR code, giving their name and the purpose(s) of the visit. */
-  | { type: "qrArrive"; name?: string; mobile?: string; purposes?: string[] }
+  | { type: "qrArrive"; name?: string; mobile?: string; purposes?: string[]; priority?: boolean }
   | { type: "verify"; visitId: string }
   | { type: "updateVisit"; visitId: string; name?: string; mobile?: string; notes?: string; priority?: boolean; newPatient?: boolean }
   | { type: "markMessaged"; visitId: string }

@@ -179,7 +179,11 @@ export const prescheduledKind = (kind: PatientKind): PatientKind => (/^[PS][1-4]
 /** The numbering a kind uses: walk-in and scheduled share the regular numbers; HMO and each clinic count on their own. */
 export const numberGroup = (kind: PatientKind): NumberGroup => (kind === "W" || kind === "S" ? "R" : kind);
 /** The tags before the numbers, unless changed in System configuration → Number tags. */
-export const DEFAULT_NUMBER_TAGS: Record<TaggedGroup, string> = { H: "HMO", P1: "CL1", P2: "CL2", P3: "CL3", P4: "PRC", S1: "PS1", S2: "PS2", S3: "PS3", S4: "PSP" };
+export const DEFAULT_NUMBER_TAGS: Record<TaggedGroup, string> = { H: "HMO", P1: "CL1", P2: "CL2", P3: "CL3", P4: "PRC", S1: "PS1", S2: "PS2", S3: "PS3", S4: "PSP", PL: "PL" };
+/** The numbering a visit counts in: its kind's, or the priority lane's (PL-01 …) for a regular priority lane patient. */
+export const visitGroup = (visit: Pick<Visit, "kind" | "lane">): NumberGroup => (visit.lane === "PL" ? "PL" : numberGroup(visit.kind));
+/** The tag of the priority lane numbers, e.g. "PL-". */
+const laneTag = (settings: Settings | undefined) => `${settings?.numberTags?.PL || DEFAULT_NUMBER_TAGS.PL}-`;
 const LABEL_PREFIX: Partial<Record<NumberGroup, string>> = Object.fromEntries(Object.entries(DEFAULT_NUMBER_TAGS).map(([group, tag]) => [group, `${tag}-`]));
 /** The tag (with its dash) that a new number of this kind gets now: "HMO-", "CL1-" …, or "" for regular numbers. */
 export function prefixOf(settings: Settings | undefined, kind: PatientKind): string {
@@ -310,7 +314,9 @@ export function nextNumber(state: QueueState, numbering: NumberGroup | boolean):
   const group: NumberGroup = numbering === true ? "H" : numbering === false ? "R" : numbering;
   const next = counterOf(state, group);
   // Numbers of a clinic cleared for another doctor are free again.
-  const used = new Set(state.visits.filter((visit) => numberGroup(visit.kind) === group && !visit.clearedAt && !(visit.cancelled && !isRegistered(visit))).map((visit) => visit.seq));
+  const used = new Set(state.visits.filter((visit) => visitGroup(visit) === group && !visit.clearedAt && !(visit.cancelled && !isRegistered(visit))).map((visit) => visit.seq));
+  // A regular number whose patient moved to the priority lane stays taken (their slip still shows it).
+  if (group === "R") state.visits.forEach((visit) => { if (visit.laneFrom) used.add(visit.laneFrom); });
   for (let seq = 1; seq < next; seq += 1) if (!used.has(seq)) return seq;
   // After a clinic is cleared, a patient still busy elsewhere (e.g. at the laboratory) keeps their number.
   let seq = next;
@@ -326,13 +332,16 @@ function setCounter(state: QueueState, group: NumberGroup, value: number) {
 }
 
 function newVisit(state: QueueState, kind: PatientKind, priority: boolean, newPatient: boolean, now: number, source: Visit["source"]): Visit | string {
-  const group = numberGroup(kindOf(kind));
-  if (state.visits.filter((visit) => numberGroup(visit.kind) === group).length >= 999) return "The daily queue limit of 999 patients has been reached.";
+  // Regular patients in the priority lane (Senior, PWD, pregnant) count on their own: PL-01, PL-02 …
+  const lane = numberGroup(kindOf(kind)) === "R" && priority;
+  const group: NumberGroup = lane ? "PL" : numberGroup(kindOf(kind));
+  if (state.visits.filter((visit) => visitGroup(visit) === group).length >= 999) return "The daily queue limit of 999 patients has been reached.";
   const visit: Visit = {
     id: newId(),
     seq: nextNumber(state, group),
     kind: kindOf(kind),
-    prefix: prefixOf(state.settings, kindOf(kind)),
+    prefix: lane ? laneTag(state.settings) : prefixOf(state.settings, kindOf(kind)),
+    ...(lane ? { lane: "PL" as const } : {}),
     name: "",
     mobile: "",
     notes: "",
@@ -376,6 +385,14 @@ function registerVisit(state: QueueState, visit: Visit, input: VisitInput, now: 
   const typedAge = Math.round(Number(input.age));
   visit.age = birthDate ? ageOn(birthDate, state.day) : input.age !== null && input.age !== undefined && String(input.age) !== "" && Number.isFinite(typedAge) && typedAge >= 0 && typedAge <= 130 ? typedAge : null;
   visit.requestingPhysician = clean(input.requestingPhysician, 80);
+  // A regular arrival found to be priority lane at registration moves to the priority lane numbers (01 → PL-03).
+  if (Boolean(input.priority) && !visit.priority && visitGroup(visit) === "R" && !isRegistered(visit)) {
+    visit.laneFrom = visit.seq;
+    visit.seq = nextNumber(state, "PL");
+    visit.prefix = laneTag(state.settings);
+    visit.lane = "PL";
+    if (visit.seq >= counterOf(state, "PL")) setCounter(state, "PL", visit.seq + 1);
+  }
   visit.priority = Boolean(input.priority) || visit.priority;
   if (input.newPatient !== undefined) visit.newPatient = Boolean(input.newPatient);
   if (visit.kind === "H") {
@@ -727,7 +744,7 @@ function run(state: QueueState, action: QueueAction, now: number, options: Actio
       if (!purposes.length) return fail("Please choose the purpose of your visit.");
       const mobile = phMobile(action.mobile);
       if (mobile === null) return fail(MOBILE_HELP);
-      const visit = newVisit(state, "W", false, false, now, "self");
+      const visit = newVisit(state, "W", Boolean(action.priority), false, now, "self");
       if (typeof visit === "string") return fail(visit);
       visit.verified = true;
       visit.name = name;
