@@ -347,7 +347,7 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 #next { flex: 1; }
 #next.two-col { column-count: 2; column-gap: 1.6vw; } #next.two-col .nl-group { break-inside: avoid; margin: 0 0 1.4vh; } #next.two-col .nl { break-inside: avoid; }
 .nl.all { padding: .6vh 0; } .nl.all .h { margin: 0; align-items: baseline; color: #f4e8c7; font-size: 1.2vw; } .nl.all .h small { color: #8c7f66; font-size: 1vw; white-space: nowrap; margin-left: .6vw; }
-.nl.all .l { gap: .4vw; margin-top: .4vh; } .nl.all .l b { font-size: 1.6vw; padding: .1vh .55vw; color: #fff; } #next.two-col .nl.all .l b { font-size: 1.4vw; }
+.nl.all .l { gap: .4vw; margin-top: .4vh; } .nl.all .l b { font-size: calc(1.6vw * var(--nl-n, 1)); padding: .1vh .55vw; color: #fff; } #next.two-col .nl.all .l b { font-size: calc(1.4vw * var(--nl-n, 1)); }
 .nl.all .l b.first { box-shadow: 0 0 0 .18vw #f0c864; } .nl.all .l b.prio { background: #f5b301; color: #2b2118; }
 .nl-group.hmo .nl.all .l b:not(.prio) { background: #3b2a5c; } .nl-group.clinic .nl.all .l b:not(.prio) { background: #1d4a47; }
 /* Bigger Next in line, readable from across the lobby: XL while it fits, then L, then the old size (#next.sz-…). */
@@ -356,10 +356,10 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 #next .nl.all .h span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Two narrow columns of big numbers: the station name gets the room ("2 waiting" is shown by the numbers themselves). */
 #next.sz-xl.two-col .nl.all .h small, #next.sz-l.two-col .nl.all .h small { display: none; }
-#next.sz-xl .nl.all .l { gap: .7vw; margin-top: .7vh; } #next.sz-xl .nl.all .l b { font-size: calc(3.1vw * var(--nl-k, 1)); padding: .3vh .8vw; border-radius: .7vw; }
-#next.sz-xl .nl.all .l b.first { box-shadow: 0 0 0 .25vw #f0c864; } #next.sz-xl.two-col .nl.all .l b { font-size: calc(2.5vw * var(--nl-k, 1)); }
+#next.sz-xl .nl.all .l { gap: .7vw; margin-top: .7vh; } #next.sz-xl .nl.all .l b { font-size: calc(3.1vw * var(--nl-k, 1) * var(--nl-n, 1)); padding: .3vh .8vw; border-radius: .7vw; }
+#next.sz-xl .nl.all .l b.first { box-shadow: 0 0 0 .25vw #f0c864; } #next.sz-xl.two-col .nl.all .l b { font-size: calc(2.5vw * var(--nl-k, 1) * var(--nl-n, 1)); }
 #next.sz-l .nl-group > h3 { font-size: calc(1.3vw * min(var(--nl-k, 1), 1.1)); } #next.sz-l .nl.all .h { font-size: calc(1.4vw * min(var(--nl-k, 1), 1.2)); } #next.sz-l .nl.all .h small { font-size: 1.1vw; }
-#next.sz-l .nl.all .l { gap: .55vw; margin-top: .5vh; } #next.sz-l .nl.all .l b { font-size: calc(2.3vw * var(--nl-k, 1)); padding: .2vh .65vw; border-radius: .6vw; } #next.sz-l.two-col .nl.all .l b { font-size: calc(1.9vw * var(--nl-k, 1)); }
+#next.sz-l .nl.all .l { gap: .55vw; margin-top: .5vh; } #next.sz-l .nl.all .l b { font-size: calc(2.3vw * var(--nl-k, 1) * var(--nl-n, 1)); padding: .2vh .65vw; border-radius: .6vw; } #next.sz-l.two-col .nl.all .l b { font-size: calc(1.9vw * var(--nl-k, 1) * var(--nl-n, 1)); }
 /* TV layout: Next in line on the left, and the Now serving boxes hidden (the video or the call gets the room). */
 .tv-body.next-left { direction: rtl; } .tv-body.next-left > * { direction: ltr; }
 .tv-body.no-serving #tiles { display: none; }
@@ -437,7 +437,7 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 .wait-st { display: grid; grid-template-columns: 1fr 64px auto; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 13px; }
 .wait-st span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .wait-st input { width: 64px; padding: 4px 6px; text-align: center; font-weight: 700; } .wait-st small { color: var(--muted); } .wait-st input:not(:placeholder-shown) { border-color: var(--gold); background: #fff8e6; } .wait-st input:placeholder-shown { font-weight: 500; }
 .tv-layout-panel { grid-column: 1 / -1; }
-.lay-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; } @media (max-width: 760px) { .lay-row { grid-template-columns: 1fr; } }
+.lay-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; } @media (max-width: 760px) { .lay-row { grid-template-columns: 1fr; } }
 .lay-preview-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-weight: 700; font-size: 13px; color: var(--muted); }
 .lay-preview-bar .seg button[aria-pressed="true"] { background: var(--brown); color: #fff; }
 .lay-preview { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: #1f1a12; }
@@ -924,8 +924,9 @@ function tvLayoutOf(input) {
         out.nextWidth = Math.min(60, Math.max(25, width));
     if (raw.side === "left")
         out.side = "left";
-    if (raw.textSize === "l" || raw.textSize === "m")
-        out.textSize = raw.textSize;
+    const size = Math.round(Number(raw.numberSize));
+    if (Number.isFinite(size) && size > 0 && size !== 100)
+        out.numberSize = Math.min(200, Math.max(60, size));
     const max = Math.round(Number(raw.maxNumbers));
     if ([3, 5, 8].includes(max))
         out.maxNumbers = max;
@@ -3861,10 +3862,11 @@ function downloadQueueReport(xlsx, state, now) {
           </div></section>
         <section class="panel tv-layout-panel"><div class="panel-h"><div><h2>📺 TV layout</h2><p>How the lobby TV looks: the size of Next in line and its numbers, which side it is on, and the video's size. The preview shows sample patients; nothing changes on the TVs until you save.</p></div></div>
           <div class="panel-b" style="display:grid;gap:12px">
+            <label class="field">Queue number size<span class="cfg-range"><input type="range" min="60" max="200" step="5" value="${esc(draft.tvLayout?.numberSize ?? 100)}" data-layout="numberSize" aria-label="Queue number size"><b class="mono" id="lay-num"></b></span><em>The numbers in Next in line. Bigger can be read from farther away; they still get smaller when there are too many to fit.</em></label>
             <label class="field">Next in line width<span class="cfg-range"><input type="range" min="25" max="60" step="1" value="${esc(draft.tvLayout?.nextWidth ?? 37)}" data-layout="nextWidth" aria-label="Next in line width"><b class="mono" id="lay-width"></b></span><em id="lay-width-note"></em></label>
             <div class="lay-row">
               <label class="field">Next in line side<select data-layout="side"><option value="right"${draft.tvLayout?.side === "left" ? "" : " selected"}>Right</option><option value="left"${draft.tvLayout?.side === "left" ? " selected" : ""}>Left</option></select></label>
-              <label class="field">Number size<select data-layout="textSize"><option value="xl"${!draft.tvLayout?.textSize ? " selected" : ""}>Extra large</option><option value="l"${draft.tvLayout?.textSize === "l" ? " selected" : ""}>Large</option><option value="m"${draft.tvLayout?.textSize === "m" ? " selected" : ""}>Medium</option></select></label>
+
               <label class="field">Numbers per station<select data-layout="maxNumbers"><option value="0"${!draft.tvLayout?.maxNumbers ? " selected" : ""}>All</option>${[8, 5, 3].map((n) => `<option value="${n}"${draft.tvLayout?.maxNumbers === n ? " selected" : ""}>${n}, then “+ more”</option>`).join("")}</select></label>
             </div>
             <label class="check" style="margin:0"><input type="checkbox" data-layout="nowServing"${draft.tvLayout?.nowServing === false ? "" : " checked"}><span><b>Show Now serving</b><small>The boxes of who each station is serving. Off: the video (or the call) gets the room.</small></span></label>
@@ -3984,7 +3986,7 @@ function downloadQueueReport(xlsx, state, now) {
       const key = input.dataset.layout;
       const value = input.type === "checkbox" ? input.checked : input.type === "range" || key === "maxNumbers" ? Number(input.value) : input.value;
       draft.tvLayout = { ...(draft.tvLayout ?? {}), [key]: value };
-      if (key === "textSize" && value === "xl") delete draft.tvLayout.textSize;
+      if (key === "numberSize" && value === 100) delete draft.tvLayout.numberSize;
       if (key === "side" && value === "right") delete draft.tvLayout.side;
       if (key === "nowServing" && value) delete draft.tvLayout.nowServing;
       if (key === "maxNumbers" && !value) delete draft.tvLayout.maxNumbers;
@@ -4260,6 +4262,7 @@ function downloadQueueReport(xlsx, state, now) {
   function showLayout() {
     const width = Number(draft.tvLayout?.nextWidth ?? 37);
     if ($("#lay-width")) $("#lay-width").textContent = `${width}%`;
+    if ($("#lay-num")) $("#lay-num").textContent = `${Number(draft.tvLayout?.numberSize ?? 100)}%`;
     if ($("#lay-width-note")) $("#lay-width-note").textContent = `Video and Now serving ${100 - width}% · Next in line ${width}% of the screen${draft.tvLayout?.nextWidth ? "" : " (standard)"}`;
     document.querySelectorAll('[data-act="layPreview"]').forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.video === "1") === layVideo)));
     clearTimeout(layTimer);
@@ -5100,11 +5103,11 @@ function downloadQueueReport(xlsx, state, now) {
     const body = mountedVideo
       ? `<div class="tv-body video${bodyClass}"${bodyStyle}>
         <div class="tv-left"><div class="vid"><div id="media-slot"></div><div class="vid-over hidden" id="vid-over"></div></div><section class="tiles small" id="tiles"></section></div>
-        <div class="tv-right"><section class="hero compact" id="hero"></section><section class="tv-next"><h2>Next in line</h2><div id="reg-call"></div><div id="next" style="margin-top:1.2vh;min-height:0;overflow:hidden;--nl-k:${(nextShare / 37).toFixed(3)}"></div></section></div>
+        <div class="tv-right"><section class="hero compact" id="hero"></section><section class="tv-next"><h2>Next in line</h2><div id="reg-call"></div><div id="next" style="margin-top:1.2vh;min-height:0;overflow:hidden;--nl-k:${(nextShare / 37).toFixed(3)};--nl-n:${((layout.numberSize ?? 100) / 100).toFixed(2)}"></div></section></div>
       </div>`
       : `<div class="tv-body${bodyClass}"${bodyStyle}>
         <div class="tv-left"><section class="hero" id="hero"></section><section class="tiles" id="tiles"></section></div>
-        <section class="tv-next"><h2>Next in line</h2><div id="reg-call"></div><div id="next" style="margin-top:1.2vh;min-height:0;overflow:hidden;--nl-k:${(nextShare / 41).toFixed(3)}"></div></section>
+        <section class="tv-next"><h2>Next in line</h2><div id="reg-call"></div><div id="next" style="margin-top:1.2vh;min-height:0;overflow:hidden;--nl-k:${(nextShare / 41).toFixed(3)};--nl-n:${((layout.numberSize ?? 100) / 100).toFixed(2)}"></div></section>
       </div>`;
     app.innerHTML = `<div class="tv-app">
       <header class="tv-head"><div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state.settings).toUpperCase())}</small><b>Queue Board<span id="tv-area" style="color:var(--gold-2)"></span></b></div></div><div class="tv-clock"><b id="tv-time"></b><span id="tv-date"></span></div></header>
@@ -5476,7 +5479,7 @@ function downloadQueueReport(xlsx, state, now) {
     // Biggest numbers first (XL, then L), then the old size with fewer numbers per row, until it fits.
     // The TV layout sets the biggest size to try and how many numbers a station shows before "+ N more".
     const layout = tvLayout();
-    const sizes = layout.textSize === "m" ? ["m"] : layout.textSize === "l" ? ["l", "m"] : ["xl", "l", "m"];
+    const sizes = ["xl", "l", "m"];
     const all = [["xl", 12, false], ["xl", 12, true], ["l", 12, false], ["l", 12, true], ["l", 8, true], ["m", 12, false], ["m", 12, true], ["m", 8, true], ["m", 5, true], ["m", 3, true], ["m", 1, true]];
     const tries = all.filter(([size]) => sizes.includes(size));
     for (const [size, limit, twoCol] of tries) {

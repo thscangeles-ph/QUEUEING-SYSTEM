@@ -438,7 +438,8 @@ export function tvLayoutOf(input: unknown): TvLayout {
   const width = Math.round(Number(raw.nextWidth));
   if (Number.isFinite(width) && width > 0) out.nextWidth = Math.min(60, Math.max(25, width));
   if (raw.side === "left") out.side = "left";
-  if (raw.textSize === "l" || raw.textSize === "m") out.textSize = raw.textSize;
+  const size = Math.round(Number(raw.numberSize));
+  if (Number.isFinite(size) && size > 0 && size !== 100) out.numberSize = Math.min(200, Math.max(60, size));
   const max = Math.round(Number(raw.maxNumbers));
   if ([3, 5, 8].includes(max)) out.maxNumbers = max;
   if (raw.nowServing === false) out.nowServing = false;
