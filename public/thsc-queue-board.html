@@ -324,6 +324,8 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .tv-left { display: flex; flex-direction: column; gap: 1.5vw; min-height: 0; }
 .hero { flex: 1.15; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; border-radius: 1.5vw; border: .25vw solid var(--brown-2); background: var(--brown-3); transition: background .7s, border-color .7s; }
 .hero.fresh { background: #4a3612; border-color: var(--gold-2); animation: pulse 1.6s ease-out 6; }
+/* After the first minute: Now serving, calmer (no gold box), so a new Now calling stands out. */
+.hero.serving .k { color: #cbbd9d; } .hero.serving .num { color: #f4e8c7; } .hero.serving .go b { background: var(--brown-2); color: var(--gold-2); box-shadow: none; }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(240,200,100,.55); } 50% { box-shadow: 0 0 0 1.4vw rgba(240,200,100,0); } }
 .hero .k { color: var(--gold-2); text-transform: uppercase; letter-spacing: .2em; font-weight: 700; font-size: 1.6vw; margin: 0; }
 .hero .num { max-width: 100%; white-space: nowrap; overflow: hidden; font-size: 11.5vw; font-weight: 800; line-height: 1; margin: 1vh 0 0; letter-spacing: .03em; }
@@ -932,6 +934,14 @@ function tvLayoutOf(input) {
         out.maxNumbers = max;
     if (raw.nowServing === false)
         out.nowServing = false;
+    if (raw.afterCall === "welcome" || raw.afterCall === "calling")
+        out.afterCall = raw.afterCall;
+    const hold = Math.round(Number(raw.callHold));
+    if ([15, 30, 45, 90, 120, 180, 300].includes(hold))
+        out.callHold = hold;
+    const serving = Math.round(Number(raw.servingHold));
+    if ([60, 120, 300, 600, 900].includes(serving))
+        out.servingHold = serving;
     return out;
 }
 /** The patient Wi-Fi for the poster, or undefined when no name is set. */
@@ -1863,7 +1873,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-11.2";
+const BOARD_VERSION = "2026-11-11.3";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -3869,6 +3879,11 @@ function downloadQueueReport(xlsx, state, now) {
 
               <label class="field">Numbers per station<select data-layout="maxNumbers"><option value="0"${!draft.tvLayout?.maxNumbers ? " selected" : ""}>All</option>${[8, 5, 3].map((n) => `<option value="${n}"${draft.tvLayout?.maxNumbers === n ? " selected" : ""}>${n}, then “+ more”</option>`).join("")}</select></label>
             </div>
+            <label class="field">After a call<select data-layout="afterCall">${[["serving", "Now calling, then Now serving"], ["welcome", "Now calling, then Welcome (the number stays in Now serving)"], ["calling", "Now calling the whole time"]].map(([v, t]) => `<option value="${v}"${(draft.tvLayout?.afterCall ?? "serving") === v ? " selected" : ""}>${t}</option>`).join("")}</select><em>A new call always shows Now calling again.</em></label>
+            <div class="lay-row">
+              <label class="field" id="lay-hold-wrap">⏱ Now calling stays for<select data-layout="callHold">${[[15, "15 seconds"], [30, "30 seconds"], [45, "45 seconds"], [60, "1 minute"], [90, "1½ minutes"], [120, "2 minutes"], [180, "3 minutes"], [300, "5 minutes"]].map(([v, t]) => `<option value="${v}"${(draft.tvLayout?.callHold ?? 60) === v ? " selected" : ""}>${t}</option>`).join("")}</select><em>Then it changes to Now serving (or Welcome).</em></label>
+              <label class="field" id="lay-serving-wrap">⏱ Now serving stays for<select data-layout="servingHold">${[[0, "Until the patient is done"], [60, "1 minute"], [120, "2 minutes"], [300, "5 minutes"], [600, "10 minutes"], [900, "15 minutes"]].map(([v, t]) => `<option value="${v}"${(draft.tvLayout?.servingHold ?? 0) === v ? " selected" : ""}>${t}</option>`).join("")}</select><em>Then Welcome; the number stays in the Now serving boxes.</em></label>
+            </div>
             <label class="check" style="margin:0"><input type="checkbox" data-layout="nowServing"${draft.tvLayout?.nowServing === false ? "" : " checked"}><span><b>Show Now serving</b><small>The boxes of who each station is serving. Off: the video (or the call) gets the room.</small></span></label>
             <div class="lay-preview-bar"><span>Preview</span><span class="seg"><button type="button" data-act="layPreview" data-video="1" aria-pressed="true">With video</button><button type="button" data-act="layPreview" data-video="0" aria-pressed="false">Without video</button></span><button type="button" class="btn sm ghost" data-act="layReset">Standard layout</button></div>
             <div class="lay-preview" id="lay-preview"><iframe id="lay-frame" title="TV layout preview" tabindex="-1"></iframe></div>
@@ -3984,12 +3999,15 @@ function downloadQueueReport(xlsx, state, now) {
     }));
     box.querySelectorAll("[data-layout]").forEach((input) => input.addEventListener(input.type === "range" ? "input" : "change", () => {
       const key = input.dataset.layout;
-      const value = input.type === "checkbox" ? input.checked : input.type === "range" || key === "maxNumbers" ? Number(input.value) : input.value;
+      const value = input.type === "checkbox" ? input.checked : input.type === "range" || key === "maxNumbers" || key === "callHold" || key === "servingHold" ? Number(input.value) : input.value;
       draft.tvLayout = { ...(draft.tvLayout ?? {}), [key]: value };
       if (key === "numberSize" && value === 100) delete draft.tvLayout.numberSize;
       if (key === "side" && value === "right") delete draft.tvLayout.side;
       if (key === "nowServing" && value) delete draft.tvLayout.nowServing;
       if (key === "maxNumbers" && !value) delete draft.tvLayout.maxNumbers;
+      if (key === "afterCall" && value === "serving") delete draft.tvLayout.afterCall;
+      if (key === "callHold" && value === 60) delete draft.tvLayout.callHold;
+      if (key === "servingHold" && !value) delete draft.tvLayout.servingHold;
       showLayout();
       refreshDirty();
     }));
@@ -4262,6 +4280,8 @@ function downloadQueueReport(xlsx, state, now) {
   function showLayout() {
     const width = Number(draft.tvLayout?.nextWidth ?? 37);
     if ($("#lay-width")) $("#lay-width").textContent = `${width}%`;
+    $("#lay-hold-wrap")?.classList.toggle("hidden", draft.tvLayout?.afterCall === "calling");
+    $("#lay-serving-wrap")?.classList.toggle("hidden", Boolean(draft.tvLayout?.afterCall));
     if ($("#lay-num")) $("#lay-num").textContent = `${Number(draft.tvLayout?.numberSize ?? 100)}%`;
     if ($("#lay-width-note")) $("#lay-width-note").textContent = `Video and Now serving ${100 - width}% · Next in line ${width}% of the screen${draft.tvLayout?.nextWidth ? "" : " (standard)"}`;
     document.querySelectorAll('[data-act="layPreview"]').forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.video === "1") === layVideo)));
@@ -5226,6 +5246,34 @@ function downloadQueueReport(xlsx, state, now) {
     return `<p class="num mono${numbers.length > 1 ? " together" : ""}">${shown.join('<span class="sep">·</span>')}</p>${numbers.length > 1 ? `<p class="together-note">${numbers.length} patients together</p>` : ""}${lane}`;
   }
 
+  /**
+   * The big box: Now calling for the first minute (TV layout: 30 s, 1 or 2 min), then Now serving with the same number
+   * (or Welcome again, or Now calling the whole time, as set in TV layout). A new call shows Now calling again.
+   */
+  function heroPhase(now) {
+    const latest = tvOpenCall();
+    if (!latest) return { key: "welcome", latest: null, phase: "welcome" };
+    const layout = tvLayout();
+    const age = now - latest.at;
+    const callFor = (layout.callHold ?? 60) * 1000;
+    // Now serving stays until the patient is done, or for servingHold seconds and then Welcome.
+    const servingOver = layout.servingHold ? age > callFor + layout.servingHold * 1000 : false;
+    const phase = age <= callFor || layout.afterCall === "calling" ? "calling" : layout.afterCall === "welcome" || servingOver ? "welcome" : "serving";
+    return { key: `${latest.id}|${phase}`, latest, phase };
+  }
+  const WELCOME_HERO = `<p class="k">Welcome</p><p class="go" style="max-width:80%">Please wait for your queue number to appear on this screen.</p>`;
+  function renderHero(now) {
+    const hero = $("#hero");
+    if (!hero) return false;
+    const { key, latest, phase } = heroPhase(now);
+    if (hero.dataset.phase === key) return false;
+    hero.dataset.phase = key;
+    hero.classList.toggle("serving", phase === "serving");
+    hero.innerHTML = phase === "calling" ? `<p class="k">Now calling</p>${callNumbers(latest)}${goLine(latest)}`
+      : phase === "serving" ? `<p class="k">Now serving</p>${callNumbers(latest)}<p class="go">at <b>${esc(latest.destination.replace(/ for registration$/, ""))}</b></p>`
+      : WELCOME_HERO;
+    return true;
+  }
   /** "Please proceed to" with the destination in a highlighted box (calls made before this change may still end in "for registration"). */
   /** "PRIORITY LANE" under a called number when it is a priority lane patient's (Senior, PWD, pregnant). */
   const callPrioLane = (item) => {
@@ -5246,6 +5294,7 @@ function downloadQueueReport(xlsx, state, now) {
     const latest = tvOpenCall();
     const fresh = Boolean(latest && now - latest.at < 15000);
     $("#hero").classList.toggle("fresh", fresh);
+    if (renderHero(now)) fitNumbers();
     // A new call covers the video so patients who are watching it don't miss their number.
     const over = $("#vid-over");
     if (over) {
@@ -5440,10 +5489,8 @@ function downloadQueueReport(xlsx, state, now) {
     if (`${sound}|${Boolean(state.settings.videoSound)}|${videoVolumeOf(state.settings)}` !== videoSoundKey) applyVideoSound();
 
     const stations = state.settings.stations.filter((s) => s.active && tvShowsStation(s.code));
-    const latest = tvOpenCall();
-    $("#hero").innerHTML = latest
-      ? `<p class="k">Now calling</p>${callNumbers(latest)}${goLine(latest)}`
-      : `<p class="k">Welcome</p><p class="go" style="max-width:80%">Please wait for your queue number to appear on this screen.</p>`;
+    $("#hero").dataset.phase = "";
+    renderHero(serverNow());
     if (fresh.length) { const hero = $("#hero"); hero.classList.remove("fresh"); void hero.offsetWidth; }
     // With more stations than fit (two rows, or one beside the video), show only the stations serving someone now.
     const maxTiles = mountedVideo ? 5 : 6;
