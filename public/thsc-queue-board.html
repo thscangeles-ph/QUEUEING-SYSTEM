@@ -350,6 +350,16 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .nl.all .l { gap: .4vw; margin-top: .4vh; } .nl.all .l b { font-size: 1.6vw; padding: .1vh .55vw; color: #fff; } #next.two-col .nl.all .l b { font-size: 1.4vw; }
 .nl.all .l b.first { box-shadow: 0 0 0 .18vw #f0c864; } .nl.all .l b.prio { background: #f5b301; color: #2b2118; }
 .nl-group.hmo .nl.all .l b:not(.prio) { background: #3b2a5c; } .nl-group.clinic .nl.all .l b:not(.prio) { background: #1d4a47; }
+/* Bigger Next in line, readable from across the lobby: XL while it fits, then L, then the old size (#next.sz-…). */
+#next.sz-xl .nl-group > h3 { font-size: 1.45vw; } #next.sz-xl .nl.all { padding: 1vh 0; }
+#next.sz-xl .nl.all .h { font-size: 1.6vw; } #next.sz-xl .nl.all .h small { font-size: 1.2vw; }
+#next .nl.all .h span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Two narrow columns of big numbers: the station name gets the room ("2 waiting" is shown by the numbers themselves). */
+#next.sz-xl.two-col .nl.all .h small, #next.sz-l.two-col .nl.all .h small { display: none; }
+#next.sz-xl .nl.all .l { gap: .7vw; margin-top: .7vh; } #next.sz-xl .nl.all .l b { font-size: 3.1vw; padding: .3vh .8vw; border-radius: .7vw; }
+#next.sz-xl .nl.all .l b.first { box-shadow: 0 0 0 .25vw #f0c864; } #next.sz-xl.two-col .nl.all .l b { font-size: 2.5vw; }
+#next.sz-l .nl-group > h3 { font-size: 1.3vw; } #next.sz-l .nl.all .h { font-size: 1.4vw; } #next.sz-l .nl.all .h small { font-size: 1.1vw; }
+#next.sz-l .nl.all .l { gap: .55vw; margin-top: .5vh; } #next.sz-l .nl.all .l b { font-size: 2.3vw; padding: .2vh .65vw; border-radius: .6vw; } #next.sz-l.two-col .nl.all .l b { font-size: 1.9vw; }
 .nl .l b { background: #3a3022; border-radius: .5vw; padding: .3vh .55vw; font-size: 2.1vw; } .nl .l i { color: #5c4b2d; font-style: normal; font-size: 1.5vw; } .nl .l span { color: #cbbd9d; font-size: 1.2vw; }
 .tv-foot { display: flex; align-items: center; gap: 12px; background: var(--brown); border-top: 1px solid var(--brown-2); padding: 1.2vh 0; overflow: hidden; }
 .ticker { flex: 1; overflow: hidden; white-space: nowrap; color: #f4e8c7; font-size: 1.35vw; }
@@ -1824,7 +1834,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-10.7";
+const BOARD_VERSION = "2026-11-11.1";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -5356,11 +5366,16 @@ function downloadQueueReport(xlsx, state, now) {
     $("#reg-call").innerHTML = "";
     // One column while everything fits; then two columns, showing fewer numbers per row until it fits.
     const next = $("#next");
-    const fits = () => next.scrollHeight <= next.clientHeight + 2;
-    for (const [limit, twoCol] of [[12, false], [12, true], [8, true], [5, true], [3, true], [1, true]]) {
+    // In two columns, what does not fit makes a third column off to the side, so the width is checked too.
+    const fits = () => next.scrollHeight <= next.clientHeight + 2 && next.scrollWidth <= next.clientWidth + 2;
+    // Biggest numbers first (XL, then L), then the old size with fewer numbers per row, until it fits.
+    const tries = [["xl", 12, false], ["xl", 12, true], ["l", 12, false], ["l", 12, true], ["l", 8, true], ["m", 12, true], ["m", 8, true], ["m", 5, true], ["m", 3, true], ["m", 1, true]];
+    for (const [size, limit, twoCol] of tries) {
       lineLimit = limit;
       next.innerHTML = ["R", "H", ...CLINIC_KINDS].map(group).join("");
       next.classList.toggle("two-col", twoCol);
+      next.classList.remove("sz-xl", "sz-l", "sz-m");
+      next.classList.add(`sz-${size}`);
       if (fits()) break;
     }
     if (!next.innerHTML.trim()) next.innerHTML = `<p class="none" style="color:#8c7f66;font-size:1.3vw">No one is waiting.</p>`;
