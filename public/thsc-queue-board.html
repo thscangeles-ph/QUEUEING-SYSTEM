@@ -347,9 +347,23 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 #next { flex: 1; }
 #next.two-col { column-count: 2; column-gap: 1.6vw; } #next.two-col .nl-group { break-inside: avoid; margin: 0 0 1.4vh; } #next.two-col .nl { break-inside: avoid; }
 .nl.all { padding: .6vh 0; } .nl.all .h { margin: 0; align-items: baseline; color: #f4e8c7; font-size: 1.2vw; } .nl.all .h small { color: #8c7f66; font-size: 1vw; white-space: nowrap; margin-left: .6vw; }
-.nl.all .l { gap: .4vw; margin-top: .4vh; } .nl.all .l b { font-size: 1.6vw; padding: .1vh .55vw; color: #fff; } #next.two-col .nl.all .l b { font-size: 1.4vw; }
+.nl.all .l { gap: .4vw; margin-top: .4vh; } .nl.all .l b { font-size: calc(1.6vw * var(--nl-n, 1)); padding: .1vh .55vw; color: #fff; } #next.two-col .nl.all .l b { font-size: calc(1.4vw * var(--nl-n, 1)); }
 .nl.all .l b.first { box-shadow: 0 0 0 .18vw #f0c864; } .nl.all .l b.prio { background: #f5b301; color: #2b2118; }
 .nl-group.hmo .nl.all .l b:not(.prio) { background: #3b2a5c; } .nl-group.clinic .nl.all .l b:not(.prio) { background: #1d4a47; }
+/* Bigger Next in line, readable from across the lobby: XL while it fits, then L, then the old size (#next.sz-…). */
+#next.sz-xl .nl-group > h3 { font-size: calc(1.45vw * min(var(--nl-k, 1), 1.1)); } #next.sz-xl .nl.all { padding: 1vh 0; }
+#next.sz-xl .nl.all .h { font-size: calc(1.6vw * min(var(--nl-k, 1), 1.2)); } #next.sz-xl .nl.all .h small { font-size: 1.2vw; }
+#next .nl.all .h span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Two narrow columns of big numbers: the station name gets the room ("2 waiting" is shown by the numbers themselves). */
+#next.sz-xl.two-col .nl.all .h small, #next.sz-l.two-col .nl.all .h small { display: none; }
+#next.sz-xl .nl.all .l { gap: .7vw; margin-top: .7vh; } #next.sz-xl .nl.all .l b { font-size: calc(3.1vw * var(--nl-k, 1) * var(--nl-n, 1)); padding: .3vh .8vw; border-radius: .7vw; }
+#next.sz-xl .nl.all .l b.first { box-shadow: 0 0 0 .25vw #f0c864; } #next.sz-xl.two-col .nl.all .l b { font-size: calc(2.5vw * var(--nl-k, 1) * var(--nl-n, 1)); }
+#next.sz-l .nl-group > h3 { font-size: calc(1.3vw * min(var(--nl-k, 1), 1.1)); } #next.sz-l .nl.all .h { font-size: calc(1.4vw * min(var(--nl-k, 1), 1.2)); } #next.sz-l .nl.all .h small { font-size: 1.1vw; }
+#next.sz-l .nl.all .l { gap: .55vw; margin-top: .5vh; } #next.sz-l .nl.all .l b { font-size: calc(2.3vw * var(--nl-k, 1) * var(--nl-n, 1)); padding: .2vh .65vw; border-radius: .6vw; } #next.sz-l.two-col .nl.all .l b { font-size: calc(1.9vw * var(--nl-k, 1) * var(--nl-n, 1)); }
+/* TV layout: Next in line on the left, and the Now serving boxes hidden (the video or the call gets the room). */
+.tv-body.next-left { direction: rtl; } .tv-body.next-left > * { direction: ltr; }
+.tv-body.no-serving #tiles { display: none; }
+.vid-preview { position: absolute; inset: 0; display: grid; place-items: center; background: repeating-linear-gradient(45deg, #1f1a12, #1f1a12 14px, #2a2318 14px, #2a2318 28px); color: #8c7f66; font-size: 2.4vw; font-weight: 700; }
 .nl .l b { background: #3a3022; border-radius: .5vw; padding: .3vh .55vw; font-size: 2.1vw; } .nl .l i { color: #5c4b2d; font-style: normal; font-size: 1.5vw; } .nl .l span { color: #cbbd9d; font-size: 1.2vw; }
 .tv-foot { display: flex; align-items: center; gap: 12px; background: var(--brown); border-top: 1px solid var(--brown-2); padding: 1.2vh 0; overflow: hidden; }
 .ticker { flex: 1; overflow: hidden; white-space: nowrap; color: #f4e8c7; font-size: 1.35vw; }
@@ -422,6 +436,12 @@ body.kiosk { background: var(--brown); color: #fff; overflow: hidden; }
 .wait-stations { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px 10px; }
 .wait-st { display: grid; grid-template-columns: 1fr 64px auto; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 13px; }
 .wait-st span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .wait-st input { width: 64px; padding: 4px 6px; text-align: center; font-weight: 700; } .wait-st small { color: var(--muted); } .wait-st input:not(:placeholder-shown) { border-color: var(--gold); background: #fff8e6; } .wait-st input:placeholder-shown { font-weight: 500; }
+.tv-layout-panel { grid-column: 1 / -1; }
+.lay-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; } @media (max-width: 760px) { .lay-row { grid-template-columns: 1fr; } }
+.lay-preview-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-weight: 700; font-size: 13px; color: var(--muted); }
+.lay-preview-bar .seg button[aria-pressed="true"] { background: var(--brown); color: #fff; }
+.lay-preview { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: #1f1a12; }
+.lay-preview iframe { position: absolute; top: 0; left: 0; width: 1600px; height: 900px; border: 0; transform-origin: 0 0; pointer-events: none; }
 .wifi-row { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 10px; } @media (max-width: 760px) { .wifi-row { grid-template-columns: 1fr; } }
 .wait-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: end; } @media (max-width: 640px) { .wait-row { grid-template-columns: 1fr; } }
 .wait-in { display: flex; align-items: center; gap: 8px; } .wait-in input { width: 96px; font-size: 18px; font-weight: 700; text-align: center; } .wait-in b { font-weight: 600; color: var(--muted); font-size: 13px; }
@@ -895,6 +915,25 @@ const findStation = (state, code) => state.settings.stations.find((station) => s
 /** Whether a station's patients get their vital signs taken first: the clinics, and any station with Vitals first ticked. */
 const vitalsFirst = (station) => station.vitals ?? station.service === "consultation";
 const clean = (value, max) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+/** The TV layout from System configuration, cleaned (only the parts that differ from the standard layout). */
+function tvLayoutOf(input) {
+    const raw = input ?? {};
+    const out = {};
+    const width = Math.round(Number(raw.nextWidth));
+    if (Number.isFinite(width) && width > 0)
+        out.nextWidth = Math.min(60, Math.max(25, width));
+    if (raw.side === "left")
+        out.side = "left";
+    const size = Math.round(Number(raw.numberSize));
+    if (Number.isFinite(size) && size > 0 && size !== 100)
+        out.numberSize = Math.min(200, Math.max(60, size));
+    const max = Math.round(Number(raw.maxNumbers));
+    if ([3, 5, 8].includes(max))
+        out.maxNumbers = max;
+    if (raw.nowServing === false)
+        out.nowServing = false;
+    return out;
+}
 /** The patient Wi-Fi for the poster, or undefined when no name is set. */
 function patientWifiOf(input) {
     const raw = input ?? {};
@@ -1201,7 +1240,7 @@ function sanitizeSettings(input) {
     const sms = smsSettingsOf(input.sms, input.sms);
     if (typeof sms === "string")
         return sms;
-    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth), qrAddress, numberTags, vitalsPlace: clean(input.vitalsPlace, 60), sms, tvScreens: tvScreensOf(input.tvScreens, stations.map((s) => s.code)), tvSameOnAll: Boolean(input.tvSameOnAll), waitMinutes: waitMinutesOf(input.waitMinutes), patientWifi: patientWifiOf(input.patientWifi) };
+    return { clinicName: clinicNameOf(input), displayConnection: input.displayConnection === "lan" ? "lan" : "wifi", stations, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound), videoVolume: videoVolumeOf(input), announceLanguage, slipPrinter: clean(input.slipPrinter, 200), slipWidth: slipWidthOf(input.slipWidth), qrAddress, numberTags, vitalsPlace: clean(input.vitalsPlace, 60), sms, tvScreens: tvScreensOf(input.tvScreens, stations.map((s) => s.code)), tvSameOnAll: Boolean(input.tvSameOnAll), waitMinutes: waitMinutesOf(input.waitMinutes), patientWifi: patientWifiOf(input.patientWifi), tvLayout: tvLayoutOf(input.tvLayout) };
 }
 /**
  * Pure state transition shared by the browser (single-device mode) and the API route (shared mode).
@@ -1824,7 +1863,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-10.7";
+const BOARD_VERSION = "2026-11-11.2";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -3640,6 +3679,7 @@ function downloadQueueReport(xlsx, state, now) {
     draft.vitalsPlace ??= "";
     draft.tvScreens = structuredClone(draft.tvScreens ?? []);
     draft.tvSameOnAll = Boolean(draft.tvSameOnAll);
+    draft.tvLayout = structuredClone(draft.tvLayout ?? {});
     draft.numberTags = { ...draft.numberTags };
     draft.sms = { ...DEFAULT_SMS, ...draft.sms };
     draftBase = JSON.stringify(draft);
@@ -3820,6 +3860,20 @@ function downloadQueueReport(xlsx, state, now) {
             <div class="wait-stations">${draft.stations.filter((st) => st.active && st.code).map((st) => `<label class="wait-st"><span><b class="mono">${esc(st.code)}</b> ${esc(st.name)}</span><input type="number" min="1" max="180" step="1" inputmode="numeric" value="${esc(draft.waitMinutes?.stations?.[st.code] ?? "")}" placeholder="${esc(waitPlaceholder(st))}" data-wait-station="${esc(st.code)}" aria-label="Minutes per patient at ${esc(st.name)}"><small>min</small></label>`).join("")}</div>
             <p class="note" style="margin:0" id="cfg-wait-hint"></p>
           </div></section>
+        <section class="panel tv-layout-panel"><div class="panel-h"><div><h2>📺 TV layout</h2><p>How the lobby TV looks: the size of Next in line and its numbers, which side it is on, and the video's size. The preview shows sample patients; nothing changes on the TVs until you save.</p></div></div>
+          <div class="panel-b" style="display:grid;gap:12px">
+            <label class="field">Queue number size<span class="cfg-range"><input type="range" min="60" max="200" step="5" value="${esc(draft.tvLayout?.numberSize ?? 100)}" data-layout="numberSize" aria-label="Queue number size"><b class="mono" id="lay-num"></b></span><em>The numbers in Next in line. Bigger can be read from farther away; they still get smaller when there are too many to fit.</em></label>
+            <label class="field">Next in line width<span class="cfg-range"><input type="range" min="25" max="60" step="1" value="${esc(draft.tvLayout?.nextWidth ?? 37)}" data-layout="nextWidth" aria-label="Next in line width"><b class="mono" id="lay-width"></b></span><em id="lay-width-note"></em></label>
+            <div class="lay-row">
+              <label class="field">Next in line side<select data-layout="side"><option value="right"${draft.tvLayout?.side === "left" ? "" : " selected"}>Right</option><option value="left"${draft.tvLayout?.side === "left" ? " selected" : ""}>Left</option></select></label>
+
+              <label class="field">Numbers per station<select data-layout="maxNumbers"><option value="0"${!draft.tvLayout?.maxNumbers ? " selected" : ""}>All</option>${[8, 5, 3].map((n) => `<option value="${n}"${draft.tvLayout?.maxNumbers === n ? " selected" : ""}>${n}, then “+ more”</option>`).join("")}</select></label>
+            </div>
+            <label class="check" style="margin:0"><input type="checkbox" data-layout="nowServing"${draft.tvLayout?.nowServing === false ? "" : " checked"}><span><b>Show Now serving</b><small>The boxes of who each station is serving. Off: the video (or the call) gets the room.</small></span></label>
+            <div class="lay-preview-bar"><span>Preview</span><span class="seg"><button type="button" data-act="layPreview" data-video="1" aria-pressed="true">With video</button><button type="button" data-act="layPreview" data-video="0" aria-pressed="false">Without video</button></span><button type="button" class="btn sm ghost" data-act="layReset">Standard layout</button></div>
+            <div class="lay-preview" id="lay-preview"><iframe id="lay-frame" title="TV layout preview" tabindex="-1"></iframe></div>
+            <p class="note" style="margin:0">Numbers always get smaller when they do not fit, so nothing is cut off. Click <b>Save configuration</b> to use this layout on the TVs.</p>
+          </div></section>
         <section class="panel"><div class="panel-h"><div><h2>TV video &amp; slideshow</h2><p>YouTube videos, YouTube playlists and pictures shown on the lobby TV while patients wait. YouTube needs internet.</p></div><button class="btn sm outline" data-act="openTv">TV display ↗</button></div>
           <div class="panel-b" style="display:grid;gap:10px">
             <div class="field">TV playlist<em>Plays from top to bottom, then starts again. Add YouTube video links, playlist links or the clinic's channel ID (starts with UC), and pictures for a slideshow. Leave empty to show the queue only.</em></div>
@@ -3928,6 +3982,18 @@ function downloadQueueReport(xlsx, state, now) {
       if (field === "qrAddress") { showQrHint(); renderKioskLink(); }
       refreshDirty();
     }));
+    box.querySelectorAll("[data-layout]").forEach((input) => input.addEventListener(input.type === "range" ? "input" : "change", () => {
+      const key = input.dataset.layout;
+      const value = input.type === "checkbox" ? input.checked : input.type === "range" || key === "maxNumbers" ? Number(input.value) : input.value;
+      draft.tvLayout = { ...(draft.tvLayout ?? {}), [key]: value };
+      if (key === "numberSize" && value === 100) delete draft.tvLayout.numberSize;
+      if (key === "side" && value === "right") delete draft.tvLayout.side;
+      if (key === "nowServing" && value) delete draft.tvLayout.nowServing;
+      if (key === "maxNumbers" && !value) delete draft.tvLayout.maxNumbers;
+      showLayout();
+      refreshDirty();
+    }));
+    showLayout();
     box.querySelectorAll("[data-wifi]").forEach((input) => input.addEventListener(input.tagName === "SELECT" || input.type === "checkbox" ? "change" : "input", () => {
       draft.patientWifi = { ssid: "", password: "", security: "WPA", ...(draft.patientWifi ?? {}), [input.dataset.wifi]: input.type === "checkbox" ? input.checked : input.value };
       if (input.dataset.wifi === "security") { const pw = box.querySelector('[data-wifi="password"]'); pw.disabled = input.value === "nopass"; pw.placeholder = input.value === "nopass" ? "No password" : "Wi-Fi password"; }
@@ -4190,6 +4256,25 @@ function downloadQueueReport(xlsx, state, now) {
   /** The address for phones and tablets: the QR code address from System configuration, or the automatic one. */
   const phoneAddress = () => (draft && qrAddressOf(draft.qrAddress)) || autoQrAddress();
   /** What a patient sees with these settings, e.g. 3 patients ahead at a clinic. */
+  // ---- TV layout preview: the TV display in a frame, scaled down, with sample patients and the draft layout ----
+  let layVideo = true;
+  let layTimer;
+  function showLayout() {
+    const width = Number(draft.tvLayout?.nextWidth ?? 37);
+    if ($("#lay-width")) $("#lay-width").textContent = `${width}%`;
+    if ($("#lay-num")) $("#lay-num").textContent = `${Number(draft.tvLayout?.numberSize ?? 100)}%`;
+    if ($("#lay-width-note")) $("#lay-width-note").textContent = `Video and Now serving ${100 - width}% · Next in line ${width}% of the screen${draft.tvLayout?.nextWidth ? "" : " (standard)"}`;
+    document.querySelectorAll('[data-act="layPreview"]').forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.video === "1") === layVideo)));
+    clearTimeout(layTimer);
+    layTimer = setTimeout(() => {
+      const frame = $("#lay-frame"), box = $("#lay-preview");
+      if (!frame || !box) return;
+      frame.style.transform = `scale(${box.clientWidth / 1600})`;
+      const src = `/queue/display?preview=1&sample=1&video=${layVideo ? 1 : 0}&layout=${encodeURIComponent(JSON.stringify(tvLayoutOf(draft.tvLayout)))}`;
+      if (frame.getAttribute("src") !== src) frame.setAttribute("src", src);
+    }, 350);
+  }
+  window.addEventListener("resize", () => { if ($("#lay-frame")) showLayout(); });
   /** Clear today's queue: says what is removed and what is kept (the pre-registered Clinic 1–3 and Procedures patients). */
   function showClearDay() {
     $("#clear-day")?.remove();
@@ -4973,7 +5058,31 @@ function downloadQueueReport(xlsx, state, now) {
       return video && !("error" in video) ? [{ type: "youtube", src: video.src }] : [];
     });
   }
-  const currentVideo = () => { const list = tvPlaylist(); return list.length ? JSON.stringify(list) : null; };
+  // System configuration's TV layout preview opens the TV display in a frame: ?preview&layout=…&video=1|0&sample=1.
+  const previewParams = new URLSearchParams(location.search);
+  const isPreview = previewParams.has("preview");
+  const previewLayout = (() => { try { return isPreview ? tvLayoutOf(JSON.parse(previewParams.get("layout") || "{}")) : null; } catch { return {}; } })();
+  const tvLayout = () => previewLayout ?? tvLayoutOf(state.settings.tvLayout);
+  const currentVideo = () => {
+    if (isPreview && previewParams.has("video")) return previewParams.get("video") === "1" ? JSON.stringify([{ type: "preview" }]) : null;
+    const list = tvPlaylist(); return list.length ? JSON.stringify(list) : null;
+  };
+  /** Sample patients for the layout preview (only in the preview frame; nothing is saved). */
+  function withPreviewSample(real) {
+    const codes = real.settings.stations.filter((st) => st.active && st.service !== "hmo" && st.code !== "CN").map((st) => st.code).slice(0, 8);
+    const visits = [];
+    let seq = 1;
+    const add = (kind, station, extra = {}) => {
+      const id = `preview-${visits.length}`;
+      visits.push({ id, seq: kind === "H" ? visits.filter((v) => v.kind === "H").length + 1 : seq++, kind, prefix: kind === "H" ? "HMO-" : "", name: "", mobile: "", notes: "", priority: false, newPatient: false, hmo: "", loa: "", source: "desk", verified: true, cancelled: false, card: null,
+        registered: Boolean(station), regCalledAt: null, regCalls: 0, createdAt: Date.now() - 600000, registeredAt: Date.now() - 600000, messagedAt: null,
+        steps: station ? [{ id: `${id}-s`, station, status: "waiting", queuedAt: Date.now() - 600000 + visits.length * 1000, calledAt: null, doneAt: null, calls: 0 }] : [], ...extra });
+    };
+    codes.forEach((code, i) => { for (let n = 0; n < (i % 3) + 1; n++) add("W", code); });
+    add("H", codes[0]); add("H", codes[codes.length - 1]);
+    add("W", null); add("W", null);
+    return { ...real, visits, announcements: [] };
+  }
   const yt = (func, args) => youtubeCommand(document.getElementById("yt"), func, args);
   // YouTube refuses to play without a referring website (error 153), and this file opened from disk has none.
   // From disk, load the player through the sync server's relay page so YouTube sees that site instead.
@@ -4981,19 +5090,24 @@ function downloadQueueReport(xlsx, state, now) {
 
   function mountDisplay() {
     tvBuiltAt = Date.now();
+    const layout = tvLayout();
     // Only the first time: a TV rebuilt after a lost connection still reads out the calls made meanwhile (up to a minute old).
     if (seen === undefined) seen = state.announcements[state.announcements.length - 1]?.id ?? null;
     // Remember this TV's area, so the plain address (or /tv) opens it next time.
     if (location.pathname.startsWith("/queue/display") || new URLSearchParams(location.search).has("tv")) writeSetting(TV_SCREEN_KEY, tvId() || null);
     mountedVideo = currentVideo();
+    // TV layout: Next in line's width (its numbers grow with it), its side, and whether Now serving shows.
+    const nextShare = layout.nextWidth ?? (mountedVideo ? 37 : 41);
+    const bodyStyle = ` style="grid-template-columns:${layout.side === "left" ? `minmax(0, ${nextShare}fr) minmax(0, ${100 - nextShare}fr)` : `minmax(0, ${100 - nextShare}fr) minmax(0, ${nextShare}fr)`}"`;
+    const bodyClass = `${layout.side === "left" ? " next-left" : ""}${layout.nowServing === false ? " no-serving" : ""}`;
     const body = mountedVideo
-      ? `<div class="tv-body video">
+      ? `<div class="tv-body video${bodyClass}"${bodyStyle}>
         <div class="tv-left"><div class="vid"><div id="media-slot"></div><div class="vid-over hidden" id="vid-over"></div></div><section class="tiles small" id="tiles"></section></div>
-        <div class="tv-right"><section class="hero compact" id="hero"></section><section class="tv-next"><h2>Next in line</h2><div id="reg-call"></div><div id="next" style="margin-top:1.2vh;min-height:0;overflow:hidden"></div></section></div>
+        <div class="tv-right"><section class="hero compact" id="hero"></section><section class="tv-next"><h2>Next in line</h2><div id="reg-call"></div><div id="next" style="margin-top:1.2vh;min-height:0;overflow:hidden;--nl-k:${(nextShare / 37).toFixed(3)};--nl-n:${((layout.numberSize ?? 100) / 100).toFixed(2)}"></div></section></div>
       </div>`
-      : `<div class="tv-body">
+      : `<div class="tv-body${bodyClass}"${bodyStyle}>
         <div class="tv-left"><section class="hero" id="hero"></section><section class="tiles" id="tiles"></section></div>
-        <section class="tv-next"><h2>Next in line</h2><div id="reg-call"></div><div id="next" style="margin-top:1.2vh;min-height:0;overflow:hidden"></div></section>
+        <section class="tv-next"><h2>Next in line</h2><div id="reg-call"></div><div id="next" style="margin-top:1.2vh;min-height:0;overflow:hidden;--nl-k:${(nextShare / 41).toFixed(3)};--nl-n:${((layout.numberSize ?? 100) / 100).toFixed(2)}"></div></section>
       </div>`;
     app.innerHTML = `<div class="tv-app">
       <header class="tv-head"><div class="brand"><img src="${LOGO}" alt=""><div><small class="clinic-name">${esc(clinicNameOf(state.settings).toUpperCase())}</small><b>Queue Board<span id="tv-area" style="color:var(--gold-2)"></span></b></div></div><div class="tv-clock"><b id="tv-time"></b><span id="tv-date"></span></div></header>
@@ -5002,11 +5116,13 @@ function downloadQueueReport(xlsx, state, now) {
     </div><button class="sound-btn" id="sound-btn" data-act="startTv">🔊 Click anywhere to start: full screen, chime &amp; voice announcements</button>`;
     clearInterval(tvTimer);
     tvTimer = setInterval(() => { if (view === "display") tick(); else clearInterval(tvTimer); }, 1000);
+    mediaIndex = 0;
+    showMedia();
+    // The layout preview in System configuration: no sound, no "TV is open" reports, no start button.
+    if (isPreview) { $("#sound-btn")?.remove(); return; }
     clearInterval(tvReportTimer);
     tvReportTimer = setInterval(() => { if (view === "display") reportTv(); else clearInterval(tvReportTimer); }, 30000);
     void reportTv();
-    mediaIndex = 0;
-    showMedia();
     if (sound) setSound(true); else autoStartSound();
     keepScreenOn();
   }
@@ -5019,6 +5135,7 @@ function downloadQueueReport(xlsx, state, now) {
     if (!slot || !list.length) return;
     mediaIndex %= list.length;
     const item = list[mediaIndex];
+    if (item.type === "preview") { slot.innerHTML = `<div class="vid-preview">▶ Video &amp; pictures</div>`; return; }
     const single = list.length === 1;
     player = { talking: false, state: -1, playlist: null, index: 0 };
     if (item.type === "picture") {
@@ -5299,6 +5416,7 @@ function downloadQueueReport(xlsx, state, now) {
   }
 
   function updateDisplay() {
+    if (isPreview && previewParams.get("sample") === "1" && !state.visits.some((v) => String(v.id).startsWith("preview-"))) state = withPreviewSample(state);
     if (currentVideo() !== mountedVideo) { mountDisplay(); }
     // Announce calls made since the last update, oldest first.
     const list = state.announcements;
@@ -5356,11 +5474,20 @@ function downloadQueueReport(xlsx, state, now) {
     $("#reg-call").innerHTML = "";
     // One column while everything fits; then two columns, showing fewer numbers per row until it fits.
     const next = $("#next");
-    const fits = () => next.scrollHeight <= next.clientHeight + 2;
-    for (const [limit, twoCol] of [[12, false], [12, true], [8, true], [5, true], [3, true], [1, true]]) {
-      lineLimit = limit;
+    // In two columns, what does not fit makes a third column off to the side, so the width is checked too.
+    const fits = () => next.scrollHeight <= next.clientHeight + 2 && next.scrollWidth <= next.clientWidth + 2;
+    // Biggest numbers first (XL, then L), then the old size with fewer numbers per row, until it fits.
+    // The TV layout sets the biggest size to try and how many numbers a station shows before "+ N more".
+    const layout = tvLayout();
+    const sizes = ["xl", "l", "m"];
+    const all = [["xl", 12, false], ["xl", 12, true], ["l", 12, false], ["l", 12, true], ["l", 8, true], ["m", 12, false], ["m", 12, true], ["m", 8, true], ["m", 5, true], ["m", 3, true], ["m", 1, true]];
+    const tries = all.filter(([size]) => sizes.includes(size));
+    for (const [size, limit, twoCol] of tries) {
+      lineLimit = layout.maxNumbers ? Math.min(limit, layout.maxNumbers) : limit;
       next.innerHTML = ["R", "H", ...CLINIC_KINDS].map(group).join("");
       next.classList.toggle("two-col", twoCol);
+      next.classList.remove("sz-xl", "sz-l", "sz-m");
+      next.classList.add(`sz-${size}`);
       if (fits()) break;
     }
     if (!next.innerHTML.trim()) next.innerHTML = `<p class="none" style="color:#8c7f66;font-size:1.3vw">No one is waiting.</p>`;
@@ -5706,6 +5833,8 @@ function downloadQueueReport(xlsx, state, now) {
       case "removeMedia": draft.tvMedia.splice(Number(index), 1); renderMediaList(); refreshDirty(); break;
       case "resetDay": showClearDay(); break;
       case "clearDayCancel": $("#clear-day")?.remove(); break;
+      case "layPreview": layVideo = el.dataset.video === "1"; showLayout(); break;
+      case "layReset": draft.tvLayout = {}; renderSettings(); refreshDirty(); break;
       case "clearDayGo":
         $("#clear-day")?.remove();
         void dispatch({ type: "resetDay", configPin: configUnlocked }, () => { const kept = keptPreRegistered(state).length; return `Today's queue was cleared.${kept ? ` ${kept} pre-registered patient${kept === 1 ? " was" : "s were"} kept.` : ""}`; }).then((r) => { relockIfPinRefused(r); issued = null; if (view === "desk") updateDesk(); });

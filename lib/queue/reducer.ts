@@ -1,4 +1,4 @@
-import type { ActionResult, AnnounceLanguage, Announcement, Billing, NumberGroup, PatientKind, TaggedGroup, QueueAction, QueueState, Settings, SmsSettings, Station, Step, Visit, VisitInput, TvScreen, WaitMinutes, PatientWifi } from "./types";
+import type { ActionResult, AnnounceLanguage, Announcement, Billing, NumberGroup, PatientKind, TaggedGroup, QueueAction, QueueState, Settings, SmsSettings, Station, Step, Visit, VisitInput, TvScreen, WaitMinutes, PatientWifi, TvLayout } from "./types";
 import { slipWidthOf } from "./escpos";
 import { configPinOk, hashConfigPin } from "./pin";
 import { smsSettingsOf, smsTextOf } from "./sms";
@@ -431,6 +431,21 @@ function finishStep(visit: Visit, now: number, sendTo?: string) {
   }
 }
 
+/** The TV layout from System configuration, cleaned (only the parts that differ from the standard layout). */
+export function tvLayoutOf(input: unknown): TvLayout {
+  const raw = (input ?? {}) as Partial<TvLayout>;
+  const out: TvLayout = {};
+  const width = Math.round(Number(raw.nextWidth));
+  if (Number.isFinite(width) && width > 0) out.nextWidth = Math.min(60, Math.max(25, width));
+  if (raw.side === "left") out.side = "left";
+  const size = Math.round(Number(raw.numberSize));
+  if (Number.isFinite(size) && size > 0 && size !== 100) out.numberSize = Math.min(200, Math.max(60, size));
+  const max = Math.round(Number(raw.maxNumbers));
+  if ([3, 5, 8].includes(max)) out.maxNumbers = max;
+  if (raw.nowServing === false) out.nowServing = false;
+  return out;
+}
+
 /** The patient Wi-Fi for the poster, or undefined when no name is set. */
 export function patientWifiOf(input: unknown): PatientWifi | undefined {
   const raw = (input ?? {}) as Partial<PatientWifi>;
@@ -512,7 +527,7 @@ function sanitizeSettings(input: Partial<Settings>, previous: Settings): Setting
   if (typeof sms === "string") return sms;
   // The configuration PIN only changes with setConfigPin, never from the settings form.
   const configPin = previous.configPin ? { configPin: previous.configPin } : {};
-  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, qrAddress, numberTags, vitalsPlace, sms, tvScreens: tvScreensOf(input.tvScreens ?? previous.tvScreens, stations.map((s) => s.code)), tvSameOnAll: Boolean(input.tvSameOnAll ?? previous.tvSameOnAll), waitMinutes: waitMinutesOf(input.waitMinutes ?? previous.waitMinutes), patientWifi: patientWifiOf(input.patientWifi === undefined ? previous.patientWifi : input.patientWifi), ...configPin };
+  return { clinicName, displayConnection, stations, cardCount, ticker: clean(input.ticker, 240), tvMedia, slideSeconds, youtube, videoSound: Boolean(input.videoSound ?? previous.videoSound), videoVolume, announceLanguage, slipPrinter, slipWidth, qrAddress, numberTags, vitalsPlace, sms, tvScreens: tvScreensOf(input.tvScreens ?? previous.tvScreens, stations.map((s) => s.code)), tvSameOnAll: Boolean(input.tvSameOnAll ?? previous.tvSameOnAll), waitMinutes: waitMinutesOf(input.waitMinutes ?? previous.waitMinutes), patientWifi: patientWifiOf(input.patientWifi === undefined ? previous.patientWifi : input.patientWifi), tvLayout: tvLayoutOf(input.tvLayout === undefined ? previous.tvLayout : input.tvLayout), ...configPin };
 }
 
 export const CONFIG_PIN_NEEDED = "Enter the configuration PIN to change System configuration.";

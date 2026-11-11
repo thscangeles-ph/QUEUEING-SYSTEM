@@ -169,7 +169,16 @@ export type Settings = {
   waitMinutes?: WaitMinutes;
   /** The patient Wi-Fi printed on the check-in poster as a second QR code (scan to join), so phones on mobile data connect first. */
   patientWifi?: PatientWifi;
+  /** How the lobby TV is laid out (System configuration → TV layout); missing parts use the standard layout. */
+  tvLayout?: TvLayout;
 };
+
+/**
+ * nextWidth: Next in line's share of the screen width in % (25–60; missing = standard). side: which side Next in line is on.
+ * numberSize: the size of the Next in line queue numbers in % (60–200; missing = 100). They still get smaller when they do not fit.
+ * maxNumbers: numbers shown per station before "+ N more" (0 = all). nowServing: show the Now serving boxes.
+ */
+export type TvLayout = { nextWidth?: number; side?: "right" | "left"; numberSize?: number; maxNumbers?: number; nowServing?: boolean };
 
 /** security: "WPA" (WPA/WPA2/WPA3), "WEP" or "nopass" (open network). The password is printed on the poster, so it is not a secret. */
 /** showPassword: print the password under the QR code too (missing means yes); the QR code always holds it. */
