@@ -4233,7 +4233,7 @@ function downloadQueueReport(xlsx, state, now) {
     if (input) input.placeholder = autoQrAddress() || "http://172.16.100.62:3000";
     hint.className = `yt-hint ${typed === null ? "err" : "ok"}`;
     hint.textContent = typed === null ? "That is not an address. Use one like http://172.16.100.62:3000."
-      : phoneAddress() ? `✓ The QR code opens ${phoneAddress()}/queue/checkin${typed ? "" : " (automatic)"}` : "";
+      : phoneAddress() ? `✓ The QR code opens ${phoneAddress()}/checkin${typed ? "" : " (automatic)"}` : "";
   }
   /** The kiosk's address for the tablet: the QR code address, or the server's Wi-Fi address. */
   function renderKioskLink() {
