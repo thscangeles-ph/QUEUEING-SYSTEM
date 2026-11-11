@@ -9,5 +9,5 @@ export async function GET() {
   const now = Date.now();
   const backend = getBackend();
   const state = backend ? ensureDay((await backend.load()).state, now) : emptyState(now);
-  return new Response(ticketPage(state), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+  return new Response(ticketPage(state), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, max-age=0" } });
 }

@@ -21,7 +21,8 @@ function QrCode({ value }: { value: string }) {
 }
 
 const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
-const CHECKIN_PATH = "/queue/checkin";
+// Short, so the QR code has bigger squares; /queue/checkin still works.
+const CHECKIN_PATH = "/checkin";
 
 export function CheckInPoster() {
   const [url, setUrl] = useState("");

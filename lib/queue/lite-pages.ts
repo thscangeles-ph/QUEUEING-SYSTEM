@@ -120,7 +120,7 @@ var saved = readTicket();
 if (saved && saved.day === DAY && saved.id) {
   getJson("/api/ticket?id=" + encodeURIComponent(saved.id), { cache: "no-store" }).then(function (x) {
     if (x.body && x.body.found && x.body.status !== "completed") {
-      $("mine-n").textContent = x.body.label; $("mine").href = "/queue/ticket?id=" + encodeURIComponent(saved.id);
+      $("mine-n").textContent = x.body.label; $("mine").href = "/ticket?id=" + encodeURIComponent(saved.id);
       $("mine").classList.remove("hidden"); $("forms").classList.add("hidden");
       $("lead").textContent = "Please wait in the lobby and watch the TV for your number.";
     }
@@ -145,7 +145,7 @@ function send(action, err, btn, busyText) {
   var label = btn.textContent; btn.disabled = true; btn.textContent = busyText;
   getJson("/api/queue", { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: action }) }).then(function (x) {
     var r = x.body && x.body.result;
-    if (r && r.ok) { saveTicket(r.visitId, (x.body.state && x.body.state.day) || DAY); location.href = "/queue/ticket?id=" + encodeURIComponent(r.visitId); return; }
+    if (r && r.ok) { saveTicket(r.visitId, (x.body.state && x.body.state.day) || DAY); location.href = "/ticket?id=" + encodeURIComponent(r.visitId); return; }
     btn.disabled = false; btn.textContent = label; err.textContent = (r && r.error) || (x.body && x.body.error) || "Something went wrong. Please try again.";
   }, function () { btn.disabled = false; btn.textContent = label; err.textContent = "No connection to the clinic. Make sure you are on the clinic Wi-Fi, then try again."; });
 }
@@ -171,7 +171,7 @@ document.addEventListener("input", function () { $("n-err").textContent = ""; $(
   return shell("Check-in", clinic, body, script);
 }
 
-/** The patient's queue number page: live status every 3 seconds, and the phone rings when their number is called. */
+/** The patient's queue number page (/ticket, also /queue/ticket): live status every 3 seconds, and the phone rings when their number is called. */
 export function ticketPage(state: QueueState): string {
   const clinic = clinicNameOf(state.settings);
   const body = `<div id="view"><p style="padding:60px 0;text-align:center;color:#756b59">Loading…</p></div>
@@ -228,7 +228,7 @@ function acknowledge() { if (!last || !last.callKey) return; acked = last.callKe
 function render(t) {
   last = t;
   var view = $("view");
-  if (!t.found) { view.innerHTML = '<h1>Queue number not found</h1><p class="lead">It may be from a previous day. Please ask the front desk for help.</p><p><a href="/queue/checkin" style="color:#8b6512;font-weight:600">Go to check-in</a></p>'; $("sound").innerHTML = ""; stopRinging(); return; }
+  if (!t.found) { view.innerHTML = '<h1>Queue number not found</h1><p class="lead">It may be from a previous day. Please ask the front desk for help.</p><p><a href="/checkin" style="color:#8b6512;font-weight:600">Go to check-in</a></p>'; $("sound").innerHTML = ""; stopRinging(); return; }
   var ringing = Boolean(t.callKey) && acked !== t.callKey;
   var text = escHtml(t.text).replace("{place}", t.place ? '<span class="place">' + escHtml(t.place) + "</span>" : "");
   var html = '<section class="num"><small>Your queue number</small><b>' + escHtml(t.label) + "</b><span>Keep this number for every service today.</span></section>"
