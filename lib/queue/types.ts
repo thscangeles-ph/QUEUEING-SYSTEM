@@ -177,9 +177,10 @@ export type Settings = {
  * nextWidth: Next in line's share of the screen width in % (25–60; missing = standard). side: which side Next in line is on.
  * numberSize: the size of the Next in line queue numbers in % (60–200; missing = 100). They still get smaller when they do not fit.
  * maxNumbers: numbers shown per station before "+ N more" (0 = all). nowServing: show the Now serving boxes.
- * afterCall: what the big box shows once a call is callHold seconds old: "serving" (Now serving, the default), "welcome", or "calling" (stays Now calling).
+ * afterCall: what the big box shows once a call is callHold seconds old (missing = 60): "serving" (Now serving, the default), "welcome", or "calling" (stays Now calling).
+ * servingHold: seconds Now serving stays before Welcome (missing = until the patient is done).
  */
-export type TvLayout = { nextWidth?: number; side?: "right" | "left"; numberSize?: number; maxNumbers?: number; nowServing?: boolean; afterCall?: "serving" | "welcome" | "calling"; callHold?: number };
+export type TvLayout = { nextWidth?: number; side?: "right" | "left"; numberSize?: number; maxNumbers?: number; nowServing?: boolean; afterCall?: "serving" | "welcome" | "calling"; callHold?: number; servingHold?: number };
 
 /** security: "WPA" (WPA/WPA2/WPA3), "WEP" or "nopass" (open network). The password is printed on the poster, so it is not a secret. */
 /** showPassword: print the password under the QR code too (missing means yes); the QR code always holds it. */

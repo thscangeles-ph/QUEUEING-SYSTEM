@@ -445,7 +445,9 @@ export function tvLayoutOf(input: unknown): TvLayout {
   if (raw.nowServing === false) out.nowServing = false;
   if (raw.afterCall === "welcome" || raw.afterCall === "calling") out.afterCall = raw.afterCall;
   const hold = Math.round(Number(raw.callHold));
-  if ([30, 120].includes(hold)) out.callHold = hold;
+  if ([15, 30, 45, 90, 120, 180, 300].includes(hold)) out.callHold = hold;
+  const serving = Math.round(Number(raw.servingHold));
+  if ([60, 120, 300, 600, 900].includes(serving)) out.servingHold = serving;
   return out;
 }
 
