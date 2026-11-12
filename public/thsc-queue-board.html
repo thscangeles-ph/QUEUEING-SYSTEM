@@ -1626,6 +1626,25 @@ function run(state, action, now) {
             state.tv = { seenAt: now, sound: Boolean(action.sound) };
             return { ok: true };
         }
+        case "backToLine": {
+            // Undoes a service finished by mistake: the patient waits again at this station, in their old place, not called.
+            const station = findStation(state, action.station);
+            if (!station)
+                return fail("Unknown station.");
+            const visit = findVisit(action.visitId);
+            const index = visit ? visit.steps.map((step) => step.station === station.code && step.status === "done").lastIndexOf(true) : -1;
+            if (!visit || visit.cancelled || index < 0)
+                return fail(`That patient has not been served at ${station.name} today.`);
+            const open = currentStep(visit);
+            if (open?.status === "called")
+                return fail(`${ticketLabel(visit, open.station)} is being served at ${findStation(state, open.station)?.name ?? open.station} right now.`);
+            if (visit.steps.slice(index + 1).some((step) => step.status === "done"))
+                return fail("That patient was already served at the next station. Use Call again instead.");
+            const step = visit.steps[index];
+            Object.assign(step, { status: "waiting", calledAt: null, doneAt: null });
+            visit.steps.slice(index + 1).forEach((later) => { later.status = "pending"; later.queuedAt = null; });
+            return { ok: true, visitId: visit.id, label: ticketLabel(visit, station.code) };
+        }
         case "callBack": {
             // Calls a patient this station already served back to it (e.g. the doctor needs them again).
             const station = findStation(state, action.station);
@@ -1898,7 +1917,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-11.4";
+const BOARD_VERSION = "2026-11-12.1";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -4703,8 +4722,8 @@ function downloadQueueReport(xlsx, state, now) {
             <div class="panel-b">${n ? `<ol class="wlist">${waiting.map(({ v, code }, i) => `<li data-id="${v.id}"><span class="pos">${i + 1}</span><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)}${v.age !== null && v.age !== undefined ? ` · ${v.age} y` : ""}${groupTag(v) ? ` ${groupTag(v)}` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span><button class="btn sm outline" data-act="callOne" data-station="${esc(code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
           </section>
           ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map(({ v, code }) => `<li class="missed"><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
-          <section class="panel"><div class="panel-h"><div><h2>Served here today</h2><p>Call again brings the patient back to the same test.</p></div><span class="count">${served.length}</span></div>
-            <div class="panel-b">${served.length ? `<ul class="wlist served">${served.map(({ v, code }) => { const busy = currentStep(v)?.status === "called"; return `<li><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)} · done ${formatTime(doneAt(v))}${currentStep(v) ? ` · ${currentStep(v).status === "called" ? "being served at" : "waiting for"} ${esc(nameOf(currentStep(v).station))}` : " · Visit complete"}</span></div>${servedFinish(v)}<button class="btn sm outline" data-act="callBack" data-station="${esc(code)}" data-id="${v.id}" ${busy ? `disabled title="Being served at another station right now"` : ""}>📢 Call again</button></li>`; }).join("")}</ul>` : `<p class="empty">No one served here yet today.</p>`}</div>
+          <section class="panel"><div class="panel-h"><div><h2>Served here today</h2><p>📢 Call again calls the patient back to the same test; ↩ Back to line puts a patient completed by mistake back in the waiting line.</p></div><span class="count">${served.length}</span></div>
+            <div class="panel-b">${served.length ? `<ul class="wlist served">${served.map(({ v, code }) => { const busy = currentStep(v)?.status === "called"; return `<li><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, code))}</b><span>${esc(v.name)} ${testTag(code)} · done ${formatTime(doneAt(v))}${currentStep(v) ? ` · ${currentStep(v).status === "called" ? "being served at" : "waiting for"} ${esc(nameOf(currentStep(v).station))}` : " · Visit complete"}</span></div>${servedFinish(v)}<button class="btn sm ghost" data-act="backToLine" data-station="${esc(code)}" data-id="${v.id}" title="Called or completed by mistake: back to the waiting line in their old place, not called" ${busy ? "disabled" : ""}>↩ Back to line</button><button class="btn sm outline" data-act="callBack" data-station="${esc(code)}" data-id="${v.id}" ${busy ? `disabled title="Being served at another station right now"` : ""}>📢 Call again</button></li>`; }).join("")}</ul>` : `<p class="empty">No one served here yet today.</p>`}</div>
           </section>
         </div>
       </div>`;
@@ -4788,8 +4807,8 @@ function downloadQueueReport(xlsx, state, now) {
             <div class="panel-b">${consult && waiting.length > 1 ? togetherBar(station, false) : ""}${waiting.length ? `<ol class="wlist"${reorder ? ` data-drag-list="line" data-station="${esc(station.code)}"` : ""}>${waiting.map((v, i) => `<li data-id="${v.id}">${reorder && waiting.length > 1 ? `<button type="button" class="drag-handle" data-id="${v.id}" title="Drag up or down (or use the ↑ ↓ keys)" aria-label="Move ${esc(ticketLabel(v, station.code))}, place ${i + 1} of ${waiting.length}. Use the up and down arrow keys.">⠿</button>` : ""}${consult && waiting.length > 1 ? togetherBox(station, v) : ""}<span class="pos">${i + 1}</span><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}${v.age !== null && v.age !== undefined ? ` · ${v.age} y` : ""}${groupTag(v) ? ` ${groupTag(v)}` : ""}${station.service === "cashier" && payItems(state, v).length ? ` <span class="tag pay">💳 ${payItems(state, v).map(esc).join(", ")}</span>` : ""}${station.service === "cashier" && payNotes(state, v).length ? ` <span class="tag prio" title="${esc(payNotes(state, v).map((n) => `${n.station}: ${n.note}`).join(" | "))}">📝 Doctor's note</span>` : ""}${v.newPatient ? ` <span class="tag new">New</span>` : ""}</span></div><span class="t">${formatWait(minutesSince(currentStep(v)?.queuedAt ?? null, now))}</span>${vitalsCell(v)}<button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call</button></li>`).join("")}</ol>` : `<p class="empty">The line is empty.</p>`}</div>
           </section>
           ${missed.length ? `<section class="panel"><div class="panel-h"><div><h2>Missed calls</h2><p>Patients who did not respond. Call again or return them to the line.</p></div></div><div class="panel-b"><ul class="wlist">${missed.map((v) => `<li class="missed"><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)}</span></div><button class="btn sm outline" data-act="callOne" data-station="${esc(station.code)}" data-id="${v.id}">Call again</button><button class="btn sm ghost" data-act="requeue" data-id="${v.id}">Back to line</button></li>`).join("")}</ul></div></section>` : ""}
-          <section class="panel"><div class="panel-h"><div><h2>Served here today</h2><p>Queue numbers stay here. Call again brings the patient back to ${esc(station.name)}.</p></div><span class="count">${served.length}</span></div>
-            <div class="panel-b">${served.length ? `<ul class="wlist served">${served.map((v) => { const busy = currentStep(v)?.status === "called"; return `<li><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)} · done ${formatTime(lastDoneHere(v))} · ${whereNow(v)}</span></div>${servedFinish(v)}<button class="btn sm outline" data-act="callBack" data-station="${esc(station.code)}" data-id="${v.id}" ${busy ? `disabled title="Being served at another station right now"` : ""}>📢 Call again</button></li>`; }).join("")}</ul>` : `<p class="empty">No one served here yet today.</p>`}</div>
+          <section class="panel"><div class="panel-h"><div><h2>Served here today</h2><p>Queue numbers stay here. 📢 Call again calls the patient back to ${esc(station.name)}; ↩ Back to line puts a patient called or completed by mistake back in the waiting line.</p></div><span class="count">${served.length}</span></div>
+            <div class="panel-b">${served.length ? `<ul class="wlist served">${served.map((v) => { const busy = currentStep(v)?.status === "called"; return `<li><div class="who"><b class="mono${v.priority ? " prio" : ""}">${esc(ticketLabel(v, station.code))}</b><span>${esc(v.name)} · done ${formatTime(lastDoneHere(v))} · ${whereNow(v)}</span></div>${servedFinish(v)}<button class="btn sm ghost" data-act="backToLine" data-station="${esc(station.code)}" data-id="${v.id}" title="Called or completed by mistake: back to the waiting line in their old place, not called" ${busy ? "disabled" : ""}>↩ Back to line</button><button class="btn sm outline" data-act="callBack" data-station="${esc(station.code)}" data-id="${v.id}" ${busy ? `disabled title="Being served at another station right now"` : ""}>📢 Call again</button></li>`; }).join("")}</ul>` : `<p class="empty">No one served here yet today.</p>`}</div>
           </section>
         </div>
       </div>`;
@@ -6069,6 +6088,7 @@ function downloadQueueReport(xlsx, state, now) {
         break;
       }
       case "vitalsUndo": dispatch({ type: "vitalsDone", station, visitId: id, done: false }); break;
+      case "backToLine": dispatch({ type: "backToLine", station, visitId: id }, (r) => `${r.label} is back in the waiting line (not called).`); break;
       case "callBack": dispatch({ type: "callBack", station, visitId: id }, (r) => `${r.label} called back — shown on the TV.`).then(warnIfSilent); break;
       case "recall": dispatch({ type: "recall", visitId: id }).then(warnIfSilent); break;
       case "miss": dispatch({ type: "miss", visitId: id }); break;

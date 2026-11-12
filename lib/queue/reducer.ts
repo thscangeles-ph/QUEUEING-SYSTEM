@@ -894,6 +894,22 @@ function run(state: QueueState, action: QueueAction, now: number, options: Actio
       announce(state, { at: now, kind: "ticket", label, station: station.code });
       return { ok: true, visitId: visit.id, label };
     }
+    case "backToLine": {
+      // Undoes a service finished by mistake (e.g. the wrong number was called and completed): the patient waits again
+      // at this station, in their old place, without being called; their next service waits until then.
+      const station = findStation(state, action.station);
+      if (!station) return fail("Unknown station.");
+      const visit = findVisit(action.visitId);
+      const index = visit ? visit.steps.map((step) => step.station === station.code && step.status === "done").lastIndexOf(true) : -1;
+      if (!visit || visit.cancelled || index < 0) return fail(`That patient has not been served at ${station.name} today.`);
+      const open = currentStep(visit);
+      if (open?.status === "called") return fail(`${ticketLabel(visit, open.station)} is being served at ${findStation(state, open.station)?.name ?? open.station} right now.`);
+      if (visit.steps.slice(index + 1).some((step) => step.status === "done")) return fail("That patient was already served at the next station. Use Call again instead.");
+      const step = visit.steps[index];
+      Object.assign(step, { status: "waiting", calledAt: null, doneAt: null });
+      visit.steps.slice(index + 1).forEach((later) => { later.status = "pending"; later.queuedAt = null; });
+      return { ok: true, visitId: visit.id, label: ticketLabel(visit, station.code) };
+    }
     case "miss": {
       const visit = findVisit(action.visitId);
       const step = visit && currentStep(visit);
