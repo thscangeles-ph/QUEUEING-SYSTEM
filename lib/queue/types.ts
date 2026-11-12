@@ -293,6 +293,7 @@ export type QueueAction =
   | { type: "complete"; visitId: string; sendTo?: string; billing?: Billing }
   | { type: "miss"; visitId: string }
   | { type: "callBack"; station: string; visitId: string }
+  | { type: "backToLine"; station: string; visitId: string }
   | { type: "tvStatus"; sound: boolean }
   | { type: "requeue"; visitId: string }
   /** Replaces the services still to come; finished services and the one being served now stay as they are. */
