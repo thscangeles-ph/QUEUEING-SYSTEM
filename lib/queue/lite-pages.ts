@@ -49,6 +49,9 @@ label.prio input{width:22px;height:22px;flex:none;accent-color:#d8a321}label.pri
 .msg.expected{background:#dff1ef;color:#1d5a56}.msg.done{background:#edf5e8;color:#41612c}
 .place{display:inline-block;margin-left:4px;border-radius:6px;background:#2f281c;color:#f0c864;padding:1px 8px;font-weight:700}
 .ok{margin-top:12px;width:100%;height:48px;border:0;border-radius:12px;background:#2f281c;color:#f0c864;font:inherit;font-weight:700}
+.lab{margin-top:12px;border:1px solid #b9d7e4;border-radius:18px;background:#eef6fa;padding:16px;color:#123f52}
+.lab .k{margin:0;font-size:14px;font-weight:700}.lab .v{margin:2px 0 0;font-size:24px;font-weight:800}.lab .w{margin:0;font-size:15px;font-weight:600}
+.lab .n{margin:10px 0 0;padding-top:10px;border-top:1px dashed #b9d7e4;font-size:13px;line-height:1.45}
 .card{margin-top:12px;border:1px solid #e2d7c2;border-radius:18px;background:#fff;padding:16px}
 .card .k{margin:0;color:#756b59;font-size:14px;font-weight:600}.card .v{margin:2px 0 0;font-size:24px;font-weight:800}.card .n{margin:4px 0 0;color:#857967;font-size:12px}
 .snd{margin-top:12px;display:flex;gap:12px;width:100%;border:2px dashed #c9962b;border-radius:18px;background:#fff;padding:14px;text-align:left;font:inherit;color:#2f281c}
@@ -237,6 +240,7 @@ function render(t) {
   var html = '<section class="num"><small>Your queue number</small><b>' + escHtml(t.label) + "</b><span>Keep this number for every service today.</span></section>"
     + '<div class="msg ' + t.tone + '" role="status" aria-live="polite"><p class="t">' + (t.tone === "turn" ? "🔔 " : "") + escHtml(t.title) + '</p><p class="x">' + text + "</p>"
     + (ringing ? '<button type="button" class="ok" id="ok">✓ OK, I\\'m on my way</button>' : "") + "</div>";
+  if (t.labResults) html += '<div class="lab"><p class="k">🧪 ' + escHtml(t.labResults.place) + ' results</p><p class="v">Ready in about ' + t.labResults.hours + ' hours</p><p class="w">Around ' + escHtml(t.labResults.readyAt) + ' today</p><p class="n"><b>Except send-out tests:</b> those are processed outside the clinic and take longer. The laboratory will tell you when they are ready.</p></div>';
   if (t.wait) html += '<div class="card"><p class="k">Estimated waiting time</p><p class="v">' + escHtml(t.wait) + '</p><p class="n">' + escHtml(t.waitNote) + "</p></div>";
   if (t.steps.length) html += "<ol>" + t.steps.map(function (s, i) { return '<li class="' + s.state + '"><i>' + (s.state === "done" ? "✓" : i + 1) + "</i><span>" + escHtml(s.name) + "</span><code>" + escHtml(s.code) + "</code></li>"; }).join("") + "</ol>";
   if (!t.verified) html += '<p class="lead" style="margin-top:18px;font-size:14px">Please drop by the front desk once so staff can confirm your check-in.</p>';

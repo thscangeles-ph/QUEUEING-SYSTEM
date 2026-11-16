@@ -1,9 +1,12 @@
-import { estimatedWait, formatEstimate, patientsAhead, setWaitMinutes, visitStatus } from "./format";
+import { estimatedWait, formatEstimate, formatTime, patientsAhead, setWaitMinutes, visitStatus } from "./format";
 import { arrivalLabel, clinicNameOf, currentStep, findStation, vitalsPlaceOf, waitingToRegister } from "./reducer";
 import type { QueueState } from "./types";
 
 // What a patient's phone shows for their queue number (the light ticket page, /queue/ticket). Worked out on the
 // server, so the phone downloads only this small summary: no names, no other patients.
+
+/** Laboratory results are ready about this many hours after the patient is called at the laboratory (send-out tests take longer). */
+export const LAB_RESULT_HOURS = 3;
 
 export type TicketTone = "turn" | "waiting" | "missed" | "expected" | "done";
 export type TicketView =
@@ -25,6 +28,8 @@ export type TicketView =
       verified: boolean;
       /** Changes with every call and "Call again", so the phone rings each time; null while not called. */
       callKey: string | null;
+      /** Shown once the patient is called at the laboratory: when the results are ready. */
+      labResults: { place: string; hours: number; readyAt: string } | null;
     };
 
 export function ticketView(state: QueueState, id: string, now: number): TicketView {
@@ -56,6 +61,10 @@ export function ticketView(state: QueueState, id: string, now: number): TicketVi
     ? { title: "It's your turn!", text: "Please proceed to {place}", place: desk, tone: "turn" }
     : { title: aheadTitle, text: `Please wait in the lobby. The ${desk} will call your number to register you. Watch the lobby TV.`, place: null, tone: "waiting" };
   else message = { title: aheadTitle, text: `Waiting for ${station?.name ?? "your service"}. Watch the lobby TV for your number.`, place: null, tone: "waiting" };
+  const labStep = visit.steps.find((item) => item.calledAt && findStation(state, item.station)?.service === "laboratory");
+  const labResults = labStep?.calledAt
+    ? { place: findStation(state, labStep.station)?.name ?? "Laboratory", hours: LAB_RESULT_HOURS, readyAt: formatTime(labStep.calledAt + LAB_RESULT_HOURS * 3600000) }
+    : null;
   const minutes = estimatedWait(state, visit, now);
   const set = step ? setWaitMinutes(state, step.station) : null;
   return {
@@ -70,5 +79,6 @@ export function ticketView(state: QueueState, id: string, now: number): TicketVi
     steps: visit.steps.map((item) => ({ name: findStation(state, item.station)?.name ?? item.station, code: item.station, state: item.status === "done" ? "done" : item === step ? "current" : "next" })),
     verified: visit.verified !== false,
     callKey,
+    labResults,
   };
 }
