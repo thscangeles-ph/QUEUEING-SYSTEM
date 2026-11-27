@@ -347,7 +347,8 @@ body.tv { background: #1f1a12; color: #fff; overflow: hidden; }
 .nl .h { display: flex; justify-content: space-between; color: #cbbd9d; font-size: 1.1vw; }
 .nl .l { display: flex; flex-wrap: wrap; gap: .5vw; margin-top: .6vh; align-items: center; }
 /* Next in line: every number waiting, the next one outlined; two columns when they do not fit in one. */
-#next { flex: 1; }
+/* Room for the gold ring around the first number: #next clips its overflow (the fit check), which cut the ring on the left. */
+#next { flex: 1; padding: 0 .4vw .4vw; }
 #next.two-col { column-count: 2; column-gap: 1.6vw; } #next.two-col .nl-group { break-inside: avoid; margin: 0 0 1.4vh; } #next.two-col .nl { break-inside: avoid; }
 .nl.all { padding: .6vh 0; } .nl.all .h { margin: 0; align-items: baseline; color: #f4e8c7; font-size: 1.2vw; } .nl.all .h small { color: #8c7f66; font-size: 1vw; white-space: nowrap; margin-left: .6vw; }
 .nl.all .l { gap: .4vw; margin-top: .4vh; } .nl.all .l b { font-size: calc(1.6vw * var(--nl-n, 1)); padding: .1vh .55vw; color: #fff; } #next.two-col .nl.all .l b { font-size: calc(1.4vw * var(--nl-n, 1)); }
@@ -1917,7 +1918,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-16.1";
+const BOARD_VERSION = "2026-11-27.1";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
