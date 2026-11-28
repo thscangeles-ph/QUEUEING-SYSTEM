@@ -144,6 +144,24 @@ a.btn { text-decoration: none; }
 @media (max-width: 1280px) { .desk-tabs { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); } }
 .nurse-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .nurse-grid { grid-template-columns: 1fr; } }
+/* New patient pop-up: cards at the right edge of a station screen when a patient joins its line. */
+.np-stack { position: fixed; right: 16px; bottom: 16px; z-index: 70; display: flex; flex-direction: column-reverse; gap: 8px; width: min(300px, calc(100vw - 32px)); pointer-events: none; }
+.np-card { pointer-events: auto; position: relative; overflow: hidden; background: #fff; border: 1px solid var(--line); border-left: 6px solid #2f6b3a; border-radius: 12px; padding: 9px 12px 11px; box-shadow: 0 14px 34px rgba(47,40,28,.22); animation: np-in .35s ease-out; }
+.np-card.prio { border-left-color: #f5b301; } .np-card.hmo { border-left-color: #5b3f8c; }
+.np-card .np-h { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; font-weight: 700; color: #2f6b3a; text-transform: uppercase; letter-spacing: .06em; } .np-card.prio .np-h { color: #9a6a00; } .np-card.hmo .np-h { color: #5b3f8c; }
+.np-card .np-h small { margin-left: auto; color: var(--muted); font-weight: 600; text-transform: none; letter-spacing: 0; white-space: nowrap; }
+.np-card .np-x { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 15px; cursor: pointer; } .np-card .np-x:hover { background: #f4efe4; }
+.np-card .np-h { padding-right: 24px; }
+.np-card .np-num { margin: 2px 0 0; font-size: 24px; font-weight: 800; line-height: 1.1; color: #2f281c; }
+.np-card .np-who { margin: 1px 0 0; font-size: 14px; font-weight: 600; } .np-card .np-who .tag { font-size: 11px; vertical-align: 1px; margin-left: 4px; } .np-card .np-meta { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.np-card .np-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.np-card .np-btns { display: flex; gap: 6px; margin-top: 8px; } .np-card .np-btns .btn { flex: 1; justify-content: center; }
+.np-card .np-bar { position: absolute; left: 0; bottom: 0; height: 3px; background: #2f6b3a; opacity: .35; animation: np-bar linear forwards; } .np-card:hover .np-bar { animation-play-state: paused; }
+.np-card.prio .np-bar { background: #f5b301; } .np-card.hmo .np-bar { background: #5b3f8c; }
+.np-more { pointer-events: auto; align-self: flex-end; border: 0; border-radius: 999px; padding: 5px 12px; background: #2f281c; color: #f0c864; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+@keyframes np-in { from { transform: translateX(110%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes np-bar { from { width: 100%; } to { width: 0; } }
+.np-ctl { display: inline-flex; align-items: center; gap: 5px; margin-left: 10px; font-weight: 600; color: var(--muted); cursor: pointer; }
 .tone-ctl { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; align-self: center; font-size: 13px; white-space: nowrap; } .tone-ctl label { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--muted); } .tone-ctl select { padding: 4px 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--card, #fff); font: inherit; }
 .together-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 8px; } .together-bar .hint { font-size: 12px; color: var(--muted); }
 .together-box { width: 18px; height: 18px; accent-color: var(--primary, #8b6512); flex: none; cursor: pointer; }
@@ -1918,7 +1936,7 @@ function announcementSpeech(item, language = "en") {
 const announcementGap = (language = "en") => (language === "en+fil" ? 11000 : 6000);
 
 /** The Queue Board's version, shown in System configuration, to check that an update reached this computer. */
-const BOARD_VERSION = "2026-11-27.1";
+const BOARD_VERSION = "2026-11-28.1";
 
 // ---- from lib/queue/sms.ts ----
 const SMS_TEXTS = {
@@ -3161,15 +3179,85 @@ function downloadQueueReport(xlsx, state, now) {
     });
   }
   /** The station's tone choice: Off or one of the tones, with ▶ to hear it (kept on this computer). */
-  const toneControl = (code) => `<span class="tone-ctl" title="A sound on this computer when a new patient joins this line"><label>🔔 New patient sound <select data-tone="${esc(code)}" aria-label="Sound for a new patient">${`<option value="off"${toneOf(code) === "off" ? " selected" : ""}>Off</option>`}${Object.entries(STATION_TONES).map(([id, t]) => `<option value="${id}"${toneOf(code) === id ? " selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label><button type="button" class="btn sm ghost" data-act="toneTest" data-tone-of="${esc(code)}" title="Hear it">▶</button></span>`;
+  const toneControl = (code) => `<span class="tone-ctl" title="A sound on this computer when a new patient joins this line"><label>🔔 New patient sound <select data-tone="${esc(code)}" aria-label="Sound for a new patient">${`<option value="off"${toneOf(code) === "off" ? " selected" : ""}>Off</option>`}${Object.entries(STATION_TONES).map(([id, t]) => `<option value="${id}"${toneOf(code) === id ? " selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label><button type="button" class="btn sm ghost" data-act="toneTest" data-tone-of="${esc(code)}" title="Hear it">▶</button><label class="np-ctl" title="A pop-up at the right edge of this screen when a new patient joins this line (kept on this computer)"><input type="checkbox" data-popup="${esc(code)}"${popupOn(code) ? " checked" : ""}> 🪧 Pop-up</label></span>`;
   // The patients already seen waiting at each station screen, to sound the tone only for new ones.
   const stationSeen = {};
   function toneForNewPatients(code, waitingIds) {
     const before = stationSeen[code];
     stationSeen[code] = new Set(waitingIds);
-    if (before && waitingIds.some((id) => !before.has(id)) && toneOf(code) !== "off") playTone(toneOf(code));
+    const fresh = before ? waitingIds.filter((id) => !before.has(id)) : [];
+    if (fresh.length && toneOf(code) !== "off") playTone(toneOf(code));
+    newPatientPopups(code, waitingIds, fresh);
   }
+
+  // ---- 🪧 New patient pop-up: a card at the right edge of the station screen for each patient who joins its line,
+  // with Call now. It goes away by itself after a while, when the patient is called, or with ✕. Each station turns
+  // it on or off on its own computer (on by default). The browser tab title blinks while the page is in the background.
+  const popupKey = (code) => `thsc-queue-popup-${code}`;
+  const popupOn = (code) => readSetting(popupKey(code)) !== "off";
+  const POPUP_MS = 25000;
+  const POPUP_SHOWN = 3;
+  let popups = []; // { id, code, at }
+  let popupTimer = null;
+  let titleBlink = null;
+  const baseTitle = document.title;
+  function newPatientPopups(code, waitingIds, fresh) {
+    const waitingNow = new Set(waitingIds);
+    // Called, sent elsewhere or cancelled: its card goes.
+    popups = popups.filter((p) => p.code !== code || waitingNow.has(p.id));
+    if (popupOn(code)) {
+      const at = Date.now();
+      for (const id of fresh) if (!popups.some((p) => p.id === id)) popups.unshift({ id, code, at });
+      if (fresh.length && document.hidden) blinkTitle(fresh.length);
+    }
+    renderPopups();
+  }
+  function blinkTitle(count) {
+    clearInterval(titleBlink);
+    let on = false;
+    titleBlink = setInterval(() => { on = !on; document.title = on ? `🔔 (${count}) New patient` : baseTitle; }, 1000);
+  }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && titleBlink) { clearInterval(titleBlink); titleBlink = null; document.title = baseTitle; } });
+  function renderPopups() {
+    let stack = $("#np-stack");
+    const now = Date.now();
+    popups = popups.filter((p) => now - p.at < POPUP_MS && (view === "station"));
+    if (!stack) { stack = document.createElement("div"); stack.id = "np-stack"; stack.className = "np-stack"; stack.setAttribute("aria-live", "polite"); document.body.appendChild(stack); }
+    const shown = popups.slice(0, POPUP_SHOWN);
+    // Cards already on screen stay as they are (no restart of the slide-in or the timer bar).
+    const html = shown.map((p) => {
+      const v = state.visits.find((x) => x.id === p.id);
+      const step = v && currentStep(v);
+      if (!v || !step) return "";
+      const station = state.settings.stations.find((s) => s.code === step.station);
+      const before = v.steps[v.steps.indexOf(step) - 1];
+      const from = before ? `From ${esc(state.settings.stations.find((s) => s.code === before.station)?.name ?? before.station)}` : "From the front desk";
+      const line = waitingFor(state, step.station);
+      const place = line.findIndex((x) => x.id === v.id) + 1;
+      const kind = v.priority ? "prio" : v.kind === "H" ? "hmo" : "";
+      const tags = [v.priority ? '<span class="tag prio">Priority lane</span>' : "", groupTag(v), v.newPatient ? '<span class="tag new">New patient</span>' : ""].filter(Boolean).join("");
+      const left = Math.max(0, POPUP_MS - (now - p.at));
+      return `<div class="np-card ${kind}" data-np="${v.id}" role="status">
+        <button type="button" class="np-x" data-act="popupClose" data-id="${v.id}" aria-label="Close">✕</button>
+        <p class="np-h" title="${esc(station?.name ?? step.station)}">🔔 New patient · ${esc(step.station)}<small>${formatTime(p.at)}</small></p>
+        <p class="np-num mono">${esc(ticketLabel(v, step.station))}</p>
+        <p class="np-who">${esc(v.name || "No name yet")}${tags}</p>
+        <p class="np-meta">${from}${place ? ` · ${place === 1 ? "next in line" : `${place}${place === 2 ? "nd" : place === 3 ? "rd" : "th"} in line`}` : ""}</p>
+        <div class="np-btns"><button type="button" class="btn sm gold" data-act="popupCall" data-station="${esc(step.station)}" data-id="${v.id}">📢 Call now</button><button type="button" class="btn sm outline" data-act="popupClose" data-id="${v.id}">OK</button></div>
+        <span class="np-bar" style="animation-duration:${left}ms"></span>
+      </div>`;
+    }).join("");
+    const more = popups.length - shown.length;
+    const key = shown.map((p) => p.id).join(",") + "|" + more;
+    if (stack.dataset.key !== key) { stack.innerHTML = html + (more > 0 ? `<button type="button" class="np-more" data-act="popupClear">+${more} more new · Close all</button>` : ""); stack.dataset.key = key; }
+    clearTimeout(popupTimer);
+    if (popups.length) popupTimer = setTimeout(renderPopups, 1000);
+  }
+  // Hovering a card keeps it: its time starts again when the pointer leaves.
+  document.addEventListener("pointerover", (event) => { const card = event.target.closest?.(".np-card"); const p = card && popups.find((x) => x.id === card.dataset.np); if (p) p.at = Date.now() - 1000; });
   document.addEventListener("change", (event) => {
+    const popup = event.target.closest?.("[data-popup]");
+    if (popup) { writeSetting(popupKey(popup.dataset.popup), popup.checked ? "on" : "off"); if (!popup.checked) { popups = popups.filter((p) => p.code !== popup.dataset.popup); renderPopups(); } return; }
     const select = event.target.closest?.("[data-tone]");
     if (!select) return;
     writeSetting(toneKey(select.dataset.tone), select.value);
@@ -6056,6 +6144,15 @@ function downloadQueueReport(xlsx, state, now) {
         const unsent = servingAt(state, station).some((v) => (billingNote[v.id] ?? "").trim());
         if (unsent && !confirm("The doctor's note to the Cashier is not sent yet. Press Professional fee → Cashier (or a Complete button) first to send it.\n\nCall the next patient anyway?")) break;
         dispatch({ type: "call", station }).then(warnIfSilent);
+        break;
+      }
+      case "popupClose": popups = popups.filter((p) => p.id !== id); renderPopups(); break;
+      case "popupClear": popups = []; renderPopups(); break;
+      case "popupCall": {
+        popups = popups.filter((p) => p.id !== id); renderPopups();
+        const unsent = servingAt(state, station).some((v) => (billingNote[v.id] ?? "").trim());
+        if (unsent && !confirm("The doctor's note to the Cashier is not sent yet. Press Professional fee → Cashier (or a Complete button) first to send it.\n\nCall this patient anyway?")) break;
+        dispatch({ type: "call", station, visitId: id }).then(warnIfSilent);
         break;
       }
       case "callOne": {
