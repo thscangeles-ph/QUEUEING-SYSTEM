@@ -47,6 +47,9 @@ GOOD TO KNOW
 - Only one computer should be the server. To move it to another computer, see MOVE TO ANOTHER SERVER below.
 
 MOVE TO ANOTHER SERVER (or remove it)
+Easiest: plug a USB flash drive into the old server and double-click backup-data.cmd (it copies the queue
+data to the drive and keeps the server running). On the new server, run SETUP.cmd (same staff PIN), plug in
+the drive and double-click restore-data.cmd. To also remove the old server:
 1. On the old server, double-click uninstall-server.cmd. Answer Y to save a backup on the desktop, then type
    REMOVE. It stops the server, removes it from Windows startup, deletes the desktop icons and the firewall
    rule (click Yes when Windows asks), deletes the queue data and this folder.
